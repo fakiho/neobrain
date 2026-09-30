@@ -1108,17 +1108,17 @@ input.tslider::-moz-range-thumb { width: 14px; height: 14px; background: #c8cbe0
 .debug { position: absolute; inset: 60px 0 0 0; overflow: auto; padding: 26px 28px 120px; }
 .debug-head h1 { font-size: 22px; font-weight: 600; margin: 0 0 5px; letter-spacing: -0.3px; }
 .debug-head p { margin: 0 0 20px; font-size: 13px; max-width: 760px; }
-.debug-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; max-width: 1100px; }
-.debug-body { max-width: 1100px; display: grid; gap: 14px; }
+.debug-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+.debug-body { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
 .dbg-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px; }
 .dbg-stat { border: 1px solid var(--border); border-radius: 12px; padding: 12px 14px; background: rgba(255, 255, 255, 0.015); }
 .dbg-stat-v { font-size: 19px; font-weight: 600; font-family: var(--mono); }
 .dbg-stat-l { font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.8px; color: var(--text-muted); margin-top: 3px; }
 .dbg-card { border: 1px solid var(--border); border-radius: 14px; padding: 14px 16px; background: rgba(255, 255, 255, 0.015); }
 .dbg-card h5 { margin: 0 0 10px; font-size: 10.5px; letter-spacing: 1px; text-transform: uppercase; color: var(--text-muted); font-weight: 650; display: flex; align-items: center; gap: 8px; }
-.dbg-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.dbg-cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(420px, 1fr)); gap: 14px; }
 @media (max-width: 900px) { .dbg-cols { grid-template-columns: 1fr; } }
-.dbg-scroll { overflow: auto; max-height: 340px; }
+.dbg-scroll { overflow: auto; max-height: 380px; }
 .dbg-table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
 .dbg-table th { text-align: left; font-size: 10px; letter-spacing: 0.8px; text-transform: uppercase; color: var(--text-muted); font-weight: 600; padding: 3px 10px 6px 0; border-bottom: 1px solid var(--border); position: sticky; top: 0; background: var(--bg, #0d0f14); }
 .dbg-table td { padding: 4px 10px 4px 0; border-bottom: 1px solid rgba(255, 255, 255, 0.035); vertical-align: top; }

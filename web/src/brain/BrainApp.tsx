@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Menu, PanelLeft, Pause, Play, Radio, RotateCcw, Search, Check, Minus, X, ChevronDown, ChevronUp } from 'lucide-react'
+import { Menu, PanelLeft, Pause, Play, Radio, RotateCcw, Search, Check, Minus, X, ChevronDown, ChevronUp, Bug } from 'lucide-react'
 import type { BrainLink, BrainNode } from './types'
 import { BrainCanvas } from './BrainCanvas'
 import { DebugView } from './DebugView'
@@ -15,7 +15,6 @@ const TABS = [
   ['memory', 'Memory'],
   ['identity', 'Identity'],
   ['infra', 'Infra'],
-  ['debug', 'Debug'],
 ] as const
 
 const BRAND_MARK = (
@@ -487,6 +486,13 @@ export default function BrainApp() {
           <Radio size={14} /> {live ? 'Live' : 'Live off'}
         </button>
         <button className="obs-btn" onClick={replay}><RotateCcw size={14} /> Replay growth</button>
+        <button
+          className={'obs-btn' + (view === 'debug' ? ' primary' : '')}
+          onClick={() => setView(view === 'debug' ? 'brain' : 'debug')}
+          title="Debug — what the brain and the plugin actually did"
+        >
+          <Bug size={14} /> Debug
+        </button>
         <button className={'obs-iconbtn' + (leftOpen ? ' on' : '')} onClick={() => setLeftOpen((v) => !v)} title="Filters"><PanelLeft size={16} /></button>
         <span className="obs-pill"><b>{visibleCount}</b> / {nodes.length} nodes</span>
       </header>
