@@ -1,0 +1,17 @@
+# Runtime data — never track
+data/
+.env
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+*.egg-info/
+
+# Web build
+web/dist/
+web/node_modules/
+
+# PyInstaller
+build/
+*.spec.bak

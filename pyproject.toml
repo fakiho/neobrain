@@ -1,0 +1,30 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "neobrain"
+version = "0.1.0"
+description = "A simulated brain for AI agents: memory, rank-based forgetting, dreams and a self-authored soul."
+requires-python = ">=3.12"
+license = "MIT"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn>=0.30",
+    "pydantic>=2.7",
+    "python-dotenv>=1.0",
+]
+
+[project.scripts]
+neobrain = "neobrain.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/neobrain"]
+
+[tool.pyright]
+include = ["src"]
+typeCheckingMode = "standard"        # tightened to strict for new modules (rank/life/runtime)
+pythonVersion = "3.12"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
