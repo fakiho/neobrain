@@ -236,8 +236,11 @@ export default function BrainApp() {
   }, [live, realOps])
 
   const times = useMemo(() => nodes.map((n) => n.created).sort((a, b) => a - b), [nodes])
-  const minT = times[0]
-  const maxT = times[times.length - 1]
+  // Numeric sentinels, not undefined: the first render has no nodes yet, and an
+  // undefined maxT poisons the time-window effect below (prev < 0 never fires
+  // again, timeEnd becomes NaN and `created <= timeEnd` hides every node).
+  const minT = times.length ? times[0] : 0
+  const maxT = times.length ? times[times.length - 1] : 0
   const [timeEnd, setTimeEnd] = useState(maxT)
   timeEndRef.current = timeEnd
   maxTRef.current = maxT
