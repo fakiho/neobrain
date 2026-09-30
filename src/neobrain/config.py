@@ -83,6 +83,15 @@ class Settings(BaseSettings):
     life_reflect_interval_minutes: int = 30
     life_act_interval_minutes: int = 240
     life_dream_hour: int = 2         # local hour rest() may invoke the dream phases
+    life_enabled: str = "1"          # "0" disables the in-daemon life loop
+
+    # --- dreams / reflect (SPEC §4.4/4.5) ---
+    # Empty -> WORKSPACE/DREAMS.md when a workspace is set, else DATA_DIR/DREAMS.md.
+    dreams_file: str = ""
+    reflect_weekday: int = 6         # 0=Mon … 6=Sun (old system: Sunday 04:00)
+
+    # --- daemon bind (API + dashboard) ---
+    bind: str = "0.0.0.0:9192"
 
     # --- sources (workspace docs, repos, opencode session DB) ---
     # PORT-NOTE: the old KNOWN_REPOS was a hardcoded host-specific list; now a
