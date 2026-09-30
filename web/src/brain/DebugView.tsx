@@ -68,9 +68,7 @@ const laneTag = (r: Req) =>
     ? 'plugin'
     : r.path.startsWith('/api/mind/activity') || r.path.startsWith('/api/mind/graph')
       ? 'dashboard'
-      : r.path.startsWith('/api/debug')
-        ? 'debug'
-        : 'other'
+      : 'other'
 
 export function DebugView() {
   const [ov, setOv] = useState<Overview | null>(null)
