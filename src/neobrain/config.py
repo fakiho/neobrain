@@ -55,18 +55,24 @@ class Settings(BaseSettings):
     recall_alpha: float = 2.0
 
     # --- rank (deterministic; SPEC §4.2/4.3 — the model has no discretion) ---
-    rank_w_feedback: float = 1.0      # weight: model feedback quality term
-    rank_w_recency: float = 0.6      # weight: exp decay term
-    rank_w_connectivity: float = 0.4 # weight: hub/edge degree term
+    # quality = feedback * decay(recency) * conn(connectivity); see rank.py.
+    # Each factor is bounded in [floor, 1] so every one of them can push a
+    # memory under the forgetting threshold — including model feedback alone.
+    rank_decay_floor: float = 0.35   # recency decay never drops below this
+    rank_conn_floor: float = 0.5     # graph connectivity never drops below this
     rank_half_life_days: float = 21.0
     rank_prior_n: float = 10.0       # smoothing prior strength for feedback avg
     rank_ignore_below: float = 0.15  # quality under this = forgetting candidate
     rank_archive_exposure: int = 5   # exposure score over this + low quality -> archived
 
-    # --- LLM runtime (OpenAI-compatible; unused until S5, declared for completeness) ---
+    # --- LLM runtime (OpenAI-compatible) ---
     llm_base_url: str = "http://127.0.0.1:4000/v1"
     llm_api_key: str = ""
-    llm_model_cheap: str = "deepseek/deepseek-flash"
+    # PORT-NOTE (S5 review): the house LiteLLM gateway has no
+    # "deepseek/deepseek-flash" — the cheap tier is v4.1-flash (verified against
+    # /v1/models). Reasoning models spend a small max_tokens budget on hidden
+    # reasoning and return empty content, so give them a real budget.
+    llm_model_cheap: str = "deepseek/deepseek-v4.1-flash"
     llm_model_strong: str = "deepseek/deepseek-v4-pro"
 
     # --- life loop (SPEC §6: cadence in code+DB, not OS timers) ---

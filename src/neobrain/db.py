@@ -8,7 +8,7 @@ from typing import Any, Iterable, Optional
 
 from . import config
 from .models import Event, now_ms
-from .schema import SCHEMA, USER_VERSION
+from .schema import SCHEMA, migrate
 
 # PORT-NOTE: schema merged into neobrain/schema.py (single source of truth);
 # the old per-file schema.sql pointer is gone. DB filename is neobrain.db
@@ -29,10 +29,12 @@ def connect(db_path: Optional[Path] = None, readonly: bool = False) -> sqlite3.C
 
 
 def init_db(conn: sqlite3.Connection) -> None:
-    # PORT-NOTE: applied on init and stamps PRAGMA user_version = 1 — the new
-    # migration floor (the old repo had no migration framework).
+    # PORT-NOTE: S4 — the full schema is applied, then the additive migration
+    # runs (rank DDL + one m_rank row per existing atom + user_version=2), so a
+    # fresh store and a legacy v1 store converge on the same shape. The old
+    # direct `PRAGMA user_version = 1` stamp is now migrate()'s job.
     conn.executescript(SCHEMA)
-    conn.execute(f"PRAGMA user_version = {USER_VERSION}")
+    migrate(conn)
     conn.commit()
 
 

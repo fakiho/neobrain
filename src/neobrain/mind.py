@@ -14,10 +14,12 @@ from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
 
-from . import config, embeddings
+# PORT-NOTE: S4 — rank.py is the deterministic rank/forgetting engine; the
+# schema migration is needed so any mind op upgrades a legacy store lazily.
+from . import config, embeddings, rank
 from .heuristics import classify_heading
 from .models import content_hash, now_ms
-from .schema import SCHEMA
+from .schema import SCHEMA, migrate as _schema_migrate
 
 # PORT-NOTE: `sections` used to come from app.ingest.docs; ingest/ is not
 # ported in S1, so the function is inlined here verbatim (logic unchanged).
@@ -382,6 +384,15 @@ def _parse_identity(path: Path, atoms: dict, edges: set, hubs_seen: set) -> None
 
 def import_mind(conn: sqlite3.Connection) -> dict:
     conn.executescript(SCHEMA)
+    # PORT-NOTE: S4 — snapshot the rank store before the rebuild. The rebuild
+    # deletes and re-creates the doc-derived atoms, which cascades their m_rank
+    # rows; restoring the survivors' rows below keeps quality/counters/state
+    # (e.g. a forgotten atom) across ingest runs.
+    keep_rank = [
+        tuple(r) for r in conn.execute(
+            "SELECT atom_id, quality, served, interacted, last_served, state, state_since, updated "
+            "FROM m_rank")
+    ]
     # rebuild doc-derived atoms/edges; keep agent-remembered (id 'm_') and dream
     # (id 'd_') atoms — dreams live durably in the DB, the files are only the
     # transport and may be cleaned up as they grow
@@ -459,6 +470,17 @@ def import_mind(conn: sqlite3.Connection) -> dict:
         if s in atoms and (t in atoms or t in HUBS):
             cur.execute("INSERT OR IGNORE INTO m_edges(source,target,type) VALUES(?,?,?)", (s, t, k))
     conn.commit()
+    # PORT-NOTE: S4 — restore the rank rows for atoms that survived the rebuild
+    # (matching their old ids); atoms gone with the rebuild simply stay absent.
+    if keep_rank:
+        live = {r[0] for r in conn.execute("SELECT id FROM m_atoms")}
+        conn.executemany(
+            """INSERT OR IGNORE INTO m_rank
+                 (atom_id, quality, served, interacted, last_served, state, state_since, updated)
+               VALUES (?,?,?,?,?,?,?,?)""",
+            [r for r in keep_rank if r[0] in live],
+        )
+        conn.commit()
     _add_supersessions(conn)
 
     return {
@@ -587,6 +609,9 @@ LINK_TYPES = {"about", "supersedes", "caused-by", "derived-from", "consolidates"
 
 def _ensure_schema(conn: sqlite3.Connection) -> None:
     conn.executescript(SCHEMA)
+    # PORT-NOTE: S4 — also run the additive migration so a legacy v1 store is
+    # stamped/backfilled (m_rank) the first time any mind operation touches it.
+    _schema_migrate(conn)
 
 
 def _commit(conn: sqlite3.Connection, tries: int = 6) -> None:
@@ -670,6 +695,9 @@ def remember(conn: sqlite3.Connection, text: str, *, atype: str = "observation",
             continue
         for target in targets:
             conn.execute("INSERT OR IGNORE INTO m_edges(source,target,type) VALUES(?,?,?)", (aid, target, kind))
+    # PORT-NOTE: S4 — born with a rank row (active, quality 0.5) so exposure
+    # counters and the forgetting state machine exist from the first serve.
+    rank.ensure_row(conn, aid, now=now)
     _commit(conn)
     log_op(conn, "store", aid, lbl, None, session_id)
     # Best-effort: give the new atom a vector now so it is immediately
@@ -741,6 +769,14 @@ def feedback(conn: sqlite3.Connection, atom_id: str, signal: str, *,
             time.sleep(0.2 * (attempt + 1))
     if recorded:
         log_op(conn, "feedback", atom_id, signal, None, session_id)
+        # PORT-NOTE: S4 — keep the deterministic rank store in step with the
+        # feedback log: count the interaction, promote an ignored/archived atom
+        # that just proved value (useful/used), and refresh its quality.
+        # Best-effort — rank bookkeeping must never turn a ping into an error.
+        try:
+            rank.on_feedback(conn, atom_id, signal)
+        except sqlite3.Error:
+            pass
     return {"atom_id": atom_id, "signal": signal, "source": source, "recorded": recorded}
 
 
@@ -975,8 +1011,13 @@ def recall(conn: sqlite3.Connection, query: str, *, limit: int = 8,
     The response shape is unchanged either way.
     """
     _ensure_schema(conn)
+    # PORT-NOTE: S4 — atoms the rank engine forgot (state != 'active') are never
+    # recall candidates. An atom with no rank row counts as active, so an empty
+    # or all-active m_rank reproduces the pre-S4 candidate set byte-for-byte.
     rows = list(conn.execute(
-        "SELECT id,label,type,created,text,source,tags,weight,hub FROM m_atoms"))
+        "SELECT a.id, a.label, a.type, a.created, a.text, a.source, a.tags, a.weight, a.hub "
+        "FROM m_atoms a WHERE NOT EXISTS ("
+        "  SELECT 1 FROM m_rank r WHERE r.atom_id = a.id AND r.state <> 'active')"))
     candidates = [
         {"id": r[0], "label": r[1], "type": r[2], "created": r[3], "text": r[4],
          "source": r[5], "tags": r[6] or "", "weight": r[7], "hub": r[8]}
@@ -997,6 +1038,10 @@ def recall(conn: sqlite3.Connection, query: str, *, limit: int = 8,
     top = [a for _s, a in _score_atoms(
         candidates, query, feedback=_feedback_counts(conn),
         query_vec=query_vec, vectors=vectors, alpha=alpha)[:limit]]
+    # PORT-NOTE: S4 — record the exposure for each atom actually served. This
+    # runs after ranking, so it can never affect the result order.
+    if top:
+        rank.record_served(conn, [a["id"] for a in top])
     ids = {a["id"] for a in top}
     edges = [{"source": a, "target": b, "type": t}
              for a, b, t in conn.execute("SELECT source,target,type FROM m_edges")
