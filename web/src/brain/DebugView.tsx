@@ -28,6 +28,11 @@ type Overview = {
   phases: { phase: string; every_minutes: number; last: { ts: number; summary: string; next_due: number } | null }[]
   quiet_now: boolean
   last_dream: { ts: number; label: string } | null
+  self_trace: {
+    docs: { doc_path: string; ts: number; content_hash: string }[]
+    doc_counts: { doc_path: string; versions: number; last_ts: number }[]
+    preferences: { id: string; label: string; created: number }[]
+  }
   config: Record<string, string | number | boolean>
 }
 
@@ -237,6 +242,54 @@ export function DebugView() {
                       </tr>
                     ))}
                     {ov.feedback.length === 0 && <tr><td colSpan={4} className="muted">no verdicts yet</td></tr>}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+          </div>
+
+          {/* ---- self / soul ---- */}
+          <div className="dbg-cols">
+            <section className="dbg-card">
+              <h5>Self / Soul — doc changes the mind recorded</h5>
+              <p className="muted dbg-note">Full current text lives in the Identity tab; this is the change history.</p>
+              <div className="dbg-scroll">
+                <table className="dbg-table">
+                  <thead>
+                    <tr><th>doc</th><th>versions</th><th>last changed</th></tr>
+                  </thead>
+                  <tbody>
+                    {ov.self_trace.doc_counts.map((d) => (
+                      <tr key={d.doc_path}>
+                        <td className="mono">{d.doc_path.split('/').pop()}</td>
+                        <td className="mono">{d.versions}</td>
+                        <td>{ago(d.last_ts)}</td>
+                      </tr>
+                    ))}
+                    {ov.self_trace.doc_counts.length === 0 && <tr><td colSpan={3} className="muted">no persona-doc versions recorded yet</td></tr>}
+                  </tbody>
+                </table>
+              </div>
+              <p className="muted dbg-note">
+                latest: {ov.self_trace.docs.slice(0, 3).map((d) => `${d.doc_path.split('/').pop()} ${ago(d.ts)}`).join(' · ') || '—'}
+              </p>
+            </section>
+
+            <section className="dbg-card">
+              <h5>Preference rules the agent stores about you</h5>
+              <div className="dbg-scroll">
+                <table className="dbg-table">
+                  <thead>
+                    <tr><th>stored</th><th>rule</th></tr>
+                  </thead>
+                  <tbody>
+                    {ov.self_trace.preferences.map((p) => (
+                      <tr key={p.id}>
+                        <td className="mono">{ago(p.created)}</td>
+                        <td>{p.label}</td>
+                      </tr>
+                    ))}
+                    {ov.self_trace.preferences.length === 0 && <tr><td colSpan={2} className="muted">no preference atoms yet</td></tr>}
                   </tbody>
                 </table>
               </div>
