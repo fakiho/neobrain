@@ -106,7 +106,7 @@ function mulberry32(a: number) {
   }
 }
 
-function buildLayout(nodesIn: BrainNode[], linksIn: BrainLink[], W: number, H: number): Layout {
+export function buildLayout(nodesIn: BrainNode[], linksIn: BrainLink[], W: number, H: number): Layout {
   const rnd = mulberry32(1337)
   const nodes: SimNode[] = nodesIn.map((n) => ({
     ...n, x: 0, y: 0, r: 0, rx: 0, ry: 0, _atoms: [], _n: 0, _idx: 0, _lx: 0, _ly: 0,
@@ -155,8 +155,25 @@ function buildLayout(nodesIn: BrainNode[], linksIn: BrainLink[], W: number, H: n
       maxX = Math.max(maxX, Math.abs(a._lx) + a.r)
       maxY = Math.max(maxY, Math.abs(a._ly) + a.r)
     })
-    h.rx = Math.max(inner + 10, maxX * WIDE + PADX)
-    h.ry = Math.max(inner + 8, maxY + PADY)
+    // Contain every member disc inside the DRAWN membrane, not just the clean
+    // ellipse: the membrane wobbles down to 1 − 0.05 − 0.03 = 0.92 of rx/ry at
+    // its dips, so a perfect-ellipse fit lets edge atoms poke out exactly there.
+    // Scale the cell (keeping the WIDE aspect, so packing below stays
+    // consistent) until v + r/min(rx,ry) ≤ 0.90 for every atom — v the
+    // normalized ellipse radius, the +term reserving room for the atom's disc.
+    let rx = Math.max(inner + 10, maxX * WIDE + PADX)
+    let ry = Math.max(inner + 8, maxY + PADY)
+    {
+      const rmin = Math.min(rx, ry)
+      let s = 1
+      for (const a of h._atoms) {
+        const v = Math.sqrt((a._lx * a._lx) / (rx * rx) + (a._ly * a._ly) / (ry * ry))
+        s = Math.max(s, (v + a.r / rmin) / 0.9)
+      }
+      if (s > 1) { rx *= s; ry *= s }
+    }
+    h.rx = rx
+    h.ry = ry
   }
 
   const ordered = [...hubs].sort((a, b) => b.rx - a.rx)
