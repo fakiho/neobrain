@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Menu, PanelLeft, Pause, Play, Radio, RotateCcw, Search, Check, Minus, X, ChevronDown, ChevronUp } from 'lucide-react'
 import type { BrainLink, BrainNode } from './types'
 import { BrainCanvas } from './BrainCanvas'
+import { DebugView } from './DebugView'
 import { DreamsView } from './DreamsView'
 import { MemoryView } from './MemoryView'
 import { ReaderView, type ReaderGroup } from './ReaderView'
@@ -14,6 +15,7 @@ const TABS = [
   ['memory', 'Memory'],
   ['identity', 'Identity'],
   ['infra', 'Infra'],
+  ['debug', 'Debug'],
 ] as const
 
 const BRAND_MARK = (
@@ -62,7 +64,7 @@ export default function BrainApp() {
   const [leftOpen, setLeftOpen] = useState(false)
   const [fitSignal, setFitSignal] = useState(0)
   const [live, setLive] = useState(true)
-  const [view, setView] = useState<'brain' | 'dreams' | ReaderGroup>('brain')
+  const [view, setView] = useState<'brain' | 'dreams' | 'debug' | ReaderGroup>('brain')
   const [hiddenTypes, setHiddenTypes] = useState<Set<string>>(new Set(['preference']))
   const [hiddenHubs, setHiddenHubs] = useState<Set<string>>(new Set())
   const [hiddenEdges, setHiddenEdges] = useState<Set<string>>(new Set())
@@ -615,6 +617,8 @@ export default function BrainApp() {
           }}
         />
       )}
+
+      {view === 'debug' && <DebugView />}
 
       {view === 'brain' && (isMobile || !live) && (
       <div className={'obs-slider' + (!live ? ' obs-slider-history' : '')}>
