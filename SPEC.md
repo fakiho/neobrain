@@ -149,7 +149,7 @@ commands; no sudo in any phase.
 
 ## 12. Open questions (resolve during sprints, do not block S1–S3)
 
-1. Soul update cadence + max change per update
+1. ~~Soul update cadence~~ resolved 2026-09-30: 3×/week Mon/Wed/Sat via `reflect_weekdays`. Max change per update: still open
 2. Top-K budget size and rank weight tuning (empirical)
 3. Urge policy: what may `act` do alone vs ask
 4. Archive retention: TTL or forever

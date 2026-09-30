@@ -15,7 +15,7 @@ does not initiate contact — v0 stores a private observation and messages no
 one). During rest, if the local hour equals ``life_dream_hour`` the loop invokes
 ``neobrain.dreams.run(conn, runtime)`` once per night, or emits a single
 "dreams not wired yet (S6)" event per night when that module does not exist. On
-``reflect_weekday`` the same rest window also invokes ``neobrain.dreams.reflect``
+``reflect_weekdays`` the same rest window also invokes ``neobrain.dreams.reflect``
 once for the day (the old system ran reflect Sundays 04:00). ``perceive`` also
 runs the ingest adapters via ``ingest.runner.run_all`` when a workspace or
 OpenCode DB is configured.
@@ -489,11 +489,11 @@ class LifeLoop:
                     )
                 ran.append("dream")
 
-        # --- weekly soul reflection (reflect.sh ran Sundays 04:00) --------
-        # PORT-NOTE: S6b — runs on settings.reflect_weekday at the dream hour,
-        # once per day; the once-per-day guard is the "life: soul-reflect" event.
+        # --- soul reflection (reflect.sh ran Sundays 04:00) ----------------
+        # PORT-NOTE: S6b — runs on the settings.reflect_weekdays days at the
+        # dream hour, once per day; the guard is the "life: soul-reflect" event.
         if (
-            now.weekday() == config.settings.reflect_weekday
+            now.weekday() in config.reflect_days()
             and not self._reflect_ran_today(conn, now)
             and importlib.util.find_spec("neobrain.dreams") is not None
         ):
