@@ -17,6 +17,7 @@ embedding top-up and the periodic (≥20 h) consolidation.
 from __future__ import annotations
 
 import sqlite3
+import threading
 from typing import Iterable
 
 from .. import config, db, embeddings, mind
@@ -25,6 +26,26 @@ from . import docs as docs_adapter
 from . import gitrepo, opencode
 
 DEFAULT_SOURCES = ("opencode", "git", "docs")
+
+# One ingest at a time. The life loop and the one-shot API/CLI trigger share
+# this process; the old app's single scheduler thread never had to guard this,
+# and two concurrent full re-scans saturate the box and starve every reader.
+_run_lock = threading.Lock()
+
+_SKIPPED = {
+    "events_total": 0,
+    "added": 0,
+    "updated": 0,
+    "links": 0,
+    "sessions": 0,
+    "doc_versions": 0,
+    "per_source": {},
+    "by_source": {},
+    "mind": None,
+    "embeddings": None,
+    "dream": None,
+    "skipped": "already running",
+}
 
 
 def _existing_event_ids(conn: sqlite3.Connection, ids: Iterable[str]) -> set[str]:
@@ -41,6 +62,16 @@ def _existing_event_ids(conn: sqlite3.Connection, ids: Iterable[str]) -> set[str
 
 
 def run(conn: sqlite3.Connection, sources: Iterable[str] = DEFAULT_SOURCES) -> dict:
+    """One-shot entry: skips (never queues) when another run is in flight."""
+    if not _run_lock.acquire(blocking=False):
+        return dict(_SKIPPED)
+    try:
+        return _run_locked(conn, sources)
+    finally:
+        _run_lock.release()
+
+
+def _run_locked(conn: sqlite3.Connection, sources: Iterable[str] = DEFAULT_SOURCES) -> dict:
     sources = tuple(sources)
     all_events: list[Event] = []
     link_intents: list[tuple[str, str, str]] = []
@@ -182,6 +213,8 @@ def run_all(conn: sqlite3.Connection, *, sources: Iterable[str] | None = None) -
     ``sources=None`` runs the default set (opencode, git, docs).
     """
     result = run(conn, tuple(sources) if sources is not None else DEFAULT_SOURCES)
+    if result.get("skipped"):
+        return {"skipped": result["skipped"]}
     return result["by_source"]
 
 

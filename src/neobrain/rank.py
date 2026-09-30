@@ -48,12 +48,15 @@ model has zero discretion over retention. Weights and thresholds come only from
 """
 from __future__ import annotations
 
+import logging
 import math
 import sqlite3
 from dataclasses import dataclass
 
 from . import config
 from .models import now_ms
+
+log = logging.getLogger(__name__)
 
 # --- locked constants (SPEC §4.2 / m_2d90e7f99e54) ----------------------
 
@@ -350,19 +353,32 @@ def record_served(conn: sqlite3.Connection, atom_ids: list[str], *, now: int | N
     """Count one exposure for each atom just served by recall."""
     ts = now if now is not None else now_ms()
     served = 0
-    for aid in atom_ids:
-        conn.execute(
-            """INSERT INTO m_rank
-                 (atom_id, quality, served, interacted, last_served, state, state_since, updated)
-               VALUES (?, 0.5, 1, 0, ?, 'active', NULL, ?)
-               ON CONFLICT(atom_id) DO UPDATE SET
-                 served = served + 1,
-                 last_served = excluded.last_served,
-                 updated = excluded.updated""",
-            (aid, ts, ts),
-        )
-        served += 1
-    conn.commit()
+    try:
+        # Advisory bookkeeping: wait at most 500 ms for the lock (not the
+        # connection's full 20 s) — recall latency must not suffer for it.
+        conn.execute("PRAGMA busy_timeout = 500")
+        for aid in atom_ids:
+            conn.execute(
+                """INSERT INTO m_rank
+                     (atom_id, quality, served, interacted, last_served, state, state_since, updated)
+                   VALUES (?, 0.5, 1, 0, ?, 'active', NULL, ?)
+                   ON CONFLICT(atom_id) DO UPDATE SET
+                     served = served + 1,
+                     last_served = excluded.last_served,
+                     updated = excluded.updated""",
+                (aid, ts, ts),
+            )
+            served += 1
+        conn.commit()
+    except sqlite3.OperationalError:
+        # Served counters are advisory: a concurrent writer (life-loop ingest,
+        # consolidation) may hold the lock. Never fail a recall over
+        # bookkeeping — drop the update and let recall proceed.
+        conn.rollback()
+        log.warning("record_served skipped (%d atoms): database busy", len(atom_ids))
+        return 0
+    finally:
+        conn.execute("PRAGMA busy_timeout = 20000")
     return served
 
 

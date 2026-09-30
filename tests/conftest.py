@@ -17,6 +17,22 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from neobrain import config, db  # noqa: E402
 
+# Hermetic even when the daemon's real .env is present in the repo (post-cutover):
+# no workspace scan, no opencode DB, no reachable LLM/embeddings, no life-loop
+# thread. Tests that need sources or the loop monkeypatch these explicitly.
+config.WORKSPACE = None
+config.OPENCODE_DB = None
+config.DOC_GROUPS = {}
+config.KNOWN_REPOS = []
+for _key, _val in (
+    ("workspace", ""),
+    ("opencode_db", ""),
+    ("life_enabled", "0"),
+    ("embed_enabled", "0"),
+    ("llm_base_url", "http://127.0.0.1:9/v1"),
+):
+    setattr(config.settings, _key, _val)
+
 # Never let a test reach Ollama / the LiteLLM gateway.
 config.EMBED_ENABLED = False
 
