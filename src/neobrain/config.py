@@ -54,11 +54,29 @@ class Settings(BaseSettings):
     # --- recall ---
     recall_alpha: float = 2.0
 
+    # --- rank (deterministic; SPEC §4.2/4.3 — the model has no discretion) ---
+    rank_w_feedback: float = 1.0      # weight: model feedback quality term
+    rank_w_recency: float = 0.6      # weight: exp decay term
+    rank_w_connectivity: float = 0.4 # weight: hub/edge degree term
+    rank_half_life_days: float = 21.0
+    rank_prior_n: float = 10.0       # smoothing prior strength for feedback avg
+    rank_ignore_below: float = 0.15  # quality under this = forgetting candidate
+    rank_archive_exposure: int = 5   # exposure score over this + low quality -> archived
+
     # --- LLM runtime (OpenAI-compatible; unused until S5, declared for completeness) ---
     llm_base_url: str = "http://127.0.0.1:4000/v1"
     llm_api_key: str = ""
     llm_model_cheap: str = "deepseek/deepseek-flash"
     llm_model_strong: str = "deepseek/deepseek-v4-pro"
+
+    # --- life loop (SPEC §6: cadence in code+DB, not OS timers) ---
+    life_tick_seconds: int = 60
+    life_quiet_start: int = 23       # local hour: only perceive during quiet hours
+    life_quiet_end: int = 8
+    life_perceive_interval_minutes: int = 15
+    life_reflect_interval_minutes: int = 30
+    life_act_interval_minutes: int = 240
+    life_dream_hour: int = 2         # local hour rest() may invoke the dream phases
 
     # --- sources (workspace docs, repos, opencode session DB) ---
     # PORT-NOTE: the old KNOWN_REPOS was a hardcoded host-specific list; now a

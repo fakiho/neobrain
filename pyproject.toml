@@ -18,6 +18,9 @@ dependencies = [
 [project.scripts]
 neobrain = "neobrain.cli:main"
 
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+
 [tool.hatch.build.targets.wheel]
 packages = ["src/neobrain"]
 
