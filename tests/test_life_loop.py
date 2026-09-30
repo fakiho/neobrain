@@ -223,20 +223,31 @@ def test_perceive_failure_event_has_warning_severity(loop, monkeypatch):
 # --- rest / dream hook ------------------------------------------------------
 
 
-def test_dream_hook_emits_not_wired_once_per_night(loop):
+def test_dream_hook_runs_dreams_once_per_night(loop, monkeypatch):
     instance, clock, _llm = loop
+    from neobrain import dreams
+
+    calls = []
+
+    def fake_run(conn, runtime, **kwargs):
+        calls.append(kwargs.get("now"))
+        return {"status": "ok", "date": "2026-09-30"}
+
+    monkeypatch.setattr(dreams, "run", fake_run)
     clock.dt = clock.dt.replace(hour=2)  # dream hour, and quiet
     first = instance.tick()
     assert first["ran"] == ["perceive", "dream"]
+    assert len(calls) == 1
 
     clock.advance(minutes=30)
     second = instance.tick()
     assert "dream" not in second["ran"]
+    assert len(calls) == 1
 
     conn = instance.connect()
-    dreams = [r for r in life_events(conn) if r["title"] == "life: dream"]
-    assert len(dreams) == 1
-    assert json.loads(dreams[0]["detail"])["summary"] == "dreams not wired yet (S6)"
+    dreams_events = [r for r in life_events(conn) if r["title"] == "life: dream"]
+    assert len(dreams_events) == 1
+    assert "dream pass" in json.loads(dreams_events[0]["detail"])["summary"]
 
 
 def test_dream_hook_does_not_fire_outside_dream_hour(loop):

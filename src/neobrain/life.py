@@ -14,7 +14,11 @@ Quiet hours (``life_quiet_start`` … ``life_quiet_end``, local time) run only
 does not initiate contact — v0 stores a private observation and messages no
 one). During rest, if the local hour equals ``life_dream_hour`` the loop invokes
 ``neobrain.dreams.run(conn, runtime)`` once per night, or emits a single
-"dreams not wired yet (S6)" event per night when that module does not exist.
+"dreams not wired yet (S6)" event per night when that module does not exist. On
+``reflect_weekday`` the same rest window also invokes ``neobrain.dreams.reflect``
+once for the day (the old system ran reflect Sundays 04:00). ``perceive`` also
+runs the ingest adapters via ``ingest.runner.run_all`` when a workspace or
+OpenCode DB is configured.
 """
 from __future__ import annotations
 
@@ -297,21 +301,49 @@ class LifeLoop:
             except Exception as exc:  # noqa: BLE001 - memory of a failure is best-effort
                 results[name]["remember_error"] = str(exc)
 
+        # PORT-NOTE: S6b — ingest runs inside perceive, after the health probes
+        # (SPEC §6: perceive = ingest sources + health checks). Guarded: without
+        # a configured workspace or OpenCode DB there is nothing to read, and a
+        # broken run becomes a warning on the event, never a crash.
+        ingest_summary = None
+        ingest_error = None
+        if config.WORKSPACE is not None or config.OPENCODE_DB is not None:
+            try:
+                from .ingest import runner as ingest_runner
+
+                ingest_summary = ingest_runner.run_all(conn)
+            except Exception as exc:  # noqa: BLE001 - ingest must never stop the loop
+                ingest_error = f"{type(exc).__name__}: {exc}"
+
         failed_names = [name for name, _ in failures]
         if not failures:
             summary = "all probes ok"
         else:
             summary = "failed: " + ", ".join(failed_names)
+        if ingest_error:
+            summary = f"{summary}; ingest failed: {ingest_error}"
         self._emit(
             conn,
             "perceive",
             when_ms=when,
             next_due_ms=self._next_due(when, "perceive"),
             summary=summary,
-            severity="warning" if failures else "info",
-            extra={"checks": results, "failures": failed_names, "remembered": remembered},
+            severity="warning" if (failures or ingest_error) else "info",
+            extra={
+                "checks": results,
+                "failures": failed_names,
+                "remembered": remembered,
+                "ingest": ingest_summary,
+                "ingest_error": ingest_error,
+            },
         )
-        return {"failures": failed_names, "remembered": remembered, "checks": results}
+        return {
+            "failures": failed_names,
+            "remembered": remembered,
+            "checks": results,
+            "ingest": ingest_summary,
+            "ingest_error": ingest_error,
+        }
 
     def _reflect(self, conn: sqlite3.Connection, when: int) -> dict[str, Any]:
         result = mind.consolidate(conn)
@@ -402,42 +434,93 @@ class LifeLoop:
             return False
         return datetime.fromtimestamp(int(row[0]) / 1000).date() == now.date()
 
+    def _reflect_ran_today(self, conn: sqlite3.Connection, now: datetime) -> bool:
+        row = conn.execute(
+            "SELECT MAX(ts) FROM events WHERE source=? AND title=?",
+            (SOURCE, "life: soul-reflect"),
+        ).fetchone()
+        if not row or row[0] is None:
+            return False
+        return datetime.fromtimestamp(int(row[0]) / 1000).date() == now.date()
+
     def _rest(self, conn: sqlite3.Connection, now: datetime, when: int) -> list[str]:
         if now.hour != config.settings.life_dream_hour:
             return []
-        if self._dream_ran_tonight(conn, now):
-            return []
-        if importlib.util.find_spec("neobrain.dreams") is None:
-            self._emit(
-                conn,
-                "dream",
-                when_ms=when,
-                next_due_ms=when + _DAY_MS,
-                summary="dreams not wired yet (S6)",
-                severity="notice",
-            )
-            return ["dream"]
-        from . import dreams  # type: ignore[attr-defined]
+        ran: list[str] = []
 
-        summary = "dream pass complete"
-        severity = "info"
-        try:
-            result = dreams.run(conn, self.runtime())
-            summary = f"dream pass: {result}" if not isinstance(result, dict) else (
-                "dream pass: " + json.dumps(result, ensure_ascii=False, default=str)
-            )
-        except Exception as exc:  # noqa: BLE001 - a broken night must not stop the loop
-            summary = f"dream pass failed: {type(exc).__name__}: {exc}"
-            severity = "error"
-        self._emit(
-            conn,
-            "dream",
-            when_ms=when,
-            next_due_ms=when + _DAY_MS,
-            summary=summary,
-            severity=severity,
-        )
-        return ["dream"]
+        # --- nightly dream phases ------------------------------------------
+        if not self._dream_ran_tonight(conn, now):
+            if importlib.util.find_spec("neobrain.dreams") is None:
+                self._emit(
+                    conn,
+                    "dream",
+                    when_ms=when,
+                    next_due_ms=when + _DAY_MS,
+                    summary="dreams not wired yet (S6)",
+                    severity="notice",
+                )
+                ran.append("dream")
+            else:
+                from . import dreams  # type: ignore[attr-defined]
+
+                summary = "dream pass complete"
+                severity = "info"
+                try:
+                    result = dreams.run(conn, self.runtime(), now=now)
+                    if isinstance(result, dict):
+                        summary = f"dream pass: {result.get('status', 'ok')} ({result.get('date', '')})"
+                    else:
+                        summary = f"dream pass: {result}"
+                except Exception as exc:  # noqa: BLE001 - a broken night must not stop the loop
+                    summary = f"dream pass failed: {type(exc).__name__}: {exc}"
+                    severity = "error"
+                # PORT-NOTE: S6b — dreams.run records its own "life: dream"
+                # marker + summary (single-writer assumption replaces dream.sh's
+                # flock). Only emit here when it did not, so one night gets one
+                # marker and the once-per-night guard holds.
+                if not self._dream_ran_tonight(conn, now):
+                    self._emit(
+                        conn,
+                        "dream",
+                        when_ms=when,
+                        next_due_ms=when + _DAY_MS,
+                        summary=summary,
+                        severity=severity,
+                    )
+                ran.append("dream")
+
+        # --- weekly soul reflection (reflect.sh ran Sundays 04:00) --------
+        # PORT-NOTE: S6b — runs on settings.reflect_weekday at the dream hour,
+        # once per day; the once-per-day guard is the "life: soul-reflect" event.
+        if (
+            now.weekday() == config.settings.reflect_weekday
+            and not self._reflect_ran_today(conn, now)
+            and importlib.util.find_spec("neobrain.dreams") is not None
+        ):
+            from . import dreams  # type: ignore[attr-defined]
+
+            try:
+                dreams.reflect(conn, self.runtime(), now=now)
+            except Exception as exc:  # noqa: BLE001 - a broken ritual must not stop the loop
+                self._emit(
+                    conn,
+                    "soul-reflect",
+                    when_ms=when,
+                    next_due_ms=when + _DAY_MS,
+                    summary=f"soul reflect failed: {type(exc).__name__}: {exc}",
+                    severity="error",
+                )
+            if not self._reflect_ran_today(conn, now):
+                self._emit(
+                    conn,
+                    "soul-reflect",
+                    when_ms=when,
+                    next_due_ms=when + _DAY_MS,
+                    summary="soul reflection complete",
+                    severity="info",
+                )
+            ran.append("soul-reflect")
+        return ran
 
     # --- the tick -----------------------------------------------------------
 
