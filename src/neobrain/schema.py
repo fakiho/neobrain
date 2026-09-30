@@ -13,8 +13,12 @@ from __future__ import annotations
 
 import sqlite3
 
-# Schema version floor. S1 ships the merged legacy schema as version 1.
-USER_VERSION = 1
+from .models import now_ms
+
+# Schema version floor. v1 = merged legacy schema (S1). v2 adds the rank /
+# forgetting store (S4: ``m_rank`` counters + active/ignored/archived state,
+# SPEC §4.2/§4.3) as an *additive* migration.
+USER_VERSION = 2
 
 SCHEMA = """
 -- Timeline store schema
@@ -146,6 +150,32 @@ CREATE INDEX IF NOT EXISTS idx_m_embeddings_model ON m_embeddings(model);
 """
 
 
+# --- S4: rank + forgetting (additive v2) --------------------------------
+#
+# One row per atom: the deterministic quality score, the exposure counters
+# (``served`` on every recall, ``interacted`` on every feedback ping) and the
+# forgetting state machine. Kept out of ``m_atoms`` so the ranked counters can
+# evolve without touching the atom row. ``atom_id`` references ``m_atoms(id)``
+# with ``ON DELETE CASCADE``: foreign keys are ON, so without the cascade the
+# existing delete paths (``forget`` and the doc rebuild in ``import_mind``)
+# would fail on a ranked atom.
+RANK_DDL = """
+CREATE TABLE IF NOT EXISTS m_rank (
+  atom_id     TEXT PRIMARY KEY REFERENCES m_atoms(id) ON DELETE CASCADE,
+  quality     REAL NOT NULL DEFAULT 0.5,
+  served      INTEGER NOT NULL DEFAULT 0,
+  interacted  INTEGER NOT NULL DEFAULT 0,
+  last_served INTEGER,
+  state       TEXT NOT NULL DEFAULT 'active',
+  state_since INTEGER,
+  updated     INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_m_rank_state ON m_rank(state);
+"""
+
+SCHEMA = SCHEMA + RANK_DDL
+
+
 def apply(conn: sqlite3.Connection) -> None:
     """Apply the full schema and stamp the migration floor version.
 
@@ -154,6 +184,35 @@ def apply(conn: sqlite3.Connection) -> None:
     """
     conn.executescript(SCHEMA)
     conn.execute(f"PRAGMA user_version = {USER_VERSION}")
+
+
+def migrate(conn: sqlite3.Connection, now: int | None = None) -> int:
+    """Bring a store up to ``USER_VERSION`` (additive; never destructive).
+
+    v1 -> v2 applies the rank DDL and backfills one ``m_rank`` row per existing
+    atom (quality 0.5, ``active``, zero counters). A fresh/unmigrated store is
+    completed with the full schema first. Idempotent: once stamped, later calls
+    are a no-op. Returns the resulting version.
+    """
+    version = user_version(conn)
+    if version >= USER_VERSION:
+        return version
+    if not conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='m_atoms'"
+    ).fetchone():
+        conn.executescript(SCHEMA)  # no floor table yet: build it first
+    conn.executescript(RANK_DDL)
+    if version < 2:
+        ts = now if now is not None else now_ms()
+        conn.execute(
+            """INSERT OR IGNORE INTO m_rank
+                 (atom_id, quality, served, interacted, last_served, state, state_since, updated)
+               SELECT id, 0.5, 0, 0, NULL, 'active', NULL, ? FROM m_atoms""",
+            (ts,),
+        )
+    conn.execute(f"PRAGMA user_version = {USER_VERSION}")
+    conn.commit()
+    return USER_VERSION
 
 
 def user_version(conn: sqlite3.Connection) -> int:

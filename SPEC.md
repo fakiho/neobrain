@@ -54,6 +54,18 @@ Score inputs: model feedback (`used | useful | noise` per served memory),
 exposure counters (times served, times interacted), recency decay, hub
 connectivity. Replaces the timeline's ±10 % feedback multiplier.
 
+**Form (S4 review, 2026-09-30):** `quality = clamp01(feedback · decay · conn)`
+with `decay = decay_floor + (1-decay_floor)·recency` and
+`conn = conn_floor + (1-conn_floor)·connectivity`. Three *bounded* factors: the
+floors keep age and graph isolation from being fatal on their own, but feedback
+is the only factor that can reach zero — so a flood of `noise` forgets even a
+fresh, well-connected memory, which is what makes the high-exposure rule below
+reachable. (An additive blend cannot: recency/connectivity then act as
+irreducible floors — verified numerically and fixed before commit.) Exposure
+(`served + 3·interacted`) is the second axis and never raises quality. Knobs:
+`rank_decay_floor`, `rank_conn_floor`, `rank_half_life_days`, `rank_prior_n`,
+`rank_ignore_below`, `rank_archive_exposure` in `config.py`.
+
 ### 4.3 Forgetting (rank-based only)
 - low rank + low exposure → **ignored forever**: never surfaced, zero cost, never deleted
 - low rank + **high** exposure → **archived**: unretrievable but recoverable (archive ≠ delete)
@@ -167,8 +179,8 @@ commands; no sudo in any phase.
 | S1 | Core mind port: `mind.py`, `embeddings.py`, `db.py`, `config.py`, authoritative schema | done (validated) |
 | S2 | Observatory web port (drop dead code) | done (build clean, tsc clean) |
 | S3 | opencode plugin port + unrated protocol | done (tsc clean + mocked-fetch smoke) |
-| S4 | `rank.py` + exposure counters + eviction/archive job | pending |
-| S5 | Life loop + native LLM runtime (`life.py`, `runtime.py`) | pending |
+| S4 | `rank.py` + exposure counters + eviction/archive job | done (calibrated in review) |
+| S5 | Life loop + native LLM runtime (`life.py`, `runtime.py`) | done (validated) |
 | S6 | `api.py` + `cli.py` + `ingest/` wiring | pending |
 | S7 | Parity tests vs oracle + DB migration from timeline.db + cutover | pending |
 | S8 | npm launcher + PyInstaller packaging | pending |
