@@ -94,10 +94,22 @@ const IDX_LABEL = 100
 // atom id → Date.now() when first served without a verdict.
 type Unrated = Map<string, number>
 
+// Debug trace (test phase): default ON so every lane shows what it actually
+// did. NEOBRAIN_DEBUG=0 silences. Output lands in the OpenCode server log
+// (journalctl -u opencode.service), every line prefixed [neobrain-memory].
+const DEBUG = String((globalThis as unknown as { process?: { env?: Record<string, string> } }).process?.env?.NEOBRAIN_DEBUG ?? "1") !== "0"
+const dbg = (msg: string) => {
+  if (DEBUG) console.error(`[neobrain-memory] ${new Date().toISOString().slice(11, 23)} ${msg}`)
+}
+const sidShort = (sid?: string) => (sid ? sid.slice(0, 16) : "nosid")
+
 // PORT-NOTE (SPEC §5, new): register a surfaced atom as pending. The first
 // timestamp wins — re-serving an already-pending atom does not reset the clock.
 function markPending(ledger: Unrated, atomId: string) {
-  if (!ledger.has(atomId)) ledger.set(atomId, Date.now())
+  if (!ledger.has(atomId)) {
+    ledger.set(atomId, Date.now())
+    dbg(`pending + ${atomId} (${ledger.size} awaiting verdict)`)
+  }
 }
 
 // PORT-NOTE (SPEC §5, new): auto-fallback — pending atoms older than the
@@ -107,7 +119,11 @@ function markPending(ledger: Unrated, atomId: string) {
 // no background timer, matching the source's timer-free style.
 function sweepExpired(ledger: Unrated) {
   const now = Date.now()
-  for (const [id, since] of ledger) if (now - since >= TIMEOUT_MS) ledger.delete(id)
+  for (const [id, since] of ledger)
+    if (now - since >= TIMEOUT_MS) {
+      ledger.delete(id)
+      dbg(`expired, no verdict: ${id} (exposure without rating — not counted as a quality signal)`)
+    }
 }
 
 // PORT-NOTE (SPEC §5, new): pending ids past the grace window — these block.
@@ -136,6 +152,7 @@ function blockNotice(entries: [string, number][]): string {
 function gate(ledger: Unrated): string | null {
   sweepExpired(ledger)
   const entries = overdue(ledger)
+  if (entries.length) dbg(`GATE blocked (${entries.length} overdue): ${entries.map(([id]) => id).join(", ")}`)
   return entries.length ? blockNotice(entries) : null
 }
 
@@ -203,12 +220,17 @@ function renderRecall(atoms: RecallAtom[], query: string, escalated: boolean) {
 // Quality signal, fire-and-forget: a feedback failure must never affect the
 // tool result or the push lanes, so nothing is awaited and errors are swallowed.
 function reportFeedback(atomId: string, signal: string, sessionId?: string) {
+  dbg(`feedback → ${signal} ${atomId}`)
   try {
     void fetch(`${API}/api/mind/feedback`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ atom_id: atomId, signal, source: "plugin", session: sessionId }),
-    }).catch(() => {})
+    })
+      .then((r) => {
+        if (!r.ok) dbg(`feedback FAILED ${atomId}: HTTP ${r.status}`)
+      })
+      .catch((e: unknown) => dbg(`feedback FAILED ${atomId}: ${(e as Error)?.message ?? e}`))
   } catch {
     // ignore
   }
@@ -368,6 +390,7 @@ async function registerTools(ctx: PluginContext, ledger: Unrated) {
 export default {
   id: "neobrain-memory", // PORT-NOTE: rebranded plugin id (was "timeline-memory"); loading pattern unchanged.
   async setup(ctx: PluginContext) {
+    dbg(`plugin loaded — api=${API}${DEBUG ? "" : " (debug off via NEOBRAIN_DEBUG=0)"}`)
     const woken = new Set<string>()
     const pending = new Map<string, string>() // sessionID -> the user's text for the current turn
     const unrated: Unrated = new Map() // PORT-NOTE (SPEC §5): atom id -> first served unrated
@@ -390,14 +413,18 @@ export default {
       // model-initiated mind call.)
       if (!woken.has(sid)) {
         woken.add(sid)
+        dbg(`${sidShort(sid)} wakeup: fetching bootstrap pack`)
         try {
           const res = await fetch(`${API}/api/mind/wakeup?session=${encodeURIComponent(sid)}`)
           if (res.ok) {
             const text = renderPack(await res.json())
-            if (text) sys.push({ type: "text", text })
-          }
-        } catch {
-          // service down → no memory injection, no noise
+            if (text) {
+              sys.push({ type: "text", text })
+              dbg(`${sidShort(sid)} wakeup: pack injected (${text.length} chars)`)
+            } else dbg(`${sidShort(sid)} wakeup: pack empty — nothing injected`)
+          } else dbg(`${sidShort(sid)} wakeup: HTTP ${res.status}`)
+        } catch (err: unknown) {
+          dbg(`${sidShort(sid)} wakeup FAILED: ${(err as Error)?.message ?? err} (daemon down? no injection this session)`)
         }
       }
 
@@ -412,6 +439,7 @@ export default {
       // memory_search or the next turn after rating.
       const blocked = gate(unrated)
       if (blocked) {
+        dbg(`${sidShort(sid)} recall BLOCKED by unrated protocol (${unrated.size} pending) — notice injected, query "${oneLine(query).slice(0, 60)}" dropped`)
         sys.push({ type: "text", text: blocked })
         return
       }
@@ -423,7 +451,10 @@ export default {
           `${API}/api/mind/recall?q=${encodeURIComponent(query.slice(0, 300))}` +
           `&limit=${escalated ? 25 : 15}&session=${encodeURIComponent(sid)}`
         const res = await fetch(url)
-        if (!res.ok) return
+        if (!res.ok) {
+          dbg(`${sidShort(sid)} recall: HTTP ${res.status}`)
+          return
+        }
         const data = await res.json()
         let atoms: any[] = Array.isArray(data?.atoms) ? data.atoms : []
         if (!escalated) atoms = atoms.filter((a) => CURATED.has(a.type))
@@ -438,9 +469,12 @@ export default {
           // surfaced → only those register as pending.
           for (const a of atoms.slice(0, IDX_N)) if (a?.id) markPending(unrated, String(a.id))
           sys.push({ type: "text", text })
+          dbg(`${sidShort(sid)} recall "${oneLine(query).slice(0, 60)}" escalated=${escalated} → ${Math.min(atoms.length, IDX_N)} hits injected (${unrated.size} pending total)`)
+        } else {
+          dbg(`${sidShort(sid)} recall "${oneLine(query).slice(0, 60)}" escalated=${escalated} → 0 hits after gates, nothing injected`)
         }
-      } catch {
-        // service down → no recall this turn
+      } catch (err: unknown) {
+        dbg(`${sidShort(sid)} recall FAILED: ${(err as Error)?.message ?? err} (daemon down?)`)
       }
     })
 

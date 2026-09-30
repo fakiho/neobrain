@@ -7,13 +7,16 @@ from __future__ import annotations
 
 import json
 import os
+import sqlite3
 import threading
+import time
+from collections import deque
 from contextlib import asynccontextmanager
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Optional
 
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -146,6 +149,31 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Debug page (SPEC §5 visibility): rolling trace of every /api call — who called
+# what, when, with what session and latency. In-memory only (lost on restart,
+# which is fine: it answers "is the plugin firing right now", not forensics).
+_TRACE: deque = deque(maxlen=500)
+
+
+@app.middleware("http")
+async def _trace_requests(request: Request, call_next):
+    if not request.url.path.startswith("/api/") or request.url.path == "/api/debug/requests":
+        return await call_next(request)
+    t0 = time.perf_counter()
+    response = await call_next(request)
+    _TRACE.append(
+        {
+            "ts": int(time.time() * 1000),
+            "method": request.method,
+            "path": request.url.path,
+            "query": request.url.query,
+            "status": response.status_code,
+            "ms": round((time.perf_counter() - t0) * 1000, 1),
+            "session": request.query_params.get("session") or "",
+        }
+    )
+    return response
 
 
 def _conn():
@@ -542,6 +570,112 @@ def mind_reader(group: str) -> dict:
 
 
 # --- static UI ----------------------------------------------------------
+# ---------------------------------------------------------------------------
+# Debug page (SPEC §5 visibility): one aggregate view of what the daemon and
+# the plugin actually did. Read-only, cheap, no auth change — same as the rest
+# of the read API.
+# ---------------------------------------------------------------------------
+
+
+@app.get("/api/debug/requests")
+def debug_requests(limit: int = Query(200, le=500)) -> dict:
+    return {"requests": list(_TRACE)[-limit:], "buffer": len(_TRACE), "maxlen": _TRACE.maxlen}
+
+
+@app.get("/api/debug/overview")
+def debug_overview() -> dict:
+    conn = _conn()
+    conn.row_factory = sqlite3.Row
+    now_ms_ = now_ms()
+    day_start = int(datetime.now().replace(hour=0, minute=0, second=0, microsecond=0).timestamp() * 1000)
+    one = lambda sql: conn.execute(sql).fetchone()[0]  # noqa: E731
+
+    counts = {
+        "atoms": one("SELECT COUNT(*) FROM m_atoms"),
+        "hubs": one("SELECT COUNT(*) FROM m_hubs"),
+        "edges": one("SELECT COUNT(*) FROM m_edges"),
+        "events": one("SELECT COUNT(*) FROM events"),
+        "ops_today": one(f"SELECT COUNT(*) FROM m_ops WHERE ts >= {day_start}"),
+        "feedback_24h": one(f"SELECT COUNT(*) FROM m_feedback WHERE ts >= {now_ms_ - 86_400_000}"),
+    }
+    rank_states = [dict(r) for r in conn.execute("SELECT state, COUNT(*) AS n FROM m_rank GROUP BY state ORDER BY n DESC")]
+    atom_types = [dict(r) for r in conn.execute("SELECT type, COUNT(*) AS n FROM m_atoms GROUP BY type ORDER BY n DESC")]
+
+    # Mind op log: the closest thing to a brain-side trace of the plugin lanes.
+    ops_today = [dict(r) for r in conn.execute(f"SELECT op, COUNT(*) AS n FROM m_ops WHERE ts >= {day_start} GROUP BY op ORDER BY n DESC")]
+    recent_ops = [
+        dict(r) for r in conn.execute("SELECT ts, op, atom_id, label, query, session_id FROM m_ops ORDER BY id DESC LIMIT 40")
+    ]
+    feedback = [
+        dict(r) for r in conn.execute("SELECT ts, atom_id, signal, source, session_id FROM m_feedback ORDER BY id DESC LIMIT 20")
+    ]
+    ingest = [
+        dict(r)
+        for r in conn.execute(
+            "SELECT started_at, finished_at, source, added, updated, errors, note FROM ingest_runs ORDER BY id DESC LIMIT 12"
+        )
+    ]
+
+    # Life loop: phases are due-based; state is fully derivable from the events
+    # the loop already emits (actor agent:neobrain, category life, title "life: <phase>").
+    s = config.settings
+    hour = datetime.now().hour
+    quiet_now = hour >= int(s.life_quiet_start) or hour < int(s.life_quiet_end)
+    phases = []
+    for name, interval in (
+        ("perceive", s.life_perceive_interval_minutes),
+        ("reflect", s.life_reflect_interval_minutes),
+        ("act", s.life_act_interval_minutes),
+    ):
+        row = conn.execute(
+            "SELECT ts, detail FROM events WHERE actor='agent:neobrain' AND category='life' AND title=? ORDER BY ts DESC LIMIT 1",
+            (f"life: {name}",),
+        ).fetchone()
+        last = None
+        if row:
+            detail = {}
+            try:
+                detail = json.loads(row["detail"] or "{}")
+            except Exception:
+                pass
+            last = {
+                "ts": row["ts"],
+                "summary": detail.get("summary") or "",
+                "next_due": detail.get("next_due"),
+            }
+        phases.append({"phase": name, "every_minutes": interval, "last": last})
+    last_dream = conn.execute("SELECT ts, label FROM m_ops WHERE op='dream' ORDER BY id DESC LIMIT 1").fetchone()
+
+    config_view = {
+        "life_enabled": _life_enabled(),
+        "quiet_hours": f"{s.life_quiet_start:02d}:00–{s.life_quiet_end:02d}:00",
+        "quiet_now": quiet_now,
+        "dream_hour": f"{s.life_dream_hour:02d}:00",
+        "reflect_weekday": getattr(s, "reflect_weekday", "?"),
+        "tick_seconds": s.life_tick_seconds,
+        "rank_half_life_days": s.rank_half_life_days,
+        "llm_model_cheap": s.llm_model_cheap,
+        "llm_model_strong": s.llm_model_strong,
+        "bind": s.bind,
+        "data_dir": str(config.DATA_DIR),
+    }
+    conn.close()
+    return {
+        "now": now_ms_,
+        "counts": counts,
+        "rank_states": rank_states,
+        "atom_types": atom_types,
+        "ops_today": ops_today,
+        "recent_ops": recent_ops,
+        "feedback": feedback,
+        "ingest": ingest,
+        "phases": phases,
+        "quiet_now": quiet_now,
+        "last_dream": dict(last_dream) if last_dream else None,
+        "config": config_view,
+    }
+
+
 # Built SPA lives in web/dist; mounted last so /api/* always wins.
 #
 # PORT-NOTE: the old app/ layout had the package one level under the repo root
