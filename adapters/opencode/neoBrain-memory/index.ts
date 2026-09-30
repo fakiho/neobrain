@@ -1,0 +1,454 @@
+// neoBrain memory — injects the agent's real memory into the system prompt and
+// registers read-only pull tools.
+//
+// Three lanes, modelled on OpenClaw's active-memory: the platform PUSHES memory
+// into context deterministically instead of relying on the model to call a tool,
+// and exposes the same memory for PULL when the model wants more.
+//   1. Bootstrap: identity + open loops + active areas, once per session.
+//   2. Per-turn recall: recall the user's message against the neoBrain mind and
+//      inject a compact ordered index (best hit expanded); escalated on intent.
+//   3. Tools: memory_open(id) / memory_search(query) / memory_rate(id, verdict).
+//
+// Unrated-feedback protocol (SPEC §5, new in this port): every recall/search
+// result surfaced to the model registers its atom ids as `pending`. While a
+// pending atom stays unrated past the grace window, the next mind call gets a
+// BLOCKING notice instead of results; past the timeout it auto-clears as
+// exposure with no verdict. Deterministic — no model discretion involved.
+//
+// PORT-NOTE: mechanical port of ~/.opencode/plugins/timeline-memory/index.ts
+// (timeline → neoBrain rebrand). The source had no imports and no types —
+// opencode injects the plugin API at load time — so minimal ambient types below
+// mirror that surface for a strict standalone `tsc --noEmit`; annotations were
+// added only where strict mode requires them (zero runtime change). Every
+// behavioral deviation carries its own PORT-NOTE.
+//
+// Loaded automatically from the opencode plugins directory. No-op if the
+// service is down.
+
+// PORT-NOTE: ambient declaration — this standalone check has no @types/node;
+// only `process.env` is used by the plugin.
+declare const process: { env: Record<string, string | undefined> }
+
+// --- minimal opencode plugin-API surface (see header PORT-NOTE) ---
+type ToolExecuteContext = { signal?: AbortSignal; sessionID?: string }
+type ToolResult = { content: string }
+type ToolDef = {
+  name: string
+  description: string
+  input: {
+    type: "object"
+    properties: Record<string, unknown>
+    required?: string[]
+    additionalProperties: false
+  }
+  options?: { namespace?: string; codemode?: boolean }
+  execute: (input: Record<string, unknown>, context?: ToolExecuteContext) => Promise<ToolResult>
+}
+type ToolEditor = {
+  namespace: (def: { name: string; description: string }) => void
+  add: (def: ToolDef) => void
+}
+type HookEvent = {
+  sessionID?: string
+  prompt?: { text?: string }
+  system?: { type: "text"; text: string }[]
+}
+type PluginContext = {
+  session: { hook: (name: string, fn: (event: HookEvent) => void | Promise<void>) => Promise<void> }
+  tool?: { transform: (fn: (editor: ToolEditor) => void) => Promise<void> }
+}
+
+// PORT-NOTE: env var renamed TIMELINE_API → NEOBRAIN_API; the old hardcoded
+// default was already http://127.0.0.1:9192, so the default value is unchanged.
+const API = process.env.NEOBRAIN_API ?? "http://127.0.0.1:9192"
+
+// PORT-NOTE (SPEC §5, new): protocol tuning, env-overridable.
+const GRACE_MS = ratingMs(process.env.NEOBRAIN_RATING_GRACE_SECONDS, 120)
+const TIMEOUT_MS = ratingMs(process.env.NEOBRAIN_RATING_TIMEOUT_SECONDS, 600)
+
+function ratingMs(raw: string | undefined, fallbackSeconds: number): number {
+  const n = Number(raw)
+  return Number.isFinite(n) && n > 0 ? n * 1000 : fallbackSeconds * 1000
+}
+
+// Curated types auto-inject on ordinary turns (OpenClaw restricts auto-injection
+// to its curated tier too); observations/dreams/events only surface on intent.
+const CURATED = new Set(["preference", "lesson", "decision"])
+const INTENT =
+  /\b(remind|remember|recall|last time|previously|earlier|what did (we|i)|why did (we|i)|have we|did we|decided|decisions?|lessons?|learned|memory|memories)\b/i
+
+// generic words that would otherwise make the strong-hit gate pass on anything
+const STOP = new Set([
+  "about", "after", "before", "being", "could", "doing", "every", "other", "please",
+  "short", "since", "their", "there", "these", "thing", "things", "those", "tools",
+  "until", "using", "which", "while", "would", "should", "where", "makes", "query",
+])
+
+// The per-turn block is an ordered INDEX, not an essay: up to IDX_N one-line
+// entries (rank order), then the full text of the #1 hit, capped at IDX_CHARS.
+const IDX_N = 10
+const IDX_CHARS = 2000
+const IDX_LABEL = 100
+
+// PORT-NOTE (SPEC §5, new): the unrated ledger shared by all lanes and tools —
+// atom id → Date.now() when first served without a verdict.
+type Unrated = Map<string, number>
+
+// PORT-NOTE (SPEC §5, new): register a surfaced atom as pending. The first
+// timestamp wins — re-serving an already-pending atom does not reset the clock.
+function markPending(ledger: Unrated, atomId: string) {
+  if (!ledger.has(atomId)) ledger.set(atomId, Date.now())
+}
+
+// PORT-NOTE (SPEC §5, new): auto-fallback — pending atoms older than the
+// timeout clear as "exposure with no verdict". Nothing is POSTed: the mind API
+// has no exposure endpoint (checked the timeline app/api.py routes); if S4/S6
+// adds one, only this function changes. Swept lazily on every protocol check —
+// no background timer, matching the source's timer-free style.
+function sweepExpired(ledger: Unrated) {
+  const now = Date.now()
+  for (const [id, since] of ledger) if (now - since >= TIMEOUT_MS) ledger.delete(id)
+}
+
+// PORT-NOTE (SPEC §5, new): pending ids past the grace window — these block.
+function overdue(ledger: Unrated): [string, number][] {
+  const now = Date.now()
+  const blocked: [string, number][] = []
+  for (const [id, since] of ledger) if (now - since >= GRACE_MS) blocked.push([id, now - since])
+  return blocked
+}
+
+// PORT-NOTE (SPEC §5, new): the deterministic blocking notice. Results are
+// withheld — the query is never silently dropped — and memory_rate is never
+// gated (it clears entries, so rating always unblocks).
+function blockNotice(entries: [string, number][]): string {
+  const list = entries.map(([id, ageMs]) => `- ${id} (unrated for ${Math.round(ageMs / 1000)}s)`).join("\n")
+  return [
+    `[memory protocol — BLOCKED] ${entries.length} served ${entries.length === 1 ? "memory is" : "memories are"} unrated for over ${Math.round(GRACE_MS / 1000)}s:`,
+    list,
+    `Rate each with memory_rate(id, "useful" | "noise") to unblock; unrated memories auto-clear as exposure-without-verdict after ${Math.round(TIMEOUT_MS / 1000)}s.`,
+    "This call was withheld — nothing was fetched. Retry after rating.",
+  ].join("\n")
+}
+
+// PORT-NOTE (SPEC §5, new): the deterministic gate every mind call runs first
+// (after input validation, before any fetch). Returns the notice, or null.
+function gate(ledger: Unrated): string | null {
+  sweepExpired(ledger)
+  const entries = overdue(ledger)
+  return entries.length ? blockNotice(entries) : null
+}
+
+function oneLine(s: unknown): string {
+  return String(s ?? "").replace(/\s+/g, " ").trim()
+}
+function tokens(s: unknown): string[] {
+  return [...new Set(oneLine(s).toLowerCase().match(/[a-z0-9-]{5,}/g) ?? [])].filter((t) => !STOP.has(t))
+}
+
+type WakePack = {
+  identity?: { text?: string }[]
+  open_loops?: { text?: string; label?: string }[]
+  hubs?: { label?: string; atoms?: number }[]
+}
+
+function renderPack(pack: WakePack | null) {
+  if (!pack) return null
+  const lines = []
+  const id = (pack.identity ?? []).slice(0, 6).map((p) => `- ${p.text}`)
+  const open = (pack.open_loops ?? []).slice(0, 5).map((p) => `- ${p.text ?? p.label}`)
+  const hubs = (pack.hubs ?? []).slice(0, 8).map((h) => `- ${h.label} (${h.atoms})`)
+  if (id.length) lines.push("Identity / rules:\n" + id.join("\n"))
+  if (open.length) lines.push("Open loops:\n" + open.join("\n"))
+  if (hubs.length) lines.push("Most active areas:\n" + hubs.join("\n"))
+  if (!lines.length) return null
+  return [
+    "# Memory (neoBrain)",
+    // PORT-NOTE: CLI names rebranded (timeline → neobrain) per SPEC §2.
+    'Recalled from my durable memory at wake-up. Use `neobrain recall "<query>"` for more,',
+    'and `neobrain remember "<sentence>" --type … --hubs …` when I decide or learn something durable.',
+    "",
+    lines.join("\n\n"),
+  ].join("\n")
+}
+
+type RecallAtom = { id?: string; type?: string; hub?: string; label?: string; text?: string }
+
+// Push a compact, rank-ordered index instead of up to 3 full atoms: a header,
+// one line per hit (`[id] type · hub — label`), the #1 hit's full text (truncated
+// to fit the budget) and a footer telling the agent how to pull more. No summaries.
+function renderRecall(atoms: RecallAtom[], query: string, escalated: boolean) {
+  if (!atoms || !atoms.length) return null
+  const head = "# Memory (neoBrain) — relevant to this message"
+  const sub = `Recalled for "${oneLine(query).slice(0, 160)}"${escalated ? " (deep recall)" : ""}`
+
+  const entries = atoms.slice(0, IDX_N).map(
+    (a) => `[${a.id}] ${oneLine(a.type)} · ${oneLine(a.hub)} — ${oneLine(a.label).slice(0, IDX_LABEL)}`,
+  )
+
+  const top = atoms[0]
+  const topHead = `Top hit [${top.id}] ${oneLine(top.type)} · ${oneLine(top.hub)} — ${oneLine(top.label).slice(0, IDX_LABEL)}`
+  const topText = oneLine(top.text)
+  const hint = `If a memory above helped, call memory_rate(id, "useful"); if it misled you, "noise".`
+  const footer = `showing ${entries.length} of ${atoms.length} — open one with memory_open(id), or memory_search(query) for more.`
+
+  // Reserve the fixed lines, give the remaining budget to the #1 hit's text.
+  const fixed = [head, sub, ...entries, topHead, hint, footer].join("\n").length
+  const room = Math.max(0, IDX_CHARS - fixed - 1)
+  const body = topText.length > room ? topText.slice(0, Math.max(0, room - 1)).trimEnd() + "…" : topText
+
+  return [head, sub, ...entries, topHead, body, hint, footer].join("\n")
+}
+
+// Quality signal, fire-and-forget: a feedback failure must never affect the
+// tool result or the push lanes, so nothing is awaited and errors are swallowed.
+function reportFeedback(atomId: string, signal: string, sessionId?: string) {
+  try {
+    void fetch(`${API}/api/mind/feedback`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ atom_id: atomId, signal, source: "plugin", session: sessionId }),
+    }).catch(() => {})
+  } catch {
+    // ignore
+  }
+}
+
+// Full atom + typed connections as plain text (for memory_open).
+function formatAtom(a: RecallAtom & { source?: string; tags?: string[]; weight?: number; links?: { source?: string; target?: string; type?: string }[] }) {
+  const lines = [`# [${a.id}] ${a.type} · ${a.hub} — ${oneLine(a.label)}`]
+  if (a.source) lines.push(`source: ${a.source}`)
+  if (Array.isArray(a.tags) && a.tags.length) lines.push(`tags: ${a.tags.join(", ")}`)
+  if (typeof a.weight === "number") lines.push(`weight: ${a.weight}`)
+  lines.push("", oneLine(a.text) || "(no text)")
+  const links = Array.isArray(a.links) ? a.links : []
+  if (links.length) {
+    lines.push("", "Connections:")
+    for (const l of links) {
+      const out = l.source === a.id
+      lines.push(`- ${out ? "→" : "←"} ${l.type} ${out ? l.target : l.source}`)
+    }
+  }
+  return lines.join("\n")
+}
+
+// Read-only pull tools. Best effort: a registration failure must never break the
+// push lanes, so the caller wraps this in try/catch.
+// PORT-NOTE: now receives the shared unrated ledger (SPEC §5 protocol state).
+async function registerTools(ctx: PluginContext, ledger: Unrated) {
+  // non-null: the caller guards on ctx.tool?.transform before invoking this
+  await ctx.tool!.transform((editor) => {
+    editor.namespace({ name: "memory", description: "neoBrain durable memory (read-only)" })
+
+    editor.add({
+      name: "open",
+      description: "Open a neoBrain memory atom by id; returns its full text and typed connections.",
+      input: {
+        type: "object",
+        properties: {
+          id: { type: "string", description: "Atom id from the memory index, e.g. m_ab12cd34ef56" },
+        },
+        required: ["id"],
+        additionalProperties: false,
+      },
+      options: { namespace: "memory", codemode: true },
+      execute: async (input, context) => {
+        const id = String(input?.id ?? "").trim()
+        if (!id) return { content: "memory_open: missing id" }
+        // PORT-NOTE (SPEC §5, new): mind calls are gated while overdue unrated
+        // memories exist — the notice replaces the result.
+        const blocked = gate(ledger)
+        if (blocked) return { content: blocked }
+        try {
+          const res = await fetch(`${API}/api/mind/atom/${encodeURIComponent(id)}`, { signal: context?.signal })
+          if (!res.ok) return { content: `memory_open: no atom "${id}" (HTTP ${res.status})` }
+          const text = formatAtom(await res.json())
+          reportFeedback(id, "used", context?.sessionID) // objective usage signal
+          // PORT-NOTE (SPEC §5, new): an opened atom was surfaced, so it also
+          // awaits a verdict (on top of the automatic "used" signal).
+          markPending(ledger, id)
+          return { content: text }
+        } catch (err: any) {
+          return { content: `memory_open: ${id} — ${err?.message ?? err}` }
+        }
+      },
+    })
+
+    editor.add({
+      name: "rate",
+      description:
+        "Rate a neoBrain memory as useful or noise so future recall ranking learns from it.",
+      input: {
+        type: "object",
+        properties: {
+          id: { type: "string", description: "Atom id from the memory index, e.g. m_ab12cd34ef56" },
+          verdict: {
+            type: "string",
+            enum: ["useful", "noise"],
+            description: "useful = it helped; noise = misleading or irrelevant",
+          },
+        },
+        required: ["id", "verdict"],
+        additionalProperties: false,
+      },
+      options: { namespace: "memory", codemode: true },
+      execute: async (input, context) => {
+        const id = String(input?.id ?? "").trim()
+        const verdict = String(input?.verdict ?? "").trim().toLowerCase()
+        if (!id || (verdict !== "useful" && verdict !== "noise"))
+          return { content: `memory_rate: needs an id and a verdict of "useful" or "noise"` }
+        // PORT-NOTE (SPEC §5, new): a valid verdict clears the pending entry
+        // immediately — before the POST and regardless of its outcome — so a
+        // daemon outage can never wedge the protocol shut. memory_rate itself
+        // is never gated.
+        ledger.delete(id)
+        try {
+          const res = await fetch(`${API}/api/mind/feedback`, {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({
+              atom_id: id,
+              signal: verdict,
+              source: "agent",
+              session: context?.sessionID,
+            }),
+          })
+          if (!res.ok) return { content: `memory_rate: HTTP ${res.status}` }
+          return { content: `memory_rate: recorded "${verdict}" for [${id}]` }
+        } catch (err: any) {
+          return { content: `memory_rate: ${err?.message ?? err}` }
+        }
+      },
+    })
+
+    editor.add({
+      name: "search",
+      description: "Search neoBrain durable memory; returns a ranked list of atom ids with type, hub and label.",
+      input: {
+        type: "object",
+        properties: {
+          query: { type: "string", description: "What to look for" },
+          limit: { type: "integer", minimum: 1, maximum: 25, description: "Max hits (default 10)" },
+        },
+        required: ["query"],
+        additionalProperties: false,
+      },
+      options: { namespace: "memory", codemode: true },
+      execute: async (input, context) => {
+        const q = String(input?.query ?? "").trim()
+        if (!q) return { content: "memory_search: missing query" }
+        const limit = Math.min(25, Math.max(1, Number(input?.limit) || 10))
+        // PORT-NOTE (SPEC §5, new): mind calls are gated while overdue unrated
+        // memories exist — the notice replaces the result.
+        const blocked = gate(ledger)
+        if (blocked) return { content: blocked }
+        try {
+          const res = await fetch(
+            `${API}/api/mind/recall?q=${encodeURIComponent(q)}&limit=${limit}`,
+            { signal: context?.signal },
+          )
+          if (!res.ok) return { content: `memory_search: HTTP ${res.status}` }
+          const data = await res.json()
+          const atoms: any[] = Array.isArray(data?.atoms) ? data.atoms : []
+          if (!atoms.length) return { content: `memory_search: no matches for "${q}"` }
+          // PORT-NOTE (SPEC §5, new): these hits are surfaced → register pending.
+          for (const a of atoms) if (a?.id) markPending(ledger, String(a.id))
+          const lines = atoms.map(
+            (a, i) => `${i + 1}. [${a.id}] ${oneLine(a.type)} · ${oneLine(a.hub)} — ${oneLine(a.label)}`,
+          )
+          return { content: `# Memory — "${q}" (${atoms.length} ranked hits)\n` + lines.join("\n") }
+        } catch (err: any) {
+          return { content: `memory_search: ${err?.message ?? err}` }
+        }
+      },
+    })
+  })
+}
+
+export default {
+  id: "neobrain-memory", // PORT-NOTE: rebranded plugin id (was "timeline-memory"); loading pattern unchanged.
+  async setup(ctx: PluginContext) {
+    const woken = new Set<string>()
+    const pending = new Map<string, string>() // sessionID -> the user's text for the current turn
+    const unrated: Unrated = new Map() // PORT-NOTE (SPEC §5): atom id -> first served unrated
+
+    // Capture the user's message at admission; the context hook injects it.
+    await ctx.session.hook("prompt", (event) => {
+      const sid = event?.sessionID
+      const text = oneLine(event?.prompt?.text)
+      if (sid && text) pending.set(sid, text)
+    })
+
+    await ctx.session.hook("context", async (event) => {
+      const sid = event?.sessionID
+      const sys = event?.system
+      if (!sid || !Array.isArray(sys)) return
+
+      // 1) bootstrap: identity + open loops + active areas, once per session.
+      // (PORT-NOTE: left ungated on purpose — the wakeup pack carries no atom
+      // ids, so there is nothing to register pending, and it is not a
+      // model-initiated mind call.)
+      if (!woken.has(sid)) {
+        woken.add(sid)
+        try {
+          const res = await fetch(`${API}/api/mind/wakeup?session=${encodeURIComponent(sid)}`)
+          if (res.ok) {
+            const text = renderPack(await res.json())
+            if (text) sys.push({ type: "text", text })
+          }
+        } catch {
+          // service down → no memory injection, no noise
+        }
+      }
+
+      // 2) per-turn deterministic recall (lane 1), escalated by intent (lane 2)
+      const query = pending.get(sid)
+      if (!query) return
+      pending.delete(sid)
+
+      // PORT-NOTE (SPEC §5, new): a new recall request is a mind call — under
+      // the unrated protocol it injects the blocking notice instead of results.
+      // The turn's query is consumed (not re-queued); the model can retry via
+      // memory_search or the next turn after rating.
+      const blocked = gate(unrated)
+      if (blocked) {
+        sys.push({ type: "text", text: blocked })
+        return
+      }
+
+      const escalated = INTENT.test(query)
+      const want = tokens(query)
+      try {
+        const url =
+          `${API}/api/mind/recall?q=${encodeURIComponent(query.slice(0, 300))}` +
+          `&limit=${escalated ? 25 : 15}&session=${encodeURIComponent(sid)}`
+        const res = await fetch(url)
+        if (!res.ok) return
+        const data = await res.json()
+        let atoms: any[] = Array.isArray(data?.atoms) ? data.atoms : []
+        if (!escalated) atoms = atoms.filter((a) => CURATED.has(a.type))
+        // strong-hit gate: require a meaningful (>=5 char) query token in the atom
+        atoms = atoms.filter((a) => {
+          const hay = oneLine(`${a.label} ${a.text}`).toLowerCase()
+          return want.some((t) => hay.includes(t))
+        })
+        const text = renderRecall(atoms, query, escalated)
+        if (text) {
+          // PORT-NOTE (SPEC §5, new): only the rendered index entries are
+          // surfaced → only those register as pending.
+          for (const a of atoms.slice(0, IDX_N)) if (a?.id) markPending(unrated, String(a.id))
+          sys.push({ type: "text", text })
+        }
+      } catch {
+        // service down → no recall this turn
+      }
+    })
+
+    // 3) read-only pull tools (memory_open / memory_search)
+    try {
+      if (ctx.tool?.transform) await registerTools(ctx, unrated)
+    } catch (err: any) {
+      console.error("[neobrain-memory] tool registration failed:", err?.message ?? err)
+    }
+  },
+}
