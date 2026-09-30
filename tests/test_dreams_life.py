@@ -68,7 +68,7 @@ def titles(conn):
 
 
 def test_dream_hour_runs_dreams_once_per_night(tmp_path, stub_dreams, monkeypatch):
-    monkeypatch.setattr(config.settings, "reflect_weekday", 6)  # Sunday; now is Wed
+    monkeypatch.setattr(config.settings, "reflect_weekdays", "6")  # Sunday; now is Wed
     instance, clock = make_loop(tmp_path, WEDNESDAY)
     try:
         first = instance.tick()
@@ -85,7 +85,7 @@ def test_dream_hour_runs_dreams_once_per_night(tmp_path, stub_dreams, monkeypatc
 
 
 def test_reflect_not_run_on_other_weekdays(tmp_path, stub_dreams, monkeypatch):
-    monkeypatch.setattr(config.settings, "reflect_weekday", 6)
+    monkeypatch.setattr(config.settings, "reflect_weekdays", "6")
     instance, _clock = make_loop(tmp_path, WEDNESDAY)
     try:
         result = instance.tick()
@@ -96,7 +96,7 @@ def test_reflect_not_run_on_other_weekdays(tmp_path, stub_dreams, monkeypatch):
 
 
 def test_reflect_runs_on_configured_weekday_once(tmp_path, stub_dreams, monkeypatch):
-    monkeypatch.setattr(config.settings, "reflect_weekday", 6)
+    monkeypatch.setattr(config.settings, "reflect_weekdays", "6")
     instance, clock = make_loop(tmp_path, SUNDAY)
     try:
         result = instance.tick()
@@ -112,7 +112,7 @@ def test_reflect_runs_on_configured_weekday_once(tmp_path, stub_dreams, monkeypa
 
 
 def test_reflect_weekday_is_configurable(tmp_path, stub_dreams, monkeypatch):
-    monkeypatch.setattr(config.settings, "reflect_weekday", 2)  # Wednesday
+    monkeypatch.setattr(config.settings, "reflect_weekdays", "2")  # Wednesday
     instance, _clock = make_loop(tmp_path, WEDNESDAY)
     try:
         result = instance.tick()
@@ -123,7 +123,7 @@ def test_reflect_weekday_is_configurable(tmp_path, stub_dreams, monkeypatch):
 
 
 def test_life_emits_markers_when_runners_do_not(tmp_path, stub_dreams, monkeypatch):
-    monkeypatch.setattr(config.settings, "reflect_weekday", 6)
+    monkeypatch.setattr(config.settings, "reflect_weekdays", "6")
     instance, _clock = make_loop(tmp_path, SUNDAY)
     try:
         instance.tick()

@@ -679,7 +679,7 @@ def debug_overview() -> dict:
         "quiet_hours": f"{s.life_quiet_start:02d}:00–{s.life_quiet_end:02d}:00",
         "quiet_now": quiet_now,
         "dream_hour": f"{s.life_dream_hour:02d}:00",
-        "reflect_weekday": getattr(s, "reflect_weekday", "?"),
+        "reflect_weekdays": getattr(s, "reflect_weekdays", "?"),
         "tick_seconds": s.life_tick_seconds,
         "rank_half_life_days": s.rank_half_life_days,
         "llm_model_cheap": s.llm_model_cheap,

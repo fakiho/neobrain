@@ -45,7 +45,7 @@ def workspace(tmp_path, monkeypatch):
         encoding="utf-8",
     )
     monkeypatch.setattr(config, "WORKSPACE", ws)
-    monkeypatch.setattr(config.settings, "reflect_weekday", 6)
+    monkeypatch.setattr(config.settings, "reflect_weekdays", "6")
     return ws
 
 
@@ -94,7 +94,7 @@ def test_reflect_is_once_per_day(conn, workspace):
 
 
 def test_reflect_weekday_is_configurable(conn, workspace, monkeypatch):
-    monkeypatch.setattr(config.settings, "reflect_weekday", 2)  # Wednesday
+    monkeypatch.setattr(config.settings, "reflect_weekdays", "2")  # Wednesday
     rt = FakeRuntime([REPLY])
     result = dreams.reflect(conn, rt, now=WEDNESDAY)
 

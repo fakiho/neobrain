@@ -234,6 +234,7 @@ def test_dream_hook_runs_dreams_once_per_night(loop, monkeypatch):
         return {"status": "ok", "date": "2026-09-30"}
 
     monkeypatch.setattr(dreams, "run", fake_run)
+    monkeypatch.setattr(config.settings, "reflect_weekdays", "6")  # keep reflect off this Wed clock
     clock.dt = clock.dt.replace(hour=2)  # dream hour, and quiet
     first = instance.tick()
     assert first["ran"] == ["perceive", "dream"]

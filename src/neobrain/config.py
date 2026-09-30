@@ -99,7 +99,7 @@ class Settings(BaseSettings):
     # --- dreams / reflect (SPEC §4.4/4.5) ---
     # Empty -> WORKSPACE/DREAMS.md when a workspace is set, else DATA_DIR/DREAMS.md.
     dreams_file: str = ""
-    reflect_weekday: int = 6         # 0=Mon … 6=Sun (old system: Sunday 04:00)
+    reflect_weekdays: str = "0,2,5"  # 0=Mon … 6=Sun; soul-reflect days (Mon/Wed/Sat, user set 2026-09-30)
 
     # --- daemon bind (API + dashboard) ---
     bind: str = "0.0.0.0:9192"
@@ -115,6 +115,15 @@ class Settings(BaseSettings):
 
 
 settings = Settings()
+
+
+def reflect_days() -> set[int]:
+    """Weekdays (0=Mon … 6=Sun) the soul-reflect may run on (SPEC §4.5)."""
+    days = {
+        int(p.strip()) for p in settings.reflect_weekdays.split(",")
+        if p.strip().isdigit() and int(p.strip()) <= 6
+    }
+    return days or {6}
 
 # --- resolved paths -----------------------------------------------------
 DATA_DIR = settings.data_dir.expanduser().resolve()
