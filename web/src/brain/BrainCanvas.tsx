@@ -242,6 +242,8 @@ export function BrainCanvas({ nodes, links, timeEnd, selected, onSelect, onHover
   const layRef = useRef<Layout | null>(null)
   const sigRef = useRef('')
   const hubSigRef = useRef('')
+  const needFitRef = useRef(true)     // fit wanted but not yet applied (waits for data + real size)
+  const userMovedRef = useRef(false)  // user zoomed/panned: auto-fit stands down until dblclick
   const tf = useRef({ k: 1, x: 0, y: 0 })
   const sizeRef = useRef({ w: 800, h: 600 })
   const ptrs = useRef<Map<number, { x: number; y: number }>>(new Map())
@@ -287,6 +289,7 @@ export function BrainCanvas({ nodes, links, timeEnd, selected, onSelect, onHover
     const hubSig = nodes.filter((n) => n.kind === 'hub').map((n) => n.id).sort().join(',')
     if (hubSig !== hubSigRef.current) {
       hubSigRef.current = hubSig
+      needFitRef.current = true
       requestAnimationFrame(() => fit())
     }
   }, [nodes, links])
@@ -305,7 +308,7 @@ export function BrainCanvas({ nodes, links, timeEnd, selected, onSelect, onHover
       cv.style.width = r.width + 'px'
       cv.style.height = r.height + 'px'
       // keep the graph framed when the viewport changes
-      if (Math.abs(r.width - prev.w) > 0.5 || Math.abs(r.height - prev.h) > 0.5) requestAnimationFrame(() => fit())
+      if (Math.abs(r.width - prev.w) > 0.5 || Math.abs(r.height - prev.h) > 0.5) { needFitRef.current = true; requestAnimationFrame(() => fit()) }
     }
     apply()
     const ro = new ResizeObserver(apply)
@@ -333,6 +336,7 @@ export function BrainCanvas({ nodes, links, timeEnd, selected, onSelect, onHover
     tf.current.k = k
     tf.current.x = left + availW / 2 - ((mnx + mxx) / 2) * k
     tf.current.y = top + availH / 2 - ((mny + mxy) / 2) * k
+    needFitRef.current = false
   }
   useEffect(() => { fit() }, [fitSignal, insetTop, insetBottom, insetLeft, insetRight]) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -354,7 +358,14 @@ export function BrainCanvas({ nodes, links, timeEnd, selected, onSelect, onHover
   // animation loop
   useEffect(() => {
     let raf = 0
-    const loop = () => { draw(); raf = requestAnimationFrame(loop) }
+    const loop = () => {
+      // The initial fit only sticks once the graph fetch AND the real viewport
+      // size have both landed; either can win the race (a rAF between the two
+      // made fit() no-op and left the view at k=1, origin top-left). Retry
+      // until it applies.
+      if (needFitRef.current && !userMovedRef.current) fit()
+      draw(); raf = requestAnimationFrame(loop)
+    }
     const start = () => { if (!document.hidden && !raf) raf = requestAnimationFrame(loop) }
     const stop = () => { if (raf) cancelAnimationFrame(raf); raf = 0 }
     start()
@@ -717,6 +728,7 @@ export function BrainCanvas({ nodes, links, timeEnd, selected, onSelect, onHover
       tf.current.x = a[0].x - ((a[0].x - tf.current.x) / tf.current.k) * k2
       tf.current.y = a[0].y - ((a[0].y - tf.current.y) / tf.current.k) * k2
       tf.current.k = k2
+      userMovedRef.current = true
       return
     }
     const d = drag.current
@@ -725,6 +737,7 @@ export function BrainCanvas({ nodes, links, timeEnd, selected, onSelect, onHover
       const thr = e.pointerType === 'touch' ? 10 : 2
       if (!d.moved && Math.abs(dx) + Math.abs(dy) > thr) d.moved = true
       if (d.moved) {
+        userMovedRef.current = true
         if (d.node) {
           const wdx = dx / tf.current.k, wdy = dy / tf.current.k
           d.node.x += wdx; d.node.y += wdy
@@ -759,12 +772,13 @@ export function BrainCanvas({ nodes, links, timeEnd, selected, onSelect, onHover
     tf.current.x = px - ((px - tf.current.x) / tf.current.k) * k2
     tf.current.y = py - ((py - tf.current.y) / tf.current.k) * k2
     tf.current.k = k2
+    userMovedRef.current = true
   }
 
   const hoverNode = hoverTip.current ? nodes.find((n) => n.id === hoverTip.current!.id) : null
 
   return (
-    <div ref={wrapRef} onDoubleClick={fit} style={{ position: 'absolute', inset: 0 }}>
+    <div ref={wrapRef} onDoubleClick={() => { userMovedRef.current = false; fit() }} style={{ position: 'absolute', inset: 0 }}>
       <canvas
         ref={canvasRef}
         onPointerDown={onPointerDown}
