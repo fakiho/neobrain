@@ -648,6 +648,32 @@ def debug_overview() -> dict:
         phases.append({"phase": name, "every_minutes": interval, "last": last})
     last_dream = conn.execute("SELECT ts, label FROM m_ops WHERE op='dream' ORDER BY id DESC LIMIT 1").fetchone()
 
+    # Self / Soul trace: what the agent did to itself. Every ingest versions the
+    # persona docs (IDENTITY/SOUL/USER/AGENTS) and the mind stores the agent's
+    # preference rules — the MRI view of self-maintenance.
+    self_docs = [
+        dict(r)
+        for r in conn.execute(
+            "SELECT doc_path, ts, content_hash FROM doc_versions WHERE "
+            "doc_path LIKE '%AGENTS.md' OR doc_path LIKE '%USER.md' OR doc_path LIKE '%SOUL.md' OR doc_path LIKE '%IDENTITY.md' "
+            "ORDER BY ts DESC LIMIT 12"
+        )
+    ]
+    self_doc_counts = [
+        dict(r)
+        for r in conn.execute(
+            "SELECT doc_path, COUNT(*) AS versions, MAX(ts) AS last_ts FROM doc_versions WHERE "
+            "doc_path LIKE '%AGENTS.md' OR doc_path LIKE '%USER.md' OR doc_path LIKE '%SOUL.md' OR doc_path LIKE '%IDENTITY.md' "
+            "GROUP BY doc_path"
+        )
+    ]
+    prefs = [
+        dict(r)
+        for r in conn.execute(
+            "SELECT id, substr(label, 1, 90) AS label, created FROM m_atoms WHERE type='preference' ORDER BY created DESC LIMIT 8"
+        )
+    ]
+
     config_view = {
         "life_enabled": _life_enabled(),
         "quiet_hours": f"{s.life_quiet_start:02d}:00–{s.life_quiet_end:02d}:00",
@@ -674,6 +700,7 @@ def debug_overview() -> dict:
         "phases": phases,
         "quiet_now": quiet_now,
         "last_dream": dict(last_dream) if last_dream else None,
+        "self_trace": {"docs": self_docs, "doc_counts": self_doc_counts, "preferences": prefs},
         "config": config_view,
     }
 
