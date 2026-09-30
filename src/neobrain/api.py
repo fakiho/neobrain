@@ -158,7 +158,9 @@ _TRACE: deque = deque(maxlen=500)
 
 @app.middleware("http")
 async def _trace_requests(request: Request, call_next):
-    if not request.url.path.startswith("/api/") or request.url.path == "/api/debug/requests":
+    # Skip non-API and the debug page's own polling: it refreshes every 5s and
+    # would drown the plugin lanes the trace exists to watch.
+    if not request.url.path.startswith("/api/") or request.url.path.startswith("/api/debug"):
         return await call_next(request)
     t0 = time.perf_counter()
     response = await call_next(request)
