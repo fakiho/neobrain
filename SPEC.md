@@ -181,6 +181,6 @@ commands; no sudo in any phase.
 | S3 | opencode plugin port + unrated protocol | done (tsc clean + mocked-fetch smoke) |
 | S4 | `rank.py` + exposure counters + eviction/archive job | done (calibrated in review) |
 | S5 | Life loop + native LLM runtime (`life.py`, `runtime.py`) | done (validated) |
-| S6 | `api.py` + `cli.py` + `ingest/` wiring | pending |
+| S6 | `api.py` + `cli.py` + `ingest/` wiring; **hardening: booting a brand-new empty mind must be announced (dashboard-visible event), never silent** (found in real-data validation: a wrong data-dir path silently auto-creates an empty DB) | pending |
 | S7 | Parity tests vs oracle + DB migration from timeline.db + cutover | pending |
 | S8 | npm launcher + PyInstaller packaging | pending |
