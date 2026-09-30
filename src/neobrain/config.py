@@ -24,10 +24,21 @@ except Exception:  # pragma: no cover - dotenv is optional for ingest
     pass
 
 
+# The CLI must resolve the same mind as the daemon: read the repo .env from
+# any CWD (before this, a bare `neobrain remember` outside the daemon env
+# silently wrote to a stray <cwd>/data/neobrain.db). Real environment
+# variables still take precedence over the file.
+_REPO_ENV = Path(__file__).resolve().parents[2] / ".env"
+
+
 class Settings(BaseSettings):
     """neoBrain configuration, read from ``NEOBRAIN_*`` environment variables."""
 
-    model_config = SettingsConfigDict(env_prefix="NEOBRAIN_", extra="ignore")
+    model_config = SettingsConfigDict(
+        env_prefix="NEOBRAIN_",
+        extra="ignore",
+        env_file=str(_REPO_ENV) if _REPO_ENV.exists() else None,
+    )
 
     # --- data ---
     # PORT-NOTE: old default was <repo>/data; now cwd-relative per SPEC S1.

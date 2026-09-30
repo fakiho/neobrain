@@ -35,6 +35,11 @@ export function DreamsView({ onOpen }: { onOpen: (id: string) => void }) {
     return () => { alive = false; window.clearInterval(t) }
   }, [])
 
+  // Only nights with an actual dream text count — reflect-phase consolidation
+  // stubs (promoted patterns, no narrative) stay off the page until the 02:00
+  // rest phase writes the real texts.
+  const nights = dreams.filter((d) => !!(d.narrative || d.light || d.deep))
+
   return (
     <div className="dreams">
       <header className="dreams-head">
@@ -44,19 +49,19 @@ export function DreamsView({ onOpen }: { onOpen: (id: string) => void }) {
             Dreams
           </h1>
           <p className="muted">
-            What the agent consolidated while it slept — {dreams.length} night{dreams.length === 1 ? '' : 's'} on record.
+            What the agent consolidated while it slept — {nights.length} night{nights.length === 1 ? '' : 's'} on record.
             Open a night in the Brain to see what it touched.
           </p>
         </div>
       </header>
 
       {loading && <div className="muted" style={{ padding: 20 }}>loading…</div>}
-      {!loading && dreams.length === 0 && (
-        <div className="muted" style={{ padding: 20 }}>No dreams yet. The routine runs nightly at 03:30.</div>
+      {!loading && nights.length === 0 && (
+        <div className="muted" style={{ padding: 20 }}>No dreams yet. The routine runs nightly at 02:00.</div>
       )}
 
       <div className="nights">
-        {dreams.map((d) => (
+        {nights.map((d) => (
           <article className="night" key={d.date}>
             <div className="night-head">
               <span className="night-date mono">{d.date}</span>
