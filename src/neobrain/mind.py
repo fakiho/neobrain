@@ -176,6 +176,23 @@ def _clean(text: str) -> str:
     return re.sub(r"\s+", " ", text).strip()
 
 
+# --- standing directives (pinned persona rules) --------------------------
+# A USER.md/SOUL.md bullet carrying the literal ``[pin]`` (or an invisible HTML
+# ``<!-- pin -->``) marker is a must-follow rule. It stays a `preference` atom and
+# gains the ``pin`` tag — the durable flag the OpenCode adapter reads to re-inject
+# it into every model call. The marker is stripped from the stored text/label; the
+# tag is what persists.
+_PIN_RE = re.compile(r"\s*(?:\[pin\]|<!--\s*pin\s*-->)\s*", re.I)
+
+
+def _pin_tags(tags: list[str], text: str) -> tuple[list[str], str]:
+    """Split the ``[pin]`` marker out of a bullet → (tags, marker-free text)."""
+    if not _PIN_RE.search(text):
+        return tags, text
+    pinned = [*tags, "pin"] if "pin" not in tags else list(tags)
+    return pinned, _clean(_PIN_RE.sub(" ", text))
+
+
 def _add_atom(atoms: dict, atom: dict, edges: set, hubs_seen: set) -> None:
     atoms[atom["id"]] = atom
     for h in atom["_hubs"]:
@@ -339,11 +356,12 @@ def _parse_soul_sections(text: str, src: str, doc_id: str, ts: int,
                 continue  # too short to be a rule or truth
             if heading == "Subagent Delegation" and not _RULE_HINT.search(item):
                 continue  # bullets only when they read as rules
-            aid = "p_" + content_hash(f"{src}:{item}")[:12]
+            tags, text = _pin_tags(_persona_tags(heading), item)
+            aid = "p_" + content_hash(f"{src}:{text}")[:12]
             _add_linked_preference(
                 atoms, edges, hubs_seen, src=src, doc_id=doc_id, aid=aid,
-                label=f"{heading} — {_short_label(item)}", text=item, ts=ts,
-                weight=0.85, tags=_persona_tags(heading))
+                label=f"{heading} — {_short_label(text)}", text=text, ts=ts,
+                weight=0.85, tags=tags)
             captured.add(item)
     return captured
 
@@ -376,11 +394,12 @@ def _parse_identity(path: Path, atoms: dict, edges: set, hubs_seen: set) -> None
             continue
         if not re.match(r"(Always|Never|Prefer|Use|Keep|Avoid|Record|Store|Begin|Write|Update|Do not)", body, re.I):
             continue
-        aid = "p_" + content_hash(f"{src}:{body}")[:12]
+        tags, text = _pin_tags(_hubs_for(body), body)
+        aid = "p_" + content_hash(f"{src}:{text}")[:12]
         _add_atom(atoms, {
-            "id": aid, "label": body[:80], "type": "preference", "created": ts,
-            "text": body, "source": src, "tags": _hubs_for(body), "weight": 0.85,
-            "hub": "agent", "_hubs": _hubs_for(body) or ["agent"], "hash": content_hash(body),
+            "id": aid, "label": text[:80], "type": "preference", "created": ts,
+            "text": text, "source": src, "tags": tags, "weight": 0.85,
+            "hub": "agent", "_hubs": _hubs_for(body) or ["agent"], "hash": content_hash(text),
         }, edges, hubs_seen)
         edges.add((aid, doc_id, "derived-from"))
 
@@ -1058,6 +1077,49 @@ def recall(conn: sqlite3.Connection, query: str, *, limit: int = 8,
     top_label = top[0]["label"] if top else None
     log_op(conn, "recall", top_id, top_label, query, session_id)
     return {"query": query, "count": len(atoms), "atoms": atoms, "links": edges}
+
+
+def directives(conn: sqlite3.Connection, limit: int = 8) -> dict:
+    """Standing directives — pinned persona rules, re-injected on every model call.
+
+    A directive is a `preference`/`identity` atom carrying the ``pin`` tag, set by
+    a ``[pin]`` marker in USER.md/SOUL.md or by ``neobrain pin``. When nothing is
+    pinned the lane falls back to the highest-weight preferences so it is useful
+    out of the box. Deterministic order (weight, recency, id).
+    """
+    _ensure_schema(conn)
+    sql = ("SELECT id,label,text,type FROM m_atoms WHERE {where} "
+           "ORDER BY weight DESC, created DESC, id LIMIT ?")
+    rows = conn.execute(
+        sql.format(where="type IN ('preference','identity') AND "
+                         "',' || replace(coalesce(tags,''),' ','') || ',' LIKE '%,pin,%'"),
+        (limit,),
+    ).fetchall()
+    pinned = bool(rows)
+    if not rows:
+        rows = conn.execute(sql.format(where="type='preference'"), (limit,)).fetchall()
+    atoms = [{"id": r[0], "label": r[1], "text": r[2], "type": r[3]} for r in rows]
+    log_op(conn, "directives", None, f"directives x{len(atoms)}", None, None)
+    return {"pinned": pinned, "count": len(atoms), "atoms": atoms}
+
+
+def set_pin(conn: sqlite3.Connection, atom_id: str, pinned: bool = True,
+            session_id: str | None = None) -> dict:
+    """Add/remove the ``pin`` tag on an atom (the standing-directive flag)."""
+    _ensure_schema(conn)
+    row = conn.execute("SELECT tags, label FROM m_atoms WHERE id=?", (atom_id,)).fetchone()
+    if not row:
+        raise ValueError(f"unknown atom: {atom_id}")
+    tags = [t for t in (row[0] or "").split(",") if t]
+    had = "pin" in tags
+    if pinned and not had:
+        tags.append("pin")
+    elif not pinned and had:
+        tags.remove("pin")
+    conn.execute("UPDATE m_atoms SET tags=? WHERE id=?", (",".join(tags), atom_id))
+    _commit(conn)
+    log_op(conn, "pin" if pinned else "unpin", atom_id, row[1], None, session_id)
+    return {"id": atom_id, "label": row[1], "pinned": pinned, "changed": had != pinned}
 
 
 def wake_up(conn: sqlite3.Connection, session_id: str | None = None) -> dict:
