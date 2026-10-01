@@ -126,6 +126,22 @@ def test_run_is_idempotent_within_the_night(conn, workspace):
     assert dreams_md.count("*September 29, 2026 at ") == 1
 
 
+def test_run_falls_back_to_other_tier_when_first_returns_markup(conn, workspace):
+    # 2026-10-01 regression: the cheap tier dumped tool-call markup as text;
+    # the phase must retry on its fallback tier instead of storing the markup.
+    markup = '<｜DSML｜ invoke name="write">…'
+    rt = FakeRuntime([markup, LIGHT, REM, DEEP_JSON])
+    result = dreams.run(conn, rt, now=NOW)
+
+    assert result["status"] == "ok"
+    assert [c["model"] for c in rt.calls] == ["cheap", "strong", "strong", "strong"]
+    root = workspace / "memory" / "dreaming"
+    light_file = root / "light" / f"{DATE}.md"
+    assert light_file.read_text(encoding="utf-8").startswith("# Light Sleep")
+    assert "DSML" not in light_file.read_text(encoding="utf-8")
+    assert result["phases"]["light"]["model"] == "strong"
+
+
 def test_run_survives_llm_down(conn, workspace):
     rt = FakeRuntime(error=RuntimeError("gateway down"))
     result = dreams.run(conn, rt, now=NOW)
