@@ -8,5 +8,5 @@
     "noEmit": true,
     "types": []
   },
-  "include": ["index.ts"]
+  "include": ["index.ts", "globals.d.ts"]
 }

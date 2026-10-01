@@ -27,6 +27,8 @@
 
 // PORT-NOTE: ambient declaration — this standalone check has no @types/node;
 // only `process.env` is used by the plugin.
+import { readFile } from "node:fs/promises"
+
 declare const process: { env: Record<string, string | undefined> }
 
 // --- minimal opencode plugin-API surface (see header PORT-NOTE) ---
@@ -387,6 +389,15 @@ async function registerTools(ctx: PluginContext, ledger: Unrated) {
   })
 }
 
+// Persona docs injected once per session (caps per OpenClaw's bootstrap:
+// 20k chars/file, 60k total, USER.md 4k).
+const PERSONA_FILES = [
+  { name: "SOUL.md", path: `${process.env.OPENCODE_WORKSPACE ?? "/home/sparo"}/SOUL.md`, cap: 20000 },
+  { name: "IDENTITY.md", path: `${process.env.OPENCODE_WORKSPACE ?? "/home/sparo"}/IDENTITY.md`, cap: 20000 },
+  { name: "USER.md", path: `${process.env.OPENCODE_WORKSPACE ?? "/home/sparo"}/USER.md`, cap: 4000 },
+]
+const PERSONA_TOTAL_CAP = 60000
+
 export default {
   id: "neobrain-memory", // PORT-NOTE: rebranded plugin id (was "timeline-memory"); loading pattern unchanged.
   async setup(ctx: PluginContext) {
@@ -394,6 +405,7 @@ export default {
     const woken = new Set<string>()
     const pending = new Map<string, string>() // sessionID -> the user's text for the current turn
     const unrated: Unrated = new Map() // PORT-NOTE (SPEC §5): atom id -> first served unrated
+    const personaDone = new Set<string>() // sessionID -> persona docs already injected
 
     // Capture the user's message at admission; the context hook injects it.
     await ctx.session.hook("prompt", (event) => {
@@ -425,6 +437,37 @@ export default {
           } else dbg(`${sidShort(sid)} wakeup: HTTP ${res.status}`)
         } catch (err: unknown) {
           dbg(`${sidShort(sid)} wakeup FAILED: ${(err as Error)?.message ?? err} (daemon down? no injection this session)`)
+        }
+      }
+
+      // persona lane (merged from the former standalone persona-bootstrap
+      // plugin, 2026-10-01): inject the workspace persona docs once per
+      // session — OpenClaw parity for the files OpenCode doesn't load
+      // natively (AGENTS.md only). Local file I/O, deliberately independent
+      // of the daemon so it survives downtime.
+      if (!personaDone.has(sid)) {
+        personaDone.add(sid)
+        const parts: string[] = []
+        let total = 0
+        for (const f of PERSONA_FILES) {
+          let text
+          try {
+            text = (await readFile(f.path, "utf8")).trim()
+          } catch {
+            continue // missing/unreadable → skip, never break the session
+          }
+          if (!text) continue
+          const room = PERSONA_TOTAL_CAP - total
+          if (room <= 0) break
+          let body = text.length > f.cap ? text.slice(0, f.cap) + "\n…[truncated]" : text
+          if (body.length > room) body = body.slice(0, room) + "\n…[truncated]"
+          total += body.length
+          parts.push(`## ${f.name}\n${body}`)
+        }
+        if (parts.length) {
+          const text = "# Identity / persona (workspace bootstrap)\n" + parts.join("\n\n")
+          sys.push({ type: "text", text })
+          dbg(`${sidShort(sid)} persona: injected (${text.length} chars)`)
         }
       }
 
