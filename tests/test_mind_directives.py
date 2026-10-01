@@ -96,3 +96,31 @@ def test_directives_and_pin_api(tmp_path, monkeypatch):
 
         missing = client.post("/api/mind/pin", json={"atom_id": "m_nope"})
         assert missing.status_code == 400
+
+
+def test_debug_injections_ring_roundtrip(tmp_path, monkeypatch):
+    """The plugin reports each push here; the Debug page reads it back."""
+    monkeypatch.setattr(config, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(config, "DB_PATH", tmp_path / "neobrain.db")
+    monkeypatch.setattr(config.settings, "life_enabled", "0")
+    with TestClient(app) as client:
+        assert client.get("/api/debug/injections").json()["injections"] == []
+
+        post = client.post(
+            "/api/debug/injections",
+            json={
+                "session": "ses_x",
+                "lane": "directives",
+                "stage": "compaction",
+                "chars": 749,
+                "note": "summary request",
+            },
+        )
+        assert post.status_code == 200 and post.json()["buffered"] == 1
+
+        client.post("/api/debug/injections", json={"lane": "wakeup", "chars": 2908})
+        body = client.get("/api/debug/injections?limit=10").json()
+        assert len(body["injections"]) == 2
+        assert body["injections"][0]["lane"] == "directives"
+        assert body["injections"][0]["stage"] == "compaction"
+        assert body["injections"][1]["stage"] == "context"  # defaulted

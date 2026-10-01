@@ -264,6 +264,26 @@ async function fetchDirectives(): Promise<string | null> {
   }
 }
 
+// Lane injection report, fire-and-forget: the daemon cannot see what the plugin
+// pushes into the system prompt (its one blind spot), so every injection is
+// POSTed to the debug ring for the Observatory's Injections panel. A debug
+// failure must never affect a lane — same contract as reportFeedback.
+function reportInjection(lane: string, stage: string, chars: number, sessionId?: string, note?: string) {
+  try {
+    void fetch(`${API}/api/debug/injections`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ session: sessionId, lane, stage, chars, note }),
+    })
+      .then((r) => {
+        if (!r.ok) dbg(`injection report FAILED ${lane}: HTTP ${r.status}`)
+      })
+      .catch((e: unknown) => dbg(`injection report FAILED ${lane}: ${(e as Error)?.message ?? e}`))
+  } catch {
+    // ignore
+  }
+}
+
 // Quality signal, fire-and-forget: a feedback failure must never affect the
 // tool result or the push lanes, so nothing is awaited and errors are swallowed.
 function reportFeedback(atomId: string, signal: string, sessionId?: string) {
@@ -476,6 +496,7 @@ export default {
       if (!d) return
       sys.push({ type: "text", text: d })
       dbg(`${sidShort(sid)} directives: injected @${stage} (${d.length} chars)${reason}${DIRECTIVES_EVERY_TURN ? "" : " (once)"}`)
+      reportInjection("directives", stage, d.length, sid, stage === "compaction" ? "summary request" : reason ? "post-compaction" : undefined)
     }
 
     // Capture the user's message at admission; the context hook injects it.
@@ -506,6 +527,7 @@ export default {
             if (text) {
               sys.push({ type: "text", text })
               dbg(`${sidShort(sid)} wakeup: pack injected (${text.length} chars)${reason}`)
+              reportInjection("wakeup", "context", text.length, sid, reason ? "post-compaction" : undefined)
             } else dbg(`${sidShort(sid)} wakeup: pack empty — nothing injected`)
           } else dbg(`${sidShort(sid)} wakeup: HTTP ${res.status}`)
         } catch (err: unknown) {
@@ -541,6 +563,7 @@ export default {
           const text = "# Identity / persona (workspace bootstrap)\n" + parts.join("\n\n")
           sys.push({ type: "text", text })
           dbg(`${sidShort(sid)} persona: injected (${text.length} chars)${reason}`)
+          reportInjection("persona", "context", text.length, sid, reason ? "post-compaction" : undefined)
         }
       }
 
@@ -563,6 +586,7 @@ export default {
       if (blocked) {
         dbg(`${sidShort(sid)} recall BLOCKED by unrated protocol (${unrated.size} pending) — notice injected, query "${oneLine(query).slice(0, 60)}" dropped`)
         sys.push({ type: "text", text: blocked })
+        reportInjection("notice", "context", blocked.length, sid, "unrated-gate")
         return
       }
 
@@ -592,6 +616,7 @@ export default {
           for (const a of atoms.slice(0, IDX_N)) if (a?.id) markPending(unrated, String(a.id))
           sys.push({ type: "text", text })
           dbg(`${sidShort(sid)} recall "${oneLine(query).slice(0, 60)}" escalated=${escalated} → ${Math.min(atoms.length, IDX_N)} hits injected (${unrated.size} pending total)`)
+          reportInjection("recall", "context", text.length, sid, escalated ? "deep" : undefined)
         } else {
           dbg(`${sidShort(sid)} recall "${oneLine(query).slice(0, 60)}" escalated=${escalated} → 0 hits after gates, nothing injected`)
         }

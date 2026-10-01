@@ -16,6 +16,15 @@ type Req = {
   session: string
 }
 
+type Inj = {
+  ts: number
+  session: string | null
+  lane: string
+  stage: string
+  chars: number
+  note: string | null
+}
+
 type Overview = {
   now: number
   counts: Record<string, number>
@@ -64,6 +73,16 @@ const OP_COLOR: Record<string, string> = {
   forget: '#e08585',
 }
 
+// The plugin's push lanes — what it injected into the model's system prompt.
+// The daemon never witnesses these directly; the plugin reports them.
+const INJ_COLOR: Record<string, string> = {
+  wakeup: '#8fb3ff',
+  persona: '#c39be0',
+  directives: '#7fd18a',
+  recall: '#e8c66b',
+  notice: '#e08585',
+}
+
 const statusColor = (s: number) => (s < 300 ? '#7fd18a' : s < 400 ? 'var(--text-muted)' : '#e08585')
 
 // Which producer made this call — the OpenCode plugin (wakeup/recall/feedback),
@@ -78,6 +97,7 @@ const laneTag = (r: Req) =>
 export function DebugView() {
   const [ov, setOv] = useState<Overview | null>(null)
   const [reqs, setReqs] = useState<Req[]>([])
+  const [injs, setInjs] = useState<Inj[]>([])
   const [err, setErr] = useState(false)
 
   useEffect(() => {
@@ -86,6 +106,10 @@ export function DebugView() {
       fetch('/api/debug/requests?limit=200')
         .then((r) => (r.ok ? r.json() : Promise.reject(new Error('x'))))
         .then((d) => alive && setReqs(d.requests ?? []))
+        .catch(() => alive && setErr(true))
+      fetch('/api/debug/injections?limit=200')
+        .then((r) => (r.ok ? r.json() : Promise.reject(new Error('x'))))
+        .then((d) => alive && setInjs(d.injections ?? []))
         .catch(() => alive && setErr(true))
       fetch('/api/debug/overview')
         .then((r) => (r.ok ? r.json() : Promise.reject(new Error('x'))))
@@ -121,7 +145,8 @@ export function DebugView() {
           </h1>
           <p className="muted">
             What the brain and the plugin actually did — live, refreshed every 5s.
-            {' '}«plugin» rows are the OpenCode lanes (wakeup / recall / feedback) hitting the mind API.
+            {' '}«plugin» rows are the OpenCode lanes (wakeup / recall / feedback) hitting the mind API;
+            {' '}lane injections are what the plugin pushed into the model's prompt.
           </p>
         </div>
         <span className={`flag${err ? '' : ' on'}`}>{err ? 'daemon unreachable' : 'live · 5s'}</span>
@@ -167,6 +192,36 @@ export function DebugView() {
                 </tr>
               </tbody>
             </table>
+          </section>
+
+          {/* ---- lane injections (client-side pushes) ---- */}
+          <section className="dbg-card">
+            <h5>
+              Lane injections — what the plugin pushed into the prompt ({injs.length})
+              <span className="muted" style={{ fontWeight: 400 }}> · newest first · reported over HTTP, so it survives the journal</span>
+            </h5>
+            <div className="dbg-scroll">
+              <table className="dbg-table">
+                <thead>
+                  <tr><th>time</th><th>lane</th><th>stage</th><th>chars</th><th>session</th><th>note</th></tr>
+                </thead>
+                <tbody>
+                  {[...injs].reverse().map((r, i) => (
+                    <tr key={`${r.ts}-${i}`}>
+                      <td className="mono">{clock(r.ts)}</td>
+                      <td><span className="dbg-op" style={{ color: INJ_COLOR[r.lane] || 'var(--text-muted)' }}>{r.lane}</span></td>
+                      <td className="mono">@{r.stage}</td>
+                      <td className="mono">{r.chars}</td>
+                      <td className="mono">{shortSid(r.session)}</td>
+                      <td className="muted">{r.note || ''}</td>
+                    </tr>
+                  ))}
+                  {injs.length === 0 && (
+                    <tr><td colSpan={6} className="muted">nothing reported yet — needs the updated plugin (one OpenCode restart) and a new session.</td></tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
           </section>
 
           {/* ---- live trace ---- */}
