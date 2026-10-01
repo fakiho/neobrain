@@ -453,6 +453,30 @@ export default {
     const personaDone = new Set<string>() // sessionID -> persona docs already injected
     const directivesText = new Map<string, string | null>() // sessionID -> rendered standing directives
     const directivesDone = new Set<string>() // sessionID -> directive block already injected (EVERY_TURN=0 only)
+    const postCompact = new Set<string>() // sessionID -> compaction ran, next context call re-injects
+
+    // Push the standing-directives block, logging the stage it landed in:
+    //   @context    — a normal agent-loop call (the reply itself)
+    //   @compaction — the summary request, so the rules survive the compact
+    // The once-per-session guard only applies to normal calls: the compaction
+    // request is a separate model call that must always carry the rules.
+    const pushDirectives = async (
+      sid: string,
+      sys: NonNullable<HookEvent["system"]>,
+      stage: "context" | "compaction",
+      reason = "",
+    ) => {
+      if (!DIRECTIVES_EVERY_TURN && stage !== "compaction" && directivesDone.has(sid)) return
+      directivesDone.add(sid)
+      let d = directivesText.get(sid)
+      if (d === undefined) {
+        d = await fetchDirectives()
+        directivesText.set(sid, d)
+      }
+      if (!d) return
+      sys.push({ type: "text", text: d })
+      dbg(`${sidShort(sid)} directives: injected @${stage} (${d.length} chars)${reason}${DIRECTIVES_EVERY_TURN ? "" : " (once)"}`)
+    }
 
     // Capture the user's message at admission; the context hook injects it.
     await ctx.session.hook("prompt", (event) => {
@@ -465,6 +489,8 @@ export default {
       const sid = event?.sessionID
       const sys = event?.system
       if (!sid || !Array.isArray(sys)) return
+      // Read-and-clear: only the first call after a compaction reports the reason.
+      const reason = postCompact.delete(sid) ? " (post-compaction)" : ""
 
       // 1) bootstrap: identity + open loops + active areas, once per session.
       // (PORT-NOTE: left ungated on purpose — the wakeup pack carries no atom
@@ -479,7 +505,7 @@ export default {
             const text = renderPack(await res.json())
             if (text) {
               sys.push({ type: "text", text })
-              dbg(`${sidShort(sid)} wakeup: pack injected (${text.length} chars)`)
+              dbg(`${sidShort(sid)} wakeup: pack injected (${text.length} chars)${reason}`)
             } else dbg(`${sidShort(sid)} wakeup: pack empty — nothing injected`)
           } else dbg(`${sidShort(sid)} wakeup: HTTP ${res.status}`)
         } catch (err: unknown) {
@@ -514,7 +540,7 @@ export default {
         if (parts.length) {
           const text = "# Identity / persona (workspace bootstrap)\n" + parts.join("\n\n")
           sys.push({ type: "text", text })
-          dbg(`${sidShort(sid)} persona: injected (${text.length} chars)`)
+          dbg(`${sidShort(sid)} persona: injected (${text.length} chars)${reason}`)
         }
       }
 
@@ -522,20 +548,7 @@ export default {
       // every model call (fetched once per session, then pushed from cache).
       // Sit it before the per-turn recall so the block stays in the cacheable
       // system prefix; it is push-only and carries no rateable atom ids.
-      if (!DIRECTIVES_EVERY_TURN && directivesDone.has(sid)) {
-        // fall through — injected once for this session already
-      } else {
-        directivesDone.add(sid)
-        let d = directivesText.get(sid)
-        if (d === undefined) {
-          d = await fetchDirectives()
-          directivesText.set(sid, d)
-        }
-        if (d) {
-          sys.push({ type: "text", text: d })
-          dbg(`${sidShort(sid)} directives: injected (${d.length} chars)${DIRECTIVES_EVERY_TURN ? "" : " (once)"}`)
-        }
-      }
+      await pushDirectives(sid, sys, "context", reason)
 
       // 2) per-turn deterministic recall (lane 1), escalated by intent (lane 2)
       const query = pending.get(sid)
@@ -595,18 +608,14 @@ export default {
       const sid = event?.sessionID
       const sys = event?.system
       if (!sid || !Array.isArray(sys)) return
-      let d = directivesText.get(sid)
-      if (d === undefined) {
-        d = await fetchDirectives()
-        directivesText.set(sid, d)
-      }
-      if (d) sys.push({ type: "text", text: d })
+      await pushDirectives(sid, sys, "compaction")
       woken.delete(sid)
       personaDone.delete(sid)
       directivesDone.delete(sid)
       directivesText.delete(sid)
       pending.delete(sid)
-      dbg(`${sidShort(sid)} compaction: directives kept; persona+wakeup re-inject next turn`)
+      postCompact.add(sid)
+      dbg(`${sidShort(sid)} compaction: directives @compaction; persona+wakeup re-inject next turn`)
     })
 
     // 3) read-only pull tools (memory_open / memory_search)
