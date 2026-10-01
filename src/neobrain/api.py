@@ -615,6 +615,43 @@ def debug_requests(limit: int = Query(200, le=500)) -> dict:
     return {"requests": list(_TRACE)[-limit:], "buffer": len(_TRACE), "maxlen": _TRACE.maxlen}
 
 
+# Client-side lane pushes: the OpenCode plugin reports every injection it makes
+# into the system prompt (wakeup / persona / directives / recall / gate notice).
+# The daemon cannot observe these otherwise — they are its one blind spot — so
+# the plugin POSTs them here and the debug page renders them. In-memory ring,
+# deliberately NOT the DB: one write per model call must never fight the mind
+# for the SQLite writer lock (and /api/debug is untraced, so no self-noise).
+_INJECTIONS: deque = deque(maxlen=500)
+
+
+class InjectionBody(BaseModel):
+    session: Optional[str] = None
+    lane: str
+    stage: str = "context"  # context | compaction
+    chars: int = 0
+    note: Optional[str] = None
+
+
+@app.post("/api/debug/injections")
+def debug_injection(body: InjectionBody) -> dict:
+    _INJECTIONS.append(
+        {
+            "ts": now_ms(),
+            "session": body.session,
+            "lane": body.lane,
+            "stage": body.stage,
+            "chars": body.chars,
+            "note": body.note,
+        }
+    )
+    return {"ok": True, "buffered": len(_INJECTIONS)}
+
+
+@app.get("/api/debug/injections")
+def debug_injections(limit: int = Query(200, le=500)) -> dict:
+    return {"injections": list(_INJECTIONS)[-limit:], "buffer": len(_INJECTIONS), "maxlen": _INJECTIONS.maxlen}
+
+
 @app.get("/api/debug/overview")
 def debug_overview() -> dict:
     conn = _conn()
