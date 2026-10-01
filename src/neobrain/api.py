@@ -541,6 +541,37 @@ def mind_wakeup(session: Optional[str] = None) -> dict:
         conn.close()
 
 
+@app.get("/api/mind/directives")
+def mind_directives(limit: int = Query(8, le=25)) -> dict:
+    """Standing directives the OpenCode adapter re-injects on every model call."""
+    conn = db.connect()
+    try:
+        db.init_db(conn)
+        return mind.directives(conn, limit=limit)
+    finally:
+        conn.close()
+
+
+class PinBody(BaseModel):
+    atom_id: str
+    pinned: bool = True
+    session: Optional[str] = None
+
+
+@app.post("/api/mind/pin")
+def mind_pin(body: PinBody) -> dict:
+    """Pin/unpin an atom as a standing directive."""
+    conn = db.connect()
+    try:
+        db.init_db(conn)
+        try:
+            return mind.set_pin(conn, body.atom_id, body.pinned, body.session)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc))
+    finally:
+        conn.close()
+
+
 @app.post("/api/mind/consolidate")
 def mind_consolidate(session: Optional[str] = None) -> dict:
     conn = db.connect()

@@ -309,6 +309,21 @@ def cmd_feedback(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_directives(args: argparse.Namespace) -> int:
+    conn = db.connect()
+    db.init_db(conn)
+    print(json.dumps(mind.directives(conn, limit=args.limit), indent=2))
+    return 0
+
+
+def cmd_pin(args: argparse.Namespace) -> int:
+    conn = db.connect()
+    _retry(db.init_db, conn)
+    res = _retry(mind.set_pin, conn, args.atom_id, not args.off, _session(args))
+    print(json.dumps(res, indent=2))
+    return 0
+
+
 def cmd_embed(args: argparse.Namespace) -> int:
     conn = db.connect()
     db.init_db(conn)
@@ -407,6 +422,16 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--source")
     sp.add_argument("--session")
     sp.set_defaults(func=cmd_feedback)
+
+    sp = sub.add_parser("directives", help="show the standing directives re-injected every turn")
+    sp.add_argument("--limit", type=int, default=8)
+    sp.set_defaults(func=cmd_directives)
+
+    sp = sub.add_parser("pin", help="pin/unpin a memory as a standing directive")
+    sp.add_argument("atom_id")
+    sp.add_argument("--off", action="store_true", help="unpin instead of pin")
+    sp.add_argument("--session")
+    sp.set_defaults(func=cmd_pin)
     return p
 
 

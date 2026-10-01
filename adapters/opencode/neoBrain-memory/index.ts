@@ -92,6 +92,17 @@ const IDX_N = 10
 const IDX_CHARS = 2000
 const IDX_LABEL = 100
 
+// Standing directives (pinned preferences): the must-follow rules re-injected on
+// EVERY model call, not just at wake-up — so time, drift and compaction cannot
+// drop them. Kept tiny on purpose: a weak model ignores a long wall of context.
+// The block is stable across turns and pushed before the per-turn recall, so it
+// sits inside the cacheable system prefix. DIRECTIVES_EVERY_TURN=0 falls back to
+// once-per-session.
+const DIRECTIVES_EVERY_TURN = String(process.env.NEOBRAIN_DIRECTIVES_EVERY_TURN ?? "1") !== "0"
+const DIRECTIVES_N = Number(process.env.NEOBRAIN_DIRECTIVES_N ?? 8)
+const DIRECTIVES_CHARS = Number(process.env.NEOBRAIN_DIRECTIVES_CHARS ?? 1000)
+const DIRECTIVE_LINE = 180
+
 // PORT-NOTE (SPEC §5, new): the unrated ledger shared by all lanes and tools —
 // atom id → Date.now() when first served without a verdict.
 type Unrated = Map<string, number>
@@ -217,6 +228,40 @@ function renderRecall(atoms: RecallAtom[], query: string, escalated: boolean) {
   const body = topText.length > room ? topText.slice(0, Math.max(0, room - 1)).trimEnd() + "…" : topText
 
   return [head, sub, ...entries, topHead, body, hint, footer].join("\n")
+}
+
+type DirectiveAtom = { id?: string; label?: string; text?: string; type?: string }
+
+// Standing directives: a compact imperative block of the pinned must-follow
+// rules. Unlike the recall index this carries no atom ids the model is asked to
+// rate — it is a push-only lane (same contract as the wake-up pack), so it never
+// registers pending and never trips the unrated gate.
+function renderDirectives(pack: { pinned?: boolean; atoms?: DirectiveAtom[] } | null) {
+  const atoms = (pack?.atoms ?? []).filter((a) => oneLine(a.text))
+  if (!atoms.length) return null
+  const head = "# Standing directives (neoBrain) — follow these on every reply"
+  const note = pack?.pinned ? "" : " (none pinned yet — showing top preferences)"
+  const lines = atoms.slice(0, DIRECTIVES_N).map((a) => `- ${oneLine(a.text).slice(0, DIRECTIVE_LINE)}`)
+  const body = [head + note, ...lines].join("\n")
+  return body.length > DIRECTIVES_CHARS ? body.slice(0, DIRECTIVES_CHARS - 1).trimEnd() + "…" : body
+}
+
+async function fetchDirectives(): Promise<string | null> {
+  try {
+    const res = await fetch(`${API}/api/mind/directives?limit=${DIRECTIVES_N}`)
+    if (!res.ok) {
+      dbg(`directives: HTTP ${res.status}`)
+      return null
+    }
+    const text = renderDirectives(await res.json())
+    dbg(text
+      ? `directives: ${text.length} chars (~${Math.round(text.length / 4)} tok) ${DIRECTIVES_EVERY_TURN ? "every call" : "session"}`
+      : "directives: empty — nothing injected")
+    return text
+  } catch (err: unknown) {
+    dbg(`directives FAILED: ${(err as Error)?.message ?? err} (daemon down?)`)
+    return null
+  }
 }
 
 // Quality signal, fire-and-forget: a feedback failure must never affect the
@@ -406,6 +451,8 @@ export default {
     const pending = new Map<string, string>() // sessionID -> the user's text for the current turn
     const unrated: Unrated = new Map() // PORT-NOTE (SPEC §5): atom id -> first served unrated
     const personaDone = new Set<string>() // sessionID -> persona docs already injected
+    const directivesText = new Map<string, string | null>() // sessionID -> rendered standing directives
+    const directivesDone = new Set<string>() // sessionID -> directive block already injected (EVERY_TURN=0 only)
 
     // Capture the user's message at admission; the context hook injects it.
     await ctx.session.hook("prompt", (event) => {
@@ -471,6 +518,22 @@ export default {
         }
       }
 
+      // standing-directives lane: the pinned must-follow rules, re-injected on
+      // every model call (fetched once per session, then pushed from cache).
+      // Sit it before the per-turn recall so the block stays in the cacheable
+      // system prefix; it is push-only and carries no rateable atom ids.
+      if (!DIRECTIVES_EVERY_TURN && directivesDone.has(sid)) {
+        // fall through — injected once for this session already
+      } else {
+        directivesDone.add(sid)
+        let d = directivesText.get(sid)
+        if (d === undefined) {
+          d = await fetchDirectives()
+          directivesText.set(sid, d)
+        }
+        if (d) sys.push({ type: "text", text: d })
+      }
+
       // 2) per-turn deterministic recall (lane 1), escalated by intent (lane 2)
       const query = pending.get(sid)
       if (!query) return
@@ -519,6 +582,28 @@ export default {
       } catch (err: unknown) {
         dbg(`${sidShort(sid)} recall FAILED: ${(err as Error)?.message ?? err} (daemon down?)`)
       }
+    })
+
+    // Compaction rebuilds the transcript, but the persona and wake-up lanes are
+    // gated once-per-session — without this they would never return after a
+    // summary. Keep the standing rules visible to the summariser, and reset the
+    // once-per-session gates so the next normal call re-injects persona+wakeup.
+    await ctx.session.hook("compaction", async (event) => {
+      const sid = event?.sessionID
+      const sys = event?.system
+      if (!sid || !Array.isArray(sys)) return
+      let d = directivesText.get(sid)
+      if (d === undefined) {
+        d = await fetchDirectives()
+        directivesText.set(sid, d)
+      }
+      if (d) sys.push({ type: "text", text: d })
+      woken.delete(sid)
+      personaDone.delete(sid)
+      directivesDone.delete(sid)
+      directivesText.delete(sid)
+      pending.delete(sid)
+      dbg(`${sidShort(sid)} compaction: directives kept; persona+wakeup re-inject next turn`)
     })
 
     // 3) read-only pull tools (memory_open / memory_search)
