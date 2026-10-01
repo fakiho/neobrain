@@ -1,8 +1,12 @@
 # neoBrain-memory (OpenCode adapter)
 
-Thin OpenCode plugin: session wakeup injection, per-turn recall lane, and the
-`memory_open` / `memory_search` / `memory_rate` tools — port of
-`~/.opencode/plugins/timeline-memory/index.ts` (SPEC §8). No logic beyond protocol.
+Thin OpenCode plugin: session wakeup injection, per-turn recall lane, the
+`memory_open` / `memory_search` / `memory_rate` tools, and the persona lane —
+injects `SOUL.md` / `IDENTITY.md` / `USER.md` into the system prompt once per
+session (OpenClaw bootstrap parity; caps 20k chars/file, 60k total, USER.md 4k).
+The persona lane is local file I/O and independent of the daemon. Port of
+`~/.opencode/plugins/timeline-memory/index.ts` (SPEC §8) plus the former
+standalone `persona-bootstrap` plugin (merged 2026-10-01). No logic beyond protocol.
 
 Single file (`index.ts`), loaded automatically from the opencode plugins
 directory — same pattern as the old timeline plugin. No-op when the daemon is down.
