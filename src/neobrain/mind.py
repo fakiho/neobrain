@@ -214,7 +214,10 @@ def _parse_markdown(path: Path, category: str, atoms: dict, edges: set, hubs_see
                 continue
             raw = re.sub(r"\s*GMT[+-]\d+", "", m.group(1)).strip()
             try:
-                ts = _ms(datetime.strptime(raw, "%B %d, %Y at %I:%M %p"))
+                # The date line is local wall time (_append_dreams writes
+                # now.strftime); parse it as local so a late-evening entry
+                # groups on the night it belongs to, not the next day.
+                ts = _ms(datetime.strptime(raw, "%B %d, %Y at %I:%M %p").astimezone())
             except ValueError:
                 ts = default_ts
             body = _clean(block.replace(m.group(0), ""))

@@ -47,7 +47,11 @@ PHASES = ("light", "rem", "deep")
 # rem/deep=strong). Mapped onto settings.llm_model_cheap / llm_model_strong.
 MODEL_BY_PHASE = {"light": "cheap", "rem": "strong", "deep": "strong"}
 TEMPERATURE_BY_PHASE = {"light": 0.2, "rem": 0.9, "deep": 0.3}
-MAX_TOKENS_BY_PHASE = {"light": 700, "rem": 900, "deep": 1400}
+# rem/deep budgets are generous because the strong tier is a reasoning model:
+# it spends tokens on hidden reasoning before answering, and the first
+# in-process night (2026-10-01) returned empty content (finish_reason=length)
+# at the old 900/1400 budgets.
+MAX_TOKENS_BY_PHASE = {"light": 1200, "rem": 4000, "deep": 8000}
 
 _DIARY_START = "<!-- openclaw:dreaming:diary:start -->"
 _DIARY_END = "<!-- openclaw:dreaming:diary:end -->"
@@ -63,13 +67,15 @@ Day note ($DAYNOTE):
 $DAYNOTE_CONTENT
 
 Task:
-1. Write exactly one file: $OUT
-   with this format:
-   # Light Sleep
+Output exactly one short record as plain text, in this format (the runner
+writes it to $OUT for you — do NOT write files yourself and do NOT use
+tool-call syntax):
 
-   - bullet (max 6 bullets: the day's decisions, changes, incidents, lessons)
+# Light Sleep
 
-Constraints: do not use sudo; write ONLY $OUT; finish in under ~2 minutes.
+- bullet (max 6 bullets: the day's decisions, changes, incidents, lessons)
+
+Constraints: finish in under ~2 minutes.
 
 Wake-up pack for context:
 $WAKE
@@ -100,9 +106,9 @@ Rules:
 - Output ONLY the diary entry. No preamble, no sign-off, no commentary.
 
 Runner instructions (not part of the entry):
-- Write the entry verbatim to $OUT — the file must contain ONLY the entry.
-- Write ONLY $OUT; do NOT touch any other file, including DREAMS.md
-  (the runner appends that automatically).
+- Output the entry as plain text ONLY — the runner writes it verbatim to $OUT
+  for you. Do NOT write files yourself and do NOT use tool-call syntax.
+- Do NOT touch DREAMS.md (the runner appends that automatically).
 - Prefer a fresh angle; don't replay the same framing as the recent entries below.
 
 Memory fragments for $DATE:
@@ -139,7 +145,10 @@ Step 2 — decide each action; the runner applies it to the mind (it stores each
   - "superseded" — name the prior atom id.
   - "merged" — store nothing; it is already represented.
 
-Step 3 — write exactly two files and nothing else.
+Step 3 — the runner writes the two record files for you; do NOT write files
+and do NOT use tool-call syntax. Your output is only what the contract at the
+end asks for. The human-readable record ($OUT) is derived from your machine
+record ($OUT_JSON):
 
 (a) $OUT — the HUMAN-READABLE record. Plain prose and bullets only: NO JSON,
     NO markdown code fences, NO curly braces. Use exactly this shape:
@@ -159,8 +168,9 @@ already known>. Superseded: <what was replaced, or "nothing">.
 
 {"operations": [{"candidateKey": "<slug>", "action": "added|merged|superseded", "priorEntries": ["<prior atom id or note>"]}]}
 
-Constraints: do not use sudo; write ONLY $OUT and $OUT_JSON;
-the runner consolidates after you finish; finish in under ~3 minutes.
+Constraints: do not use sudo; the runner writes $OUT and $OUT_JSON (you only
+output the machine record); the runner consolidates after you finish; finish
+in under ~3 minutes.
 
 Material to consolidate:
 
@@ -371,6 +381,51 @@ def _try_chat(
         return (text or "").strip(), None
     except Exception as exc:  # noqa: BLE001 - an LLM failure is a status, not a crash
         return "", f"{type(exc).__name__}: {exc}"
+
+
+# The first in-process night (2026-10-01) showed the failure modes a fallback
+# must catch: the strong tier returned empty content (reasoning exhausted
+# max_tokens) and the light tier dumped DeepSeek's native tool-call DSL as text.
+_TOOL_MARK = "<｜DSML｜"
+
+# Per-phase fallback tier (PORT-NOTE of dream.sh's "retry with the default
+# model"): the other tier answers when the phase's own tier fails. rem/deep
+# fall back to the cheap flash tier — a non-reasoning model that always emits
+# content, the antidote to the empty-content failure; light falls back to strong.
+FALLBACK_TIER_BY_PHASE = {"light": "strong", "rem": "cheap", "deep": "cheap"}
+
+
+def _try_chat_fallback(
+    runtime: Any,
+    prompt: str,
+    *,
+    phase: str,
+    json_mode: bool = False,
+) -> tuple[str, Optional[str], Optional[str]]:
+    """Try the phase's model tier, then its fallback tier.
+
+    Returns (text, error, model_used); ``model_used`` is the tier that produced
+    the text, or None when every attempt failed. Tool-call markup in an answer
+    counts as a failure so the fallback tier gets the call.
+    """
+    tiers = (MODEL_BY_PHASE[phase], FALLBACK_TIER_BY_PHASE[phase])
+    errors: list[str] = []
+    for tier in tiers:
+        text, err = _try_chat(
+            runtime,
+            prompt,
+            model=tier,
+            temperature=TEMPERATURE_BY_PHASE[phase],
+            max_tokens=MAX_TOKENS_BY_PHASE[phase],
+            json_mode=json_mode,
+        )
+        if not err and _TOOL_MARK in text:
+            err = "model emitted tool-call markup instead of an answer"
+            text = ""
+        if not err:
+            return text, None, tier
+        errors.append(f"{tier}: {err}")
+    return "", " | ".join(errors), None
 
 
 def _wake_pack(conn: sqlite3.Connection) -> str:
@@ -588,23 +643,17 @@ def _run(conn: sqlite3.Connection, runtime: Any, *, now: Optional[datetime] = No
         out=str(out_light),
         wake=wake,
     )
-    text, err = _try_chat(
-        runtime,
-        prompt,
-        model=MODEL_BY_PHASE["light"],
-        temperature=TEMPERATURE_BY_PHASE["light"],
-        max_tokens=MAX_TOKENS_BY_PHASE["light"],
-    )
+    text, err, used = _try_chat_fallback(runtime, prompt, phase="light")
     if text:
         out_light.write_text(text if text.endswith("\n") else text + "\n", encoding="utf-8")
     if err:
         errors.append(f"light: {err}")
-    results["light"] = {"error": err, "chars": len(text)}
+    results["light"] = {"error": err, "chars": len(text), "model": used}
     _emit(
         conn, "life: dream light", when,
         summary=(err or _snippet(text)),
         severity="warning" if err else "info",
-        extra={"phase": "light", "model": MODEL_BY_PHASE["light"]},
+        extra={"phase": "light", "model": used or MODEL_BY_PHASE["light"]},
     )
 
     # --- rem ----------------------------------------------------------------
@@ -622,25 +671,19 @@ def _run(conn: sqlite3.Connection, runtime: Any, *, now: Optional[datetime] = No
         recent_dreams=_recent_dreams(dpath),
         wake=wake,
     )
-    text, err = _try_chat(
-        runtime,
-        prompt,
-        model=MODEL_BY_PHASE["rem"],
-        temperature=TEMPERATURE_BY_PHASE["rem"],
-        max_tokens=MAX_TOKENS_BY_PHASE["rem"],
-    )
+    text, err, used = _try_chat_fallback(runtime, prompt, phase="rem")
     appended = False
     if text:
         out_rem.write_text(text if text.endswith("\n") else text + "\n", encoding="utf-8")
         appended = _append_dreams(dpath, text, date, now)
     if err:
         errors.append(f"rem: {err}")
-    results["rem"] = {"error": err, "appended": appended, "chars": len(text)}
+    results["rem"] = {"error": err, "appended": appended, "chars": len(text), "model": used}
     _emit(
         conn, "life: dream rem", when,
         summary=(err or (f"diary entry appended ({len(text)} chars)" if appended else "no diary entry appended")),
         severity="warning" if err else "info",
-        extra={"phase": "rem", "model": MODEL_BY_PHASE["rem"], "appended": appended},
+        extra={"phase": "rem", "model": used or MODEL_BY_PHASE["rem"], "appended": appended},
     )
 
     # --- deep ---------------------------------------------------------------
@@ -663,14 +706,7 @@ def _run(conn: sqlite3.Connection, runtime: Any, *, now: Optional[datetime] = No
         prior_context="".join(prior_bits) or "(none)",
         wake=wake,
     ) + "\n" + DEEP_MACHINE_CONTRACT
-    text, err = _try_chat(
-        runtime,
-        prompt,
-        model=MODEL_BY_PHASE["deep"],
-        temperature=TEMPERATURE_BY_PHASE["deep"],
-        max_tokens=MAX_TOKENS_BY_PHASE["deep"],
-        json_mode=True,
-    )
+    text, err, used = _try_chat_fallback(runtime, prompt, phase="deep", json_mode=True)
     ops: list[dict] = []
     md_written = False
     stored: list[str] = []
@@ -713,12 +749,13 @@ def _run(conn: sqlite3.Connection, runtime: Any, *, now: Optional[datetime] = No
         "lessons": stored,
         "consolidated": consolidated,
         "md_written": md_written,
+        "model": used,
     }
     _emit(
         conn, "life: dream deep", when,
         summary=(err or f"{len(ops)} operation(s), {len(stored)} lesson(s) stored"),
         severity="warning" if err else "info",
-        extra={"phase": "deep", "model": MODEL_BY_PHASE["deep"], "operations": len(ops), "lessons": stored},
+        extra={"phase": "deep", "model": used or MODEL_BY_PHASE["deep"], "operations": len(ops), "lessons": stored},
     )
 
     if len(errors) == len(PHASES):

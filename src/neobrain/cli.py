@@ -12,7 +12,7 @@ Usage:
   neobrain consolidate
   neobrain feedback <atom_id> used|useful|noise
   neobrain embed [--force] [--limit N]
-  neobrain dreams [--phase light|rem|deep|all]
+  neobrain dreams [--phase light|rem|deep|all] [--replay YYYY-MM-DD]
   neobrain reflect
   neobrain ingest [--source …]
 
@@ -31,6 +31,7 @@ import sqlite3
 import sys
 import time
 import webbrowser
+from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
@@ -172,20 +173,31 @@ def cmd_dreams(args: argparse.Namespace) -> int:
     conn = db.connect()
     db.init_db(conn)
     try:
-        phase = args.phase
-        if phase in (None, "all"):
-            res = dreams.run(conn, _runtime())
-        elif "phase" in inspect.signature(dreams.run).parameters:
-            res = dreams.run(conn, _runtime(), phase=phase)
+        replay = getattr(args, "replay", None)
+        if replay:
+            # Operational fallback for a night that failed (e.g. empty LLM
+            # answers): re-run light→rem→deep for that date. The fake clock at
+            # 22:30 makes _dream_date resolve to DATE itself and the
+            # once-per-night marker (checked against this clock) cannot match a
+            # past day, so the night re-runs; DREAMS.md's own guard and
+            # remember --dedupe keep a replay idempotent.
+            y, m, d = (int(p) for p in replay.split("-"))
+            res = dreams.run(conn, _runtime(), now=datetime(y, m, d, 22, 30))
         else:
-            # The module exposes only the full pass; be explicit instead of
-            # pretending a single phase ran.
-            print(
-                f"note: neobrain.dreams.run has no per-phase selector; running "
-                f"the full pass instead of '{phase}'",
-                file=sys.stderr,
-            )
-            res = dreams.run(conn, _runtime())
+            phase = args.phase
+            if phase in (None, "all"):
+                res = dreams.run(conn, _runtime())
+            elif "phase" in inspect.signature(dreams.run).parameters:
+                res = dreams.run(conn, _runtime(), phase=phase)
+            else:
+                # The module exposes only the full pass; be explicit instead of
+                # pretending a single phase ran.
+                print(
+                    f"note: neobrain.dreams.run has no per-phase selector; running "
+                    f"the full pass instead of '{phase}'",
+                    file=sys.stderr,
+                )
+                res = dreams.run(conn, _runtime())
     finally:
         conn.close()
     print(json.dumps(res, indent=2, default=str))
@@ -328,6 +340,12 @@ def build_parser() -> argparse.ArgumentParser:
 
     sp = sub.add_parser("dreams", help="run a nightly dream pass")
     sp.add_argument("--phase", choices=["light", "rem", "deep", "all"], default="all")
+    sp.add_argument(
+        "--replay",
+        metavar="YYYY-MM-DD",
+        help="re-run a past night's full dream pass (light→rem→deep); use for "
+        "nights that failed (empty answers, gateway outage). Idempotent.",
+    )
     sp.set_defaults(func=cmd_dreams)
 
     sp = sub.add_parser("reflect", help="run the weekly reflection pass")
