@@ -531,7 +531,10 @@ export default {
           d = await fetchDirectives()
           directivesText.set(sid, d)
         }
-        if (d) sys.push({ type: "text", text: d })
+        if (d) {
+          sys.push({ type: "text", text: d })
+          dbg(`${sidShort(sid)} directives: injected (${d.length} chars)${DIRECTIVES_EVERY_TURN ? "" : " (once)"}`)
+        }
       }
 
       // 2) per-turn deterministic recall (lane 1), escalated by intent (lane 2)
