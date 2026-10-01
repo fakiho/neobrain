@@ -277,22 +277,25 @@ export function BrainCanvas({ nodes, links, timeEnd, selected, onSelect, onHover
         : hiddenRef.current.types.has(n.type) || (!!n.hub && hiddenRef.current.hubs.has(n.hub))
   const shown = (n: SimNode) => visible(n) && !isHidden(n)
 
-  // (re)build the layout whenever the set of nodes changes
+  // (re)build the layout when the set of nodes changes; re-fit when the set of
+  // *shown* cells changes. The time filter can lag the data on load (timeEnd is
+  // still 0 when the first layout lands, so only the synthetic "unsorted" cell
+  // is visible and a fit applied then pins k at the zoom cap); hub ids alone
+  // don't change when visibility flips, so visibility must drive the framing.
   useEffect(() => {
     const sig = nodes.map((n) => n.id).join(',')
-    if (sig === sigRef.current && layRef.current) return
-    sigRef.current = sig
-    const { w, h } = sizeRef.current
-    layRef.current = buildLayout(nodes, links, w, h)
-    // framing is defined by the set of cells; re-fit when it changes (notably
-    // the first real-data swap) so the graph is centred in the visible area at once
-    const hubSig = nodes.filter((n) => n.kind === 'hub').map((n) => n.id).sort().join(',')
+    if (sig !== sigRef.current || !layRef.current) {
+      sigRef.current = sig
+      const { w, h } = sizeRef.current
+      layRef.current = buildLayout(nodes, links, w, h)
+    }
+    const hubSig = nodes.filter((n) => n.kind === 'hub' && shown(n)).map((n) => n.id).sort().join(',')
     if (hubSig !== hubSigRef.current) {
       hubSigRef.current = hubSig
       needFitRef.current = true
       requestAnimationFrame(() => fit())
     }
-  }, [nodes, links])
+  }, [nodes, links, timeEnd, hidden])
 
   // size the canvas
   useEffect(() => {
