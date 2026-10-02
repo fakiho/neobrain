@@ -17,6 +17,16 @@ const TABS = [
   ['infra', 'Infra'],
 ] as const
 
+type ObsView = 'brain' | 'dreams' | 'debug' | ReaderGroup
+
+// Deep link: /#debug, /#dreams … open that view directly, and the hash tracks
+// the view so any screen can be shared or bookmarked.
+const VIEW_KEYS = new Set<string>([...TABS.map(([k]) => k), 'debug'])
+const viewFromHash = (): ObsView => {
+  const h = window.location.hash.slice(1)
+  return (VIEW_KEYS.has(h) ? h : 'brain') as ObsView
+}
+
 const BRAND_MARK = (
   <svg width="15" height="15" viewBox="0 0 24 24" fill="none">
     <circle cx="12" cy="12" r="3" fill="#c8cbe0" />
@@ -63,7 +73,7 @@ export default function BrainApp() {
   const [leftOpen, setLeftOpen] = useState(false)
   const [fitSignal, setFitSignal] = useState(0)
   const [live, setLive] = useState(true)
-  const [view, setView] = useState<'brain' | 'dreams' | 'debug' | ReaderGroup>('brain')
+  const [view, setView] = useState<ObsView>(viewFromHash)
   const [hiddenTypes, setHiddenTypes] = useState<Set<string>>(new Set(['preference']))
   const [hiddenHubs, setHiddenHubs] = useState<Set<string>>(new Set())
   const [hiddenEdges, setHiddenEdges] = useState<Set<string>>(new Set())
@@ -102,6 +112,10 @@ export default function BrainApp() {
     if (!isMobile) return
     tabsRef.current?.querySelector('button.on')?.scrollIntoView({ inline: 'center', block: 'nearest', behavior: 'smooth' })
   }, [view, isMobile])
+  // the hash mirrors the view (deep links); reader sub-views stay under their group
+  useEffect(() => {
+    if (VIEW_KEYS.has(view)) window.history.replaceState(null, '', `#${view}`)
+  }, [view])
 
   // swipe-down to dismiss the mobile bottom sheet
   const sheetRef = useRef<HTMLElement | null>(null)
