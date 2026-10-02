@@ -17,8 +17,11 @@ from .models import now_ms
 
 # Schema version floor. v1 = merged legacy schema (S1). v2 adds the rank /
 # forgetting store (S4: ``m_rank`` counters + active/ignored/archived state,
-# SPEC §4.2/§4.3) as an *additive* migration.
-USER_VERSION = 2
+# SPEC §4.2/§4.3) as an *additive* migration. v3 rebuilds ``events_fts`` so its
+# rowids match ``events.rowid`` — the index is now addressed by rowid, because
+# deleting by the UNINDEXED ``event_id`` column scanned the whole index and
+# made a full ingest quadratic (see ``db.upsert_events``).
+USER_VERSION = 3
 
 SCHEMA = """
 -- Timeline store schema
@@ -176,23 +179,38 @@ CREATE INDEX IF NOT EXISTS idx_m_rank_state ON m_rank(state);
 SCHEMA = SCHEMA + RANK_DDL
 
 
-def apply(conn: sqlite3.Connection) -> None:
-    """Apply the full schema and stamp the migration floor version.
+# --- S6c: FTS rowid alignment (additive v3) ------------------------------
+#
+# Deletes in ``events_fts`` are addressed by rowid (log-time). The legacy
+# index matched on ``event_id``, which is UNINDEXED in FTS5, so each delete
+# scanned the whole index — quadratic over an ingest. One rebuild lines the
+# FTS rowids up with ``events.rowid`` (and drops any orphaned/stale rows);
+# ``db.upsert_events`` keeps them aligned from then on.
+FTS_REBUILD = """
+DELETE FROM events_fts;
+INSERT INTO events_fts(rowid, event_id, title, detail)
+  SELECT rowid, id, title, COALESCE(detail, '') FROM events;
+"""
 
-    Idempotent: every statement is ``CREATE ... IF NOT EXISTS`` and the
-    ``user_version`` write is a no-op once set to the same value.
+
+def apply(conn: sqlite3.Connection) -> None:
+    """Apply the full schema and run data migrations to ``USER_VERSION``.
+
+    Idempotent: the DDL is all ``CREATE ... IF NOT EXISTS`` and ``migrate``
+    early-returns once the store is stamped.
     """
     conn.executescript(SCHEMA)
-    conn.execute(f"PRAGMA user_version = {USER_VERSION}")
+    migrate(conn)
 
 
 def migrate(conn: sqlite3.Connection, now: int | None = None) -> int:
     """Bring a store up to ``USER_VERSION`` (additive; never destructive).
 
     v1 -> v2 applies the rank DDL and backfills one ``m_rank`` row per existing
-    atom (quality 0.5, ``active``, zero counters). A fresh/unmigrated store is
-    completed with the full schema first. Idempotent: once stamped, later calls
-    are a no-op. Returns the resulting version.
+    atom (quality 0.5, ``active``, zero counters). v2 -> v3 rebuilds the FTS
+    index so its rowids match ``events.rowid`` (fixing the quadratic ingest).
+    A fresh/unmigrated store is completed with the full schema first.
+    Idempotent: once stamped, later calls are a no-op. Returns the version.
     """
     version = user_version(conn)
     if version >= USER_VERSION:
@@ -210,6 +228,8 @@ def migrate(conn: sqlite3.Connection, now: int | None = None) -> int:
                SELECT id, 0.5, 0, 0, NULL, 'active', NULL, ? FROM m_atoms""",
             (ts,),
         )
+    if version < 3:
+        conn.executescript(FTS_REBUILD)
     conn.execute(f"PRAGMA user_version = {USER_VERSION}")
     conn.commit()
     return USER_VERSION

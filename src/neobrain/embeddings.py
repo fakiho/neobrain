@@ -2,9 +2,9 @@
 
 Two interchangeable providers (``NEOBRAIN_EMBED_PROVIDER``):
 
-* ``ollama`` (default) — ``embeddinggemma`` served on this host. Memory text
-  never leaves the machine. 768-dim, 2048-token context; CPU inference is
-  slower than a cloud embedder (see ``NEOBRAIN_EMBED_TIMEOUT``).
+* ``ollama`` (default) — ``embeddinggemma`` served by the Mac's Ollama on the
+  LAN (``192.168.1.149:11434``, since 2026-10-02; was host-local). Memory text
+  stays on-LAN. 768-dim, 2048-token context (see ``NEOBRAIN_EMBED_TIMEOUT``).
 * ``litellm`` — Google ``gemini-embedding-2`` through the local LiteLLM
   gateway. **Privacy:** atom text is sent off-host to Google (user-approved
   2026-09-27; see ``INFRA_TIMELINE.md`` §4a). Kept as an opt-in alternative.

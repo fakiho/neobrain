@@ -38,38 +38,56 @@ def init_db(conn: sqlite3.Connection) -> None:
     conn.commit()
 
 
-def _event_exists(conn: sqlite3.Connection, event_id: str) -> bool:
-    return conn.execute("SELECT 1 FROM events WHERE id = ?", (event_id,)).fetchone() is not None
+_INSERT_EVENT = """
+INSERT INTO events
+  (id, ts, ts_end, source, lane, category, actor, title, detail, status,
+   severity, project_id, session_id, refs, raw, ingested_at)
+VALUES
+  (:id, :ts, :ts_end, :source, :lane, :category, :actor, :title, :detail,
+   :status, :severity, :project_id, :session_id, :refs, :raw, :ingested_at)
+"""
+
+# UPDATE (not INSERT OR REPLACE) keeps the row's rowid stable: the FTS index is
+# keyed to it, and REPLACE would delete+reinsert, churning the key every write.
+_UPDATE_EVENT = """
+UPDATE events SET
+  ts = :ts, ts_end = :ts_end, source = :source, lane = :lane, category = :category,
+  actor = :actor, title = :title, detail = :detail, status = :status,
+  severity = :severity, project_id = :project_id, session_id = :session_id,
+  refs = :refs, raw = :raw, ingested_at = :ingested_at
+WHERE id = :id
+"""
 
 
 def upsert_events(conn: sqlite3.Connection, events: Iterable[Event]) -> tuple[int, int]:
-    """Insert/replace events and keep the FTS index in sync. Returns (added, updated)."""
+    """Insert/update events and keep the FTS index in sync. Returns (added, updated).
+
+    The FTS row is keyed to the ``events`` rowid, because FTS5 deletes are
+    log-time on the rowid while the old ``WHERE event_id = ?`` delete had to
+    scan the whole index (``event_id`` is UNINDEXED in the FTS5 table) — that
+    made every full ingest quadratic, pegging a core for minutes while holding
+    the writer lock. ``schema.migrate()`` v3 rebuilds legacy indexes so their
+    rowids line up.
+    """
     added = updated = 0
     ingested = now_ms()
     cur = conn.cursor()
     for ev in events:
         row = ev.as_row(ingested)
-        existed = _event_exists(conn, row["id"])
-        cur.execute(
-            """
-            INSERT OR REPLACE INTO events
-              (id, ts, ts_end, source, lane, category, actor, title, detail, status,
-               severity, project_id, session_id, refs, raw, ingested_at)
-            VALUES
-              (:id, :ts, :ts_end, :source, :lane, :category, :actor, :title, :detail,
-               :status, :severity, :project_id, :session_id, :refs, :raw, :ingested_at)
-            """,
-            row,
-        )
-        cur.execute("DELETE FROM events_fts WHERE event_id = ?", (row["id"],))
-        cur.execute(
-            "INSERT INTO events_fts(event_id, title, detail) VALUES (?, ?, ?)",
-            (row["id"], row["title"], row["detail"] or ""),
-        )
-        if existed:
-            updated += 1
-        else:
+        prev = cur.execute("SELECT rowid FROM events WHERE id = ?", (row["id"],)).fetchone()
+        if prev is None:
+            cur.execute(_INSERT_EVENT, row)
+            rid = cur.lastrowid
             added += 1
+        else:
+            cur.execute(_UPDATE_EVENT, row)
+            rid = prev[0]
+            updated += 1
+        cur.execute("DELETE FROM events_fts WHERE rowid = ?", (rid,))
+        cur.execute(
+            "INSERT INTO events_fts(rowid, event_id, title, detail) VALUES (?, ?, ?, ?)",
+            (rid, row["id"], row["title"], row["detail"] or ""),
+        )
     conn.commit()
     return added, updated
 
