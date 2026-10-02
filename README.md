@@ -193,4 +193,4 @@ package yet — install from this repo.
 
 ## License
 
-MIT
+[MIT](./LICENSE)
