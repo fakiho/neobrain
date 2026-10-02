@@ -3,937 +3,2041 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>neoBrain — A Simulated Brain for AI Agents</title>
-  <meta name="description" content="Durable memory, rank-based forgetting, nightly dreams and a self-authored soul — one local daemon, one dashboard. The user watches; the agent becomes." />
-  <meta property="og:title" content="neoBrain — A simulated brain for AI agents" />
-  <meta property="og:description" content="Atoms, hubs and typed edges in SQLite. Deterministic rank. Nightly dreams. A soul the agent writes itself. One local daemon, one dashboard." />
+  <script>document.documentElement.classList.add('js');</script>
+  <title>neoBrain — A local mind daemon for AI coding agents</title>
+  <meta name="description" content="neoBrain is a local daemon that gives AI coding agents in OpenCode durable memory: atoms, hubs and typed edges in SQLite, deterministic rank-based forgetting, nightly dreams and a self-authored soul — one dashboard, no cloud account." />
+  <meta name="theme-color" content="#0b0b0e" />
+  <meta name="color-scheme" content="dark" />
+  <link rel="canonical" href="https://neobrain.alionix.com" />
+
+  <meta property="og:site_name" content="neoBrain" />
+  <meta property="og:title" content="neoBrain — A local mind daemon for AI coding agents" />
+  <meta property="og:description" content="A local daemon that gives AI coding agents in OpenCode durable memory: atoms, hubs and typed edges in SQLite, deterministic rank-based forgetting, nightly dreams and a self-authored soul. One dashboard, no cloud account." />
   <meta property="og:image" content="https://neobrain.alionix.com/assets/og-image.png" />
+  <meta property="og:image:width" content="1200" />
+  <meta property="og:image:height" content="630" />
   <meta property="og:url" content="https://neobrain.alionix.com" />
   <meta property="og:type" content="website" />
   <meta name="twitter:card" content="summary_large_image" />
-  <meta name="twitter:title" content="neoBrain — A simulated brain for AI agents" />
-  <meta name="twitter:description" content="Durable memory, rank-based forgetting, nightly dreams and a self-authored soul. One local daemon, one dashboard." />
+  <meta name="twitter:title" content="neoBrain — A local mind daemon for AI coding agents" />
+  <meta name="twitter:description" content="Durable memory, rank-based forgetting, nightly dreams and a self-authored soul for AI coding agents in OpenCode. One local daemon, one dashboard." />
   <meta name="twitter:image" content="https://neobrain.alionix.com/assets/og-image.png" />
+
   <link rel="icon" href="assets/favicon.png" type="image/png" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&amp;family=JetBrains+Mono:wght@400;500;600&amp;display=swap" rel="stylesheet" />
   <style>
-    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    /* =====================================================================
+       neoBrain — design system
+       Violet mind accent · layered dark surfaces · Inter + JetBrains Mono
+       ===================================================================== */
 
+    /* ── Tokens ─────────────────────────────────────────────────────────── */
     :root {
-      --bg: #0f0f10;
-      --bg-2: #131316;
-      --bg-card: #1a1a1e;
-      --bg-card-hover: #202027;
-      --sidebar: #161619;
-      --border: #27272c;
-      --border-2: #33333b;
+      /* Surfaces — layered, never flat black */
+      --bg:            #0b0b0e;
+      --bg-2:          #101014;
+      --bg-elev:       #15151a;
+      --bg-card:       #141419;
+      --bg-card-hover: #1b1b22;
+      --sidebar:       #101015;
+      --border:        #26262e;
+      --border-2:      #33333d;
+      --border-3:      #45454f;
 
-      /* Primary accent — preference violet */
-      --accent: #948ebd;
-      --accent-hi: #c3bfec;
-      --accent-lo: #7d77ab;
-      --accent-dim: rgba(148,142,189,0.10);
-      --accent-dim2: rgba(148,142,189,0.24);
-      --accent-glow: rgba(148,142,189,0.34);
-      --accent-on: #16132b;
+      /* Text — AA-verified on --bg, --bg-card and --sidebar */
+      --text:       #f1f0f5;
+      --text-muted: #bfbec9;
+      --text-dim:   #8d8c99;
 
-      /* Semantic accents from the Observatory palette */
-      --gold: #b39262;   --gold-dim: rgba(179,146,98,0.10);   --gold-dim2: rgba(179,146,98,0.24);
-      --green: #7ba38c;  --green-dim: rgba(123,163,140,0.10); --green-dim2: rgba(123,163,140,0.24);
-      --dream: #a488b6;  --dream-dim: rgba(164,136,182,0.10); --dream-dim2: rgba(164,136,182,0.24);
-      --obs: #8fa3b8;    --obs-dim: rgba(143,163,184,0.10);   --obs-dim2: rgba(143,163,184,0.24);
-      --hub: #4a5064;
-      --red: #c47a7a;    --red-dim: rgba(196,122,122,0.10);
+      /* Violet — the neoBrain accent */
+      --accent:      #948ebd;
+      --accent-hi:   #cdc9f2;
+      --accent-lo:   #827bb0;
+      --accent-dim:  rgba(148, 142, 189, 0.10);
+      --accent-dim2: rgba(148, 142, 189, 0.28);
+      --accent-glow: rgba(148, 142, 189, 0.32);
+      --accent-on:   #14112a;
 
-      --text: #ecebef;
-      --text-muted: #a2a1ad;
-      --text-dim: #6d6c78;
-      --radius: 12px;
-      --font: 'Inter', system-ui, sans-serif;
-      --mono: 'JetBrains Mono', 'Fira Code', monospace;
-      --ease: 0.2s cubic-bezier(0.4,0,0.2,1);
+      /* Semantic atom colours — borrowed from the Observatory palette */
+      --gold:      #b39262;  --gold-hi:  #dcc08c;  --gold-dim:  rgba(179, 146, 98, 0.12);  --gold-dim2: rgba(179, 146, 98, 0.28);
+      --green:     #7ba38c;  --green-hi: #a2cdb4;  --green-dim: rgba(123, 163, 140, 0.12); --green-dim2:rgba(123, 163, 140, 0.28);
+      --dream:     #a488b6;  --dream-hi: #c9aede;  --dream-dim: rgba(164, 136, 182, 0.12); --dream-dim2:rgba(164, 136, 182, 0.28);
+      --obs:       #8fa3b8;  --obs-hi:   #b3c6da;  --obs-dim:   rgba(143, 163, 184, 0.12); --obs-dim2:  rgba(143, 163, 184, 0.28);
+      --hub:       #4a5064;
+
+      /* Spacing — 4px base */
+      --sp-1:  0.25rem; --sp-2:  0.5rem;  --sp-3:  0.75rem; --sp-4:  1rem;
+      --sp-5:  1.25rem; --sp-6:  1.5rem;  --sp-8:  2rem;    --sp-10: 2.5rem;
+      --sp-12: 3rem;    --sp-16: 4rem;    --sp-20: 5rem;    --sp-24: 6rem;
+
+      /* Type scale */
+      --fs-2xs:  0.66rem;
+      --fs-xs:   0.72rem;
+      --fs-sm:   0.8125rem;
+      --fs-base: 0.9375rem;
+      --fs-md:   1.0625rem;
+      --fs-lg:   1.25rem;
+      --fs-xl:   1.5rem;
+      --fs-2xl:  2rem;
+      --fs-3xl:  2.5rem;
+      --fs-4xl:  3.25rem;
+
+      /* Radii */
+      --r-sm:   6px;
+      --r-md:   10px;
+      --r-lg:   14px;
+      --r-xl:   18px;
+      --r-pill: 100px;
+
+      /* Shadows */
+      --sh-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+      --sh-md: 0 10px 30px rgba(0, 0, 0, 0.35);
+      --sh-lg: 0 28px 70px rgba(0, 0, 0, 0.55);
+
+      /* Motion — one shared system for the whole page */
+      --ease:        cubic-bezier(0.4, 0, 0.2, 1);
+      --ease-out:    cubic-bezier(0.16, 1, 0.3, 1);
+      --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+      --dur-1: 120ms;
+      --dur-2: 240ms;
+      --dur-3: 420ms;
+      --dur-4: 700ms;
+      --dur-5: 1100ms;
+      --t-fast: 0.16s;
+      --t:      0.24s;
+      --t-slow: 0.55s;
+
+      --font: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
+      --mono: 'JetBrains Mono', 'Fira Code', ui-monospace, monospace;
+      --container: 1140px;
+      --nav-h: 64px;
     }
 
-    html { scroll-behavior: smooth; }
-    body { font-family: var(--font); background: var(--bg); color: var(--text); line-height: 1.6; overflow-x: hidden; }
+    /* ── Reset & base ───────────────────────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
-    /* Noise overlay */
+    html {
+      scroll-behavior: smooth;
+      scroll-padding-top: calc(var(--nav-h) + var(--sp-4));
+      -webkit-text-size-adjust: 100%;
+      overflow-x: hidden;
+    }
+
+    body {
+      font-family: var(--font);
+      font-size: var(--fs-base);
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.6;
+      overflow-x: hidden;
+      -webkit-font-smoothing: antialiased;
+      text-rendering: optimizeLegibility;
+    }
+
+    /* subtle film grain */
     body::before {
-      content: ''; position: fixed; inset: 0; pointer-events: none; z-index: 0;
+      content: '';
+      position: fixed;
+      inset: 0;
+      z-index: 0;
+      pointer-events: none;
       background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.75' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.018'/%3E%3C/svg%3E");
     }
 
-    /* ── NAV ── */
-    nav {
-      position: fixed; top: 0; left: 0; right: 0; z-index: 100;
-      display: flex; align-items: center; justify-content: space-between;
-      padding: 0 2rem; height: 60px;
-      background: rgba(15,15,16,0.88); backdrop-filter: blur(16px);
-      border-bottom: 1px solid var(--border);
+    img, svg, canvas { display: block; max-width: 100%; }
+    ul { list-style: none; }
+    a { color: inherit; }
+
+    /* Reserved transparent focus ring that turns visible on :focus-visible */
+    a, button {
+      outline: 2px solid transparent;
+      outline-offset: 3px;
     }
-    .nav-logo { display: flex; align-items: center; gap: 9px; text-decoration: none; color: var(--text); font-weight: 700; font-size: 1.05rem; letter-spacing: -0.02em; }
-    .nav-logo img { width: 26px; height: 26px; }
-    .nav-logo .bn { color: var(--accent-hi); }
-    .nav-links { display: flex; list-style: none; gap: 0.1rem; }
-    .nav-links a { color: var(--text-muted); text-decoration: none; font-size: 0.875rem; font-weight: 500; padding: 0.4rem 0.85rem; border-radius: 6px; transition: color var(--ease), background var(--ease); }
-    .nav-links a:hover { color: var(--text); background: rgba(255,255,255,0.05); }
-    .nav-actions { display: flex; gap: 0.6rem; align-items: center; }
-    .btn { display: inline-flex; align-items: center; gap: 0.4rem; padding: 0.48rem 1rem; border-radius: 7px; font-size: 0.875rem; font-weight: 600; cursor: pointer; text-decoration: none; transition: all var(--ease); border: none; white-space: nowrap; }
-    .btn-ghost { background: transparent; color: var(--text-muted); border: 1px solid var(--border); }
-    .btn-ghost:hover { color: var(--text); border-color: rgba(255,255,255,0.18); background: rgba(255,255,255,0.04); }
-    .btn-primary { background: var(--accent); color: var(--accent-on); font-weight: 700; box-shadow: 0 0 16px var(--accent-glow); }
-    .btn-primary:hover { background: var(--accent-hi); transform: translateY(-1px); box-shadow: 0 0 24px rgba(148,142,189,0.5); }
-    .btn-lg  { padding: 0.7rem 1.5rem; font-size: 0.95rem; border-radius: 9px; }
-    .btn-xl  { padding: 0.85rem 1.8rem; font-size: 1rem; border-radius: 10px; }
+    :focus-visible { outline-color: var(--accent-hi); border-radius: var(--r-sm); }
 
-    /* ── LAYOUT ── */
-    section { position: relative; z-index: 1; }
-    .container { max-width: 1140px; margin: 0 auto; padding: 0 1.5rem; }
-    .section-label {
-      display: inline-flex; align-items: center; gap: 0.45rem;
-      font-size: 0.72rem; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase;
-      color: var(--accent-hi); background: var(--accent-dim); border: 1px solid var(--accent-dim2);
-      padding: 0.28rem 0.75rem; border-radius: 100px; margin-bottom: 1.1rem;
+    ::selection { background: rgba(148, 142, 189, 0.32); color: #fff; }
+
+    /* ── Utilities ──────────────────────────────────────────────────────── */
+    .container {
+      width: 100%;
+      max-width: var(--container);
+      margin: 0 auto;
+      padding-inline: var(--sp-6);
     }
-    h2 { font-size: clamp(1.75rem, 3.5vw, 2.75rem); font-weight: 800; letter-spacing: -0.03em; line-height: 1.14; }
-    h2 .accent { background: linear-gradient(135deg, var(--accent-hi), var(--accent-lo)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; }
-    .subtitle { font-size: 1.05rem; color: var(--text-muted); max-width: 580px; line-height: 1.7; margin-top: 0.9rem; }
 
-    /* Orb glows */
-    .orb { position: absolute; border-radius: 50%; filter: blur(100px); pointer-events: none; z-index: 0; }
-    .orb-violet { background: rgba(148,142,189,0.10); }
-    .orb-dream  { background: rgba(164,136,182,0.07); }
-
-    /* Fade-in on scroll */
-    .fade-in { opacity: 0; transform: translateY(20px); transition: opacity 0.55s, transform 0.55s; }
-    .fade-in.visible { opacity: 1; transform: none; }
-    .fd1 { transition-delay: 0.1s; }
-    .fd2 { transition-delay: 0.18s; }
-
-    /* ── HERO ── */
-    #hero {
-      min-height: 100vh; display: flex; flex-direction: column;
-      align-items: center; justify-content: center;
-      text-align: center; padding: 120px 1.5rem 60px; overflow: hidden;
+    .sr-only {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      padding: 0;
+      margin: -1px;
+      clip: rect(0 0 0 0);
+      clip-path: inset(50%);
+      white-space: nowrap;
+      border: 0;
     }
-    .hero-badge {
-      display: inline-flex; align-items: center; gap: 0.5rem;
-      font-size: 0.78rem; font-weight: 600; letter-spacing: 0.05em;
-      color: var(--accent-hi); background: var(--accent-dim); border: 1px solid var(--accent-dim2);
-      padding: 0.28rem 0.9rem; border-radius: 100px; margin-bottom: 1.8rem;
-    }
-    .hero-badge .live-dot { width: 6px; height: 6px; background: var(--accent); border-radius: 50%; animation: pulse 2s infinite; }
-    @keyframes pulse { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:0.5;transform:scale(0.8)} }
 
-    #hero h1 { font-size: clamp(2.3rem, 5.4vw, 4.1rem); font-weight: 900; letter-spacing: -0.04em; line-height: 1.08; max-width: 860px; margin: 0 auto 1.4rem; }
-    #hero h1 .grad { background: linear-gradient(135deg, var(--accent-hi) 0%, var(--accent-lo) 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; }
-    #hero p { font-size: clamp(0.95rem, 1.8vw, 1.12rem); color: var(--text-muted); max-width: 620px; margin: 0 auto 2.2rem; line-height: 1.7; }
-    .hero-actions { display: flex; gap: 0.85rem; align-items: center; justify-content: center; flex-wrap: wrap; margin-bottom: 0.8rem; }
-    .hero-install { display: flex; align-items: center; gap: 0.5rem; font-family: var(--mono); font-size: 0.82rem; color: var(--text-muted); margin-top: 0.4rem; flex-wrap: wrap; justify-content: center; }
-    .hero-install code { background: rgba(255,255,255,0.04); border: 1px solid var(--border); padding: 0.4rem 0.9rem; border-radius: 7px; color: var(--accent-hi); cursor: pointer; transition: all var(--ease); }
-    .hero-install code:hover { background: var(--accent-dim); border-color: var(--accent-dim2); }
+    main { position: relative; z-index: 1; }
 
-    /* ── HERO WINDOWS ── */
-    .hero-windows {
-      width: 100%; max-width: 1080px; margin: 3.5rem auto 0;
-      display: grid; grid-template-columns: 1fr 1fr; gap: 1.25rem; text-align: left;
+    .section { position: relative; padding-block: var(--sp-24); }
+
+    .eyebrow {
+      display: inline-flex;
+      align-items: center;
+      gap: var(--sp-2);
+      font-size: var(--fs-xs);
+      font-weight: 600;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--accent-hi);
+      background: var(--accent-dim);
+      border: 1px solid var(--accent-dim2);
+      padding: 0.3rem 0.8rem;
+      border-radius: var(--r-pill);
     }
-    .window-frame {
-      border-radius: 13px; overflow: hidden;
+    .eyebrow .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
+
+    h1, h2, h3, h4 { font-weight: 800; letter-spacing: -0.03em; line-height: 1.12; text-wrap: balance; }
+
+    .section-head { max-width: 680px; }
+    .section-head h2 { font-size: clamp(1.85rem, 3.6vw, 2.75rem); margin-top: var(--sp-5); }
+    .section-head p {
+      margin-top: var(--sp-4);
+      color: var(--text-muted);
+      font-size: var(--fs-md);
+      line-height: 1.7;
+    }
+    .section-head.is-center { margin-inline: auto; text-align: center; }
+
+    .grad {
+      background: linear-gradient(118deg, var(--accent-hi) 0%, #caa5f2 118%);
+      -webkit-background-clip: text;
+      background-clip: text;
+      -webkit-text-fill-color: transparent;
+      color: transparent;
+    }
+
+    @media (forced-colors: active) {
+      .grad, .wm { -webkit-text-fill-color: CanvasText; background: none; }
+    }
+
+    code {
+      font-family: var(--mono);
+      font-size: 0.86em;
+      background: rgba(255, 255, 255, 0.05);
       border: 1px solid var(--border);
-      box-shadow: 0 32px 80px rgba(0,0,0,0.55), 0 0 40px rgba(148,142,189,0.06);
+      padding: 0.05em 0.38em;
+      border-radius: var(--r-sm);
+      color: var(--accent-hi);
+      white-space: nowrap;
+    }
+
+    /* ── Buttons ────────────────────────────────────────────────────────── */
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: var(--sp-2);
+      min-height: 44px;
+      padding: 0.6rem 1.15rem;
+      border: 1px solid transparent;
+      border-radius: var(--r-md);
+      font-family: inherit;
+      font-size: var(--fs-base);
+      font-weight: 600;
+      line-height: 1;
+      text-decoration: none;
+      white-space: nowrap;
+      cursor: pointer;
+      transition: background var(--t) var(--ease), border-color var(--t) var(--ease),
+                  color var(--t) var(--ease), box-shadow var(--t) var(--ease),
+                  transform var(--t) var(--ease);
+    }
+    .btn .ext { font-size: 0.82em; color: var(--text-dim); line-height: 1; transition: transform var(--t) var(--ease-out); }
+    .btn:hover .ext { transform: translate(2px, -2px); }
+
+    .btn-primary {
+      position: relative;
+      overflow: hidden;
+      background: var(--accent);
+      color: var(--accent-on);
+      font-weight: 700;
+      box-shadow: 0 0 18px var(--accent-glow);
+    }
+    .btn-primary .ext { color: inherit; }
+    .btn-primary::after {
+      content: '';
+      position: absolute;
+      top: -20%; bottom: -20%; left: -55%;
+      width: 45%;
+      background: linear-gradient(105deg, transparent, rgba(255, 255, 255, 0.45), transparent);
+      transform: skewX(-18deg) translateX(0);
+      transition: transform var(--dur-4) var(--ease-out);
+      pointer-events: none;
+    }
+    .btn-primary:hover::after { transform: skewX(-18deg) translateX(360%); }
+    .btn-primary:hover { background: var(--accent-hi); transform: translateY(-1px); box-shadow: 0 0 26px rgba(148, 142, 189, 0.5); }
+
+    .btn-ghost { background: transparent; color: var(--text-muted); border-color: var(--border-2); }
+    .btn-ghost:hover { color: var(--text); border-color: var(--border-3); background: rgba(255, 255, 255, 0.04); }
+
+    .btn-lg { min-height: 50px; padding: 0.85rem 1.6rem; font-size: var(--fs-md); border-radius: var(--r-md); }
+
+    /* ── Skip link ──────────────────────────────────────────────────────── */
+    .skip-link {
+      position: fixed;
+      top: var(--sp-3);
+      left: 50%;
+      transform: translate(-50%, -200%);
+      z-index: 200;
+      padding: var(--sp-3) var(--sp-5);
+      background: var(--accent);
+      color: var(--accent-on);
+      font-weight: 700;
+      font-size: var(--fs-sm);
+      border-radius: var(--r-md);
+      text-decoration: none;
+      box-shadow: var(--sh-md);
+      transition: transform var(--t) var(--ease);
+    }
+    .skip-link:focus { transform: translate(-50%, 0); }
+
+    /* ── Header / nav ───────────────────────────────────────────────────── */
+    .site-header {
+      position: fixed;
+      inset: 0 0 auto 0;
+      z-index: 100;
+      background: rgba(11, 11, 14, 0.72);
+      backdrop-filter: blur(14px);
+      -webkit-backdrop-filter: blur(14px);
+      border-bottom: 1px solid transparent;
+      transition: background var(--t) var(--ease), border-color var(--t) var(--ease), box-shadow var(--t) var(--ease);
+    }
+    .site-header.scrolled {
+      background: rgba(11, 11, 14, 0.92);
+      border-bottom-color: var(--border);
+      box-shadow: 0 8px 30px rgba(0, 0, 0, 0.35);
+    }
+
+    .nav { height: var(--nav-h); display: flex; align-items: center; justify-content: space-between; gap: var(--sp-6); }
+
+    .brand {
+      display: inline-flex;
+      align-items: baseline;
+      gap: 7px;
+      text-decoration: none;
+      font-weight: 700;
+      font-size: 1.32rem;
+      letter-spacing: -0.02em;
+      color: var(--text);
+      padding-block: var(--sp-2);
+    }
+    .brand img { height: 0.92em; width: auto; }
+    .brand .wm { background: linear-gradient(90deg, var(--accent-hi) 0%, #caa5f2 100%); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; color: transparent; }
+
+    .nav-menu { display: flex; align-items: center; gap: var(--sp-1); margin-left: auto; }
+    .nav-link {
+      position: relative;
+      display: inline-flex;
+      align-items: center;
+      min-height: 40px;
+      padding: 0 var(--sp-3);
+      font-size: var(--fs-base);
+      font-weight: 500;
+      color: var(--text-muted);
+      text-decoration: none;
+      border-radius: var(--r-sm);
+      transition: color var(--t) var(--ease), background var(--t) var(--ease);
+    }
+    .nav-link:hover { color: var(--text); background: rgba(255, 255, 255, 0.05); }
+    .nav-link::after {
+      content: '';
+      position: absolute;
+      left: var(--sp-3); right: var(--sp-3); bottom: 4px;
+      height: 2px;
+      border-radius: 2px;
+      background: var(--accent);
+      transform: scaleX(0);
+      transform-origin: left;
+      transition: transform var(--t) var(--ease-out);
+    }
+    .nav-link.is-active { color: var(--text); }
+    .nav-link.is-active::after { transform: scaleX(1); }
+
+    .nav-actions { display: flex; align-items: center; gap: var(--sp-2); }
+    .nav-actions .btn { min-height: 40px; padding: 0.5rem 0.95rem; font-size: var(--fs-sm); }
+
+    .burger {
+      display: none;
+      align-items: center;
+      justify-content: center;
+      width: 44px; height: 44px;
+      background: transparent;
+      border: 1px solid var(--border-2);
+      border-radius: var(--r-md);
+      color: var(--text);
+      cursor: pointer;
+      transition: background var(--t) var(--ease), border-color var(--t) var(--ease);
+    }
+    .burger:hover { background: rgba(255, 255, 255, 0.05); border-color: var(--border-3); }
+    .burger .bars { position: relative; width: 18px; height: 12px; }
+    .burger .bars span {
+      position: absolute; left: 0;
+      width: 100%; height: 2px;
+      border-radius: 2px;
+      background: currentColor;
+      transition: transform var(--t) var(--ease), opacity var(--t-fast) var(--ease), top var(--t) var(--ease);
+    }
+    .burger .bars span:nth-child(1) { top: 0; }
+    .burger .bars span:nth-child(2) { top: 5px; }
+    .burger .bars span:nth-child(3) { top: 10px; }
+    .burger[aria-expanded='true'] .bars span:nth-child(1) { top: 5px; transform: rotate(45deg); }
+    .burger[aria-expanded='true'] .bars span:nth-child(2) { opacity: 0; }
+    .burger[aria-expanded='true'] .bars span:nth-child(3) { top: 5px; transform: rotate(-45deg); }
+
+    /* ── Mobile menu ────────────────────────────────────────────────────── */
+    .mobile-menu {
+      position: fixed;
+      inset: 0;
+      z-index: 90;
+      display: flex;
+      justify-content: flex-end;
+      padding-top: var(--nav-h);
+      background: rgba(8, 8, 10, 0.6);
+      backdrop-filter: blur(4px);
+      -webkit-backdrop-filter: blur(4px);
+      opacity: 0;
+      visibility: hidden;
+      transition: opacity var(--t) var(--ease), visibility var(--t) var(--ease);
+    }
+    .mobile-menu[hidden] { display: none; }
+    .mobile-menu.open { opacity: 1; visibility: visible; }
+
+    .mobile-panel {
+      width: min(360px, 88vw);
+      height: 100%;
+      overflow-y: auto;
+      background: var(--bg-2);
+      border-left: 1px solid var(--border);
+      padding: var(--sp-6);
+      transform: translateX(100%);
+      transition: transform var(--t-slow) var(--ease-out);
+    }
+    .mobile-menu.open .mobile-panel { transform: none; }
+
+    .mobile-panel nav { display: flex; flex-direction: column; gap: var(--sp-1); }
+    .mobile-panel .menu-label {
+      font-family: var(--mono);
+      font-size: var(--fs-xs);
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--text-dim);
+      margin-bottom: var(--sp-2);
+    }
+    .mobile-panel nav a {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      min-height: 48px;
+      padding: 0 var(--sp-3);
+      font-size: var(--fs-md);
+      font-weight: 500;
+      color: var(--text-muted);
+      text-decoration: none;
+      border-radius: var(--r-md);
+      transition: background var(--t) var(--ease), color var(--t) var(--ease);
+    }
+    .mobile-panel nav a:hover { color: var(--text); background: rgba(255, 255, 255, 0.05); }
+    .mobile-panel .menu-cta {
+      display: flex;
+      flex-direction: column;
+      gap: var(--sp-3);
+      margin-top: var(--sp-6);
+      padding-top: var(--sp-6);
+      border-top: 1px solid var(--border);
+    }
+    .mobile-panel .menu-cta .btn { width: 100%; min-height: 48px; }
+
+    /* ── Hero ───────────────────────────────────────────────────────────── */
+    .hero {
+      position: relative;
+      overflow: hidden;
+      min-height: 100svh;
+      display: flex;
+      align-items: center;
+      padding-top: calc(var(--nav-h) + var(--sp-16));
+      padding-bottom: var(--sp-16);
+    }
+    .hero-inner {
+      position: relative;
+      z-index: 1;
+      text-align: center;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+    .hero h1 {
+      font-size: clamp(2.3rem, 5.6vw, 4.15rem);
+      font-weight: 900;
+      letter-spacing: -0.045em;
+      line-height: 1.05;
+      max-width: 900px;
+      margin-top: var(--sp-6);
+    }
+    .hero-lede {
+      margin-top: var(--sp-6);
+      max-width: 660px;
+      font-size: clamp(1rem, 1.7vw, 1.15rem);
+      line-height: 1.7;
+      color: var(--text-muted);
+    }
+    .hero-actions {
+      margin-top: var(--sp-6);
+      display: flex;
+      flex-wrap: wrap;
+      gap: var(--sp-3);
+      justify-content: center;
+    }
+    .hero-install {
+      margin-top: var(--sp-6);
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: center;
+      gap: var(--sp-2);
+      font-family: var(--mono);
+      font-size: var(--fs-sm);
+      color: var(--text-dim);
+    }
+    .hero-install .arrow { color: var(--accent); }
+    .copy-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.45rem;
+      min-height: 44px;
+      padding: 0.32rem 0.7rem;
+      font-family: var(--mono);
+      font-size: var(--fs-sm);
+      color: var(--accent-hi);
+      background: rgba(255, 255, 255, 0.03);
+      border: 1px solid var(--border);
+      border-radius: var(--r-sm);
+      cursor: pointer;
+      transition: background var(--t) var(--ease), border-color var(--t) var(--ease), color var(--t) var(--ease);
+    }
+    .copy-chip:hover { background: var(--accent-dim); border-color: var(--accent-dim2); }
+    .copy-chip .ci { width: 12px; height: 12px; opacity: 0.7; }
+    .copy-chip.copied { color: var(--green-hi); border-color: var(--green-dim2); background: var(--green-dim); }
+
+    .orb { position: absolute; border-radius: 50%; filter: blur(100px); pointer-events: none; z-index: 0; }
+    .orb-1 { width: 680px; height: 680px; top: -240px; left: 50%; transform: translateX(-50%); background: rgba(148, 142, 189, 0.11); }
+    .orb-2 { width: 340px; height: 340px; bottom: 2%; left: -10%; background: rgba(164, 136, 182, 0.07); }
+    .orb-3 { width: 340px; height: 340px; bottom: 2%; right: -10%; background: rgba(143, 163, 184, 0.05); }
+
+    /* ── Hero console ───────────────────────────────────────────────────── */
+    .hero-console { width: 100%; max-width: 1120px; margin-top: var(--sp-12); text-align: left; perspective: 1600px; }
+    .hero-console.reveal { filter: none; }
+    .console-tilt {
+      position: relative;
+      border: 1px solid var(--border);
+      border-radius: var(--r-lg);
+      overflow: hidden;
       background: var(--bg);
+      box-shadow: var(--sh-lg), 0 0 60px rgba(148, 142, 189, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.03);
+      transform-style: preserve-3d;
+      will-change: transform;
+      transition: box-shadow var(--t) var(--ease);
     }
-    .win-bar {
-      background: var(--sidebar); padding: 0.6rem 1rem;
-      display: flex; align-items: center; gap: 0.4rem;
+    .console-tilt::after {
+      content: '';
+      position: absolute;
+      inset: 0 0 auto 0;
+      height: 1px;
+      background: linear-gradient(90deg, transparent, rgba(205, 201, 242, 0.45), transparent);
+      pointer-events: none;
+    }
+
+    .console-chrome {
+      display: flex;
+      align-items: center;
+      gap: var(--sp-3);
+      height: 42px;
+      padding-inline: var(--sp-4);
+      background: linear-gradient(180deg, #181820, #131318);
       border-bottom: 1px solid var(--border);
+      font-family: var(--mono);
+      font-size: var(--fs-xs);
+      color: var(--text-dim);
+      overflow: hidden;
     }
-    .win-dot { width: 11px; height: 11px; border-radius: 50%; }
-    .win-tabs { display: flex; gap: 0.35rem; margin-left: 0.9rem; }
-    .win-tab { font-family: var(--mono); font-size: 0.72rem; padding: 0.22rem 0.7rem; background: rgba(255,255,255,0.05); border-radius: 5px; color: var(--text-dim); }
-    .win-tab.active { background: var(--accent-dim); color: var(--accent-hi); border: 1px solid var(--accent-dim2); }
-    .win-title { font-family: var(--mono); font-size: 0.72rem; color: var(--text-dim); margin-left: auto; }
+    .console-led { flex: 0 0 auto; width: 8px; height: 8px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 8px var(--accent-glow), 0 0 0 3px var(--accent-dim); }
+    .console-id { flex: 0 0 auto; letter-spacing: 0.06em; color: var(--text-muted); white-space: nowrap; }
+    .console-sep { color: var(--accent-lo); }
+    .console-tabs { display: flex; align-items: center; gap: var(--sp-1); margin-left: auto; min-width: 0; }
+    .console-tab { padding: 0.2rem 0.6rem; border-radius: var(--r-sm); border: 1px solid transparent; color: var(--text-dim); white-space: nowrap; }
+    .console-tab.is-on { color: var(--accent-hi); background: var(--accent-dim); border-color: var(--accent-dim2); }
+    .console-tab-spacer { width: var(--sp-3); }
+    .console-meta { color: var(--text-dim); white-space: nowrap; }
 
-    /* Terminal window */
-    .terminal-body { background: var(--bg); padding: 1.1rem 1.2rem; font-family: var(--mono); font-size: 0.78rem; line-height: 1.7; height: 400px; overflow: hidden; }
-    .t-line { display: flex; gap: 0.55rem; opacity: 0; transform: translateY(3px); }
-    .t-line.vis { animation: lineIn 0.25s forwards; }
+    .console-grid { display: grid; grid-template-columns: minmax(0, 1.34fr) minmax(0, 1fr); gap: 1px; background: var(--border); }
+    .pane { position: relative; display: flex; flex-direction: column; min-width: 0; background: var(--bg); }
+    .pane-head {
+      display: flex;
+      align-items: center;
+      gap: var(--sp-2);
+      height: 34px;
+      padding-inline: var(--sp-4);
+      border-bottom: 1px solid var(--border);
+      background: #121217;
+      font-family: var(--mono);
+      font-size: var(--fs-xs);
+      overflow: hidden;
+    }
+    .pane-dot { width: 6px; height: 6px; border-radius: 50%; flex: 0 0 auto; }
+    .pane-dot--acc { background: var(--accent); box-shadow: 0 0 6px var(--accent-glow); }
+    .pane-dot--net { background: var(--dream-hi); box-shadow: 0 0 6px rgba(201, 174, 222, 0.45); }
+    .pane-title { color: var(--text-muted); font-weight: 600; letter-spacing: 0.04em; }
+    .pane-sub { color: var(--text-dim); }
+    .pane-sub::before { content: '— '; }
+
+    /* Terminal */
+    .terminal-body {
+      position: relative;
+      flex: 1;
+      min-height: 384px;
+      padding: var(--sp-5) var(--sp-4);
+      background: var(--bg);
+      font-family: var(--mono);
+      font-size: var(--fs-sm);
+      line-height: 1.9;
+      overflow: hidden;
+      transition: opacity var(--dur-3) var(--ease-in-out);
+    }
+    .terminal-body::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      z-index: 0;
+      pointer-events: none;
+      background-image: repeating-linear-gradient(0deg, rgba(255, 255, 255, 0.025) 0 1px, transparent 1px 3px);
+      mix-blend-mode: overlay;
+    }
+    .terminal-body::after {
+      content: '';
+      position: absolute;
+      inset: 0;
+      z-index: 0;
+      pointer-events: none;
+      background: radial-gradient(120% 90% at 30% 0%, transparent 55%, rgba(0, 0, 0, 0.35));
+    }
+    .terminal-body.is-cycling { opacity: 0; }
+
+    .t-line { position: relative; z-index: 1; display: flex; gap: var(--sp-3); min-height: 1.9em; }
+    .js .terminal-body .t-line { opacity: 0; transform: translateY(5px); }
+    .t-line.vis { animation: lineIn var(--dur-3) var(--ease-out) forwards; }
     @keyframes lineIn { to { opacity: 1; transform: none; } }
-    .t-name { font-weight: 600; min-width: 62px; flex-shrink: 0; font-size: 0.72rem; }
-    .t-sys  { color: var(--text-dim); font-style: italic; }
-    .t-acc  { color: var(--accent-hi); }
-    .t-gold { color: var(--gold); }
-    .t-green{ color: var(--green); }
-    .t-msg  { color: var(--text-muted); }
-    .cur { display: inline-block; width: 7px; height: 13px; background: var(--accent); border-radius: 1px; animation: blink 1s infinite; vertical-align: middle; }
-    @keyframes blink { 0%,50%{opacity:1} 51%,100%{opacity:0} }
-
-    /* Mini Observatory window (hero right) */
-    .obs-mini { display: flex; flex-direction: column; height: 400px; background: var(--bg); }
-    .obs-mini-main { display: flex; flex: 1; min-height: 0; }
-    .mini-side { width: 120px; background: #131316; border-right: 1px solid var(--border); padding: 0.6rem 0.4rem; flex-shrink: 0; }
-    .mini-side-head { font-size: 0.6rem; font-weight: 600; letter-spacing: 0.09em; text-transform: uppercase; color: var(--text-dim); padding: 0.1rem 0.5rem 0.5rem; }
-    .mini-nav { display: flex; align-items: center; gap: 0.5rem; padding: 0.36rem 0.5rem; border-radius: 6px; font-size: 0.72rem; color: var(--text-muted); }
-    .mini-nav svg { width: 13px; height: 13px; }
-    .mini-nav.active { background: var(--accent-dim); color: var(--accent-hi); font-weight: 600; }
-    .mini-graph { flex: 1; position: relative; overflow: hidden; }
-    .mini-graph svg { width: 100%; height: 100%; display: block; }
-    .mini-legend { display: flex; gap: 0.7rem; flex-wrap: wrap; padding: 0.55rem 0.8rem; border-top: 1px solid var(--border); font-family: var(--mono); font-size: 0.63rem; color: var(--text-dim); }
-    .mini-legend span { display: inline-flex; align-items: center; gap: 0.3rem; }
-    .mini-legend i { width: 7px; height: 7px; border-radius: 50%; display: inline-block; }
-
-    @media (max-width: 820px) {
-      .hero-windows { grid-template-columns: 1fr; }
+    .t-line.t-fresh .t-msg { animation: phosphor 2.2s var(--ease-out) forwards; }
+    @keyframes phosphor {
+      0%   { text-shadow: 0 0 10px currentColor, 0 0 2px currentColor; opacity: 0.55; }
+      22%  { text-shadow: 0 0 8px currentColor; opacity: 1; }
+      100% { text-shadow: 0 0 0 transparent; }
     }
 
-    /* ── FEATURES ── */
-    #features { padding: 96px 0; }
-    .features-grid {
-      display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-      gap: 1px; background: var(--border);
-      border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; margin-top: 3rem;
+    .t-prompt { flex: 0 0 auto; display: inline-flex; align-items: baseline; font-size: var(--fs-xs); font-weight: 600; }
+    .t-user { color: var(--accent-hi); }
+    .t-punc { color: var(--text-dim); }
+    .t-dir { color: var(--gold-hi); }
+    .t-caret { margin-left: 0.42em; color: var(--accent); }
+    .t-name { flex: 0 0 auto; min-width: 88px; font-weight: 600; font-size: var(--fs-xs); }
+    .t-msg { color: var(--text-muted); white-space: pre-wrap; }
+    .t-mid { color: var(--text-dim); }
+    .t-acc { color: var(--accent-hi); }
+    .t-gold { color: var(--gold-hi); }
+    .t-green { color: var(--green-hi); }
+    .t-dream { color: var(--dream-hi); }
+
+    .t-cursor {
+      display: inline-block;
+      width: 7px; height: 1.02em;
+      margin-left: 2px;
+      vertical-align: -0.16em;
+      border-radius: 1px;
+      background: var(--accent-hi);
+      box-shadow: 0 0 6px var(--accent-glow);
+      animation: blink 1.05s steps(1) infinite;
     }
-    .feat-card { background: var(--bg-card); padding: 1.75rem; transition: background var(--ease); }
-    .feat-card:hover { background: var(--bg-card-hover); }
-    .feat-icon {
-      width: 40px; height: 40px; border-radius: 9px;
+    @keyframes blink { 0%, 52% { opacity: 1; } 53%, 100% { opacity: 0; } }
+
+    .t-status { position: relative; z-index: 1; display: flex; align-items: center; gap: var(--sp-3); min-height: 1.9em; color: var(--text-dim); font-size: var(--fs-xs); }
+    .t-status[hidden] { display: none; }
+    .t-spin { color: var(--accent); font-size: 1.05em; }
+
+    /* Map pane */
+    .map-stage {
+      position: relative;
+      flex: 1;
+      min-height: 384px;
+      overflow: hidden;
+      background: radial-gradient(80% 70% at 50% 42%, rgba(148, 142, 189, 0.06), transparent 70%), var(--bg);
+    }
+    .map-stage canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+    .map-legend {
+      flex: 0 0 auto;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-wrap: wrap;
+      gap: var(--sp-2) var(--sp-4);
+      min-height: 34px;
+      padding: var(--sp-2) var(--sp-3);
+      border-top: 1px solid var(--border);
+      background: #121217;
+      font-family: var(--mono);
+      font-size: var(--fs-xs);
+      color: var(--text-dim);
+    }
+    .map-legend span { display: inline-flex; align-items: center; gap: 0.35rem; }
+    .map-legend i { width: 7px; height: 7px; border-radius: 50%; display: inline-block; }
+
+    /* Freeze every CSS animation inside the console when the master loop stops */
+    .hero-console.is-paused *,
+    .hero-console.is-paused *::before,
+    .hero-console.is-paused *::after { animation-play-state: paused !important; }
+
+    /* ── Stat band ──────────────────────────────────────────────────────── */
+    .statband { padding-block: var(--sp-10); border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); background: linear-gradient(180deg, transparent, rgba(148, 142, 189, 0.025), transparent); }
+    .statband-inner { display: grid; grid-template-columns: repeat(4, 1fr); gap: var(--sp-6); }
+    .stat { display: flex; flex-direction: column; gap: var(--sp-1); }
+    .stat-n { font-size: clamp(1.9rem, 3vw, 2.6rem); font-weight: 800; letter-spacing: -0.04em; color: var(--accent-hi); line-height: 1; font-variant-numeric: tabular-nums; }
+    .stat-l { font-family: var(--mono); font-size: var(--fs-xs); letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-dim); }
+
+    /* ── Feature grid ───────────────────────────────────────────────────── */
+    #capabilities { background: linear-gradient(180deg, transparent, rgba(148, 142, 189, 0.022), transparent); }
+    .feature-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+      gap: var(--sp-5);
+      margin-top: var(--sp-12);
+    }
+    .feature-card {
+      position: relative;
+      padding: var(--sp-6);
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--r-lg);
+      overflow: hidden;
+      transition: transform var(--t) var(--ease-out), border-color var(--t) var(--ease),
+                  background var(--t) var(--ease), box-shadow var(--t) var(--ease);
+    }
+    .feature-card::after {
+      content: '';
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      opacity: 0;
+      background: radial-gradient(300px circle at var(--mx, 50%) var(--my, 0%), var(--accent-dim2), transparent 60%);
+      transition: opacity var(--t) var(--ease);
+    }
+    .feature-card:hover { transform: translateY(-3px); border-color: var(--accent-dim2); background: var(--bg-card-hover); box-shadow: var(--sh-lg); }
+    .feature-card:hover::after { opacity: 0.5; }
+    .feature-card .fc-icon {
+      width: 42px; height: 42px;
       display: flex; align-items: center; justify-content: center;
-      margin-bottom: 0.9rem;
+      border-radius: var(--r-md);
+      margin-bottom: var(--sp-4);
     }
-    .feat-icon svg { width: 18px; height: 18px; }
-    .fi-a { background: var(--accent-dim); border: 1px solid var(--accent-dim2); color: var(--accent-hi); }
-    .fi-g { background: var(--green-dim); border: 1px solid var(--green-dim2); color: var(--green); }
-    .fi-gold { background: var(--gold-dim); border: 1px solid var(--gold-dim2); color: var(--gold); }
-    .fi-d { background: var(--dream-dim); border: 1px solid var(--dream-dim2); color: var(--dream); }
-    .fi-o { background: var(--obs-dim); border: 1px solid var(--obs-dim2); color: var(--obs); }
-    .feat-card h3 { font-size: 0.975rem; font-weight: 700; margin-bottom: 0.45rem; }
-    .feat-card p { font-size: 0.858rem; color: var(--text-muted); line-height: 1.65; }
-    .feat-card code { font-family: var(--mono); font-size: 0.78em; background: rgba(255,255,255,0.05); border: 1px solid var(--border); padding: 0.05em 0.35em; border-radius: 4px; color: var(--accent-hi); }
+    .feature-card .fc-icon svg { width: 19px; height: 19px; }
+    .fi-a    { background: var(--accent-dim); border: 1px solid var(--accent-dim2); color: var(--accent-hi); }
+    .fi-gold { background: var(--gold-dim);   border: 1px solid var(--gold-dim2);   color: var(--gold-hi); }
+    .fi-g    { background: var(--green-dim);  border: 1px solid var(--green-dim2);  color: var(--green-hi); }
+    .fi-d    { background: var(--dream-dim);  border: 1px solid var(--dream-dim2);  color: var(--dream-hi); }
+    .fi-o    { background: var(--obs-dim);    border: 1px solid var(--obs-dim2);    color: var(--obs-hi); }
+    .feature-card h3 { font-size: var(--fs-base); font-weight: 700; }
+    .feature-card p { margin-top: var(--sp-2); font-size: var(--fs-sm); color: var(--text-muted); line-height: 1.65; }
 
-    /* ── MIND MODEL ── */
-    #mind { padding: 96px 0; background: linear-gradient(180deg, transparent, rgba(148,142,189,0.02), transparent); }
-    .mind-grid { display: grid; grid-template-columns: 1.1fr 1fr; gap: 1.25rem; margin-top: 3rem; align-items: stretch; }
-    .mind-card { background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius); padding: 1.9rem; }
-    .mind-card h3 { font-size: 1.05rem; font-weight: 700; margin-bottom: 0.55rem; }
-    .mind-card p { font-size: 0.885rem; color: var(--text-muted); line-height: 1.7; }
+    /* ── Mind model ─────────────────────────────────────────────────────── */
+    #mind { background: linear-gradient(180deg, transparent, rgba(164, 136, 182, 0.025), transparent); }
+    .mind-grid { display: grid; grid-template-columns: 1.08fr 1fr; gap: var(--sp-5); margin-top: var(--sp-12); align-items: stretch; }
+    .mind-card { background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--r-lg); padding: var(--sp-8); }
+    .mind-card h3 { font-size: var(--fs-lg); font-weight: 700; }
+    .mind-card > p { margin-top: var(--sp-3); font-size: var(--fs-base); color: var(--text-muted); line-height: 1.7; }
     .formula {
-      font-family: var(--mono); font-size: 0.9rem; color: var(--text);
-      background: var(--bg); border: 1px solid var(--border); border-radius: 9px;
-      padding: 1.1rem 1.2rem; margin: 1.2rem 0; line-height: 1.9; overflow-x: auto;
+      margin: var(--sp-5) 0;
+      padding: var(--sp-4) var(--sp-5);
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: var(--r-md);
+      font-family: var(--mono);
+      font-size: var(--fs-sm);
+      line-height: 1.95;
+      color: var(--text);
+      overflow-x: auto;
     }
     .formula .k { color: var(--accent-hi); }
-    .formula .f { color: var(--gold); }
+    .formula .f { color: var(--gold-hi); }
     .formula .c { color: var(--text-dim); }
-    .factors { display: flex; flex-direction: column; gap: 0.75rem; margin-top: 0.4rem; }
-    .factor { display: flex; align-items: center; gap: 0.75rem; font-size: 0.82rem; }
-    .factor .fname { font-family: var(--mono); color: var(--text); min-width: 78px; }
-    .factor .fbar { flex: 1; height: 6px; border-radius: 100px; background: rgba(255,255,255,0.06); overflow: hidden; }
-    .factor .fbar i { display: block; height: 100%; border-radius: 100px; }
-    .factor .fnote { color: var(--text-dim); font-size: 0.76rem; }
-    .states { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.7rem; margin-top: 1.2rem; }
-    .state { border: 1px solid var(--border); border-radius: 9px; padding: 0.8rem 0.85rem; background: var(--bg); }
-    .state .sname { font-family: var(--mono); font-size: 0.75rem; font-weight: 600; }
-    .state p { font-size: 0.74rem; color: var(--text-dim); line-height: 1.5; margin-top: 0.3rem; }
-    .s-served { color: var(--green); }
-    .s-ignored { color: var(--obs); }
-    .s-archived { color: var(--gold); }
-    @media (max-width: 900px) { .mind-grid { grid-template-columns: 1fr; } }
+    .factors { display: flex; flex-direction: column; gap: var(--sp-3); margin-top: var(--sp-4); }
+    .factor { display: grid; grid-template-columns: 82px 1fr auto; align-items: center; gap: var(--sp-3); font-size: var(--fs-sm); }
+    .factor .fname { font-family: var(--mono); color: var(--text); }
+    .fbar { height: 6px; border-radius: var(--r-pill); background: rgba(255, 255, 255, 0.07); overflow: hidden; }
+    .fbar i { display: block; width: 0; height: 100%; border-radius: var(--r-pill); transition: width var(--dur-5) var(--ease-out); }
+    .reveal.in .fbar i { width: var(--w, 0%); }
+    .factor .fnote { color: var(--text-dim); font-size: var(--fs-xs); }
+    .states { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--sp-3); margin-top: var(--sp-5); }
+    .state { border: 1px solid var(--border); border-radius: var(--r-md); padding: var(--sp-4); background: var(--bg); }
+    .state .sname { font-family: var(--mono); font-size: var(--fs-sm); font-weight: 600; }
+    .state p { margin-top: var(--sp-2); font-size: var(--fs-xs); color: var(--text-muted); line-height: 1.55; }
+    .s-active { color: var(--green-hi); }
+    .s-ignored { color: var(--obs-hi); }
+    .s-archived { color: var(--gold-hi); }
+    .mind-foot { margin-top: var(--sp-5); font-size: var(--fs-sm); color: var(--text-dim); line-height: 1.65; }
 
-    /* ── HOW ── */
-    #how { padding: 96px 0; }
-    .steps { display: grid; grid-template-columns: 1fr auto 1fr auto 1fr; gap: 0; margin: 3.5rem auto 0; max-width: 980px; align-items: start; }
-    .step { text-align: center; padding: 0 1.25rem; }
-    .step-head { display: flex; flex-direction: column; align-items: center; margin-bottom: 1.25rem; }
+    /* ── How it works ───────────────────────────────────────────────────── */
+    .steps { display: grid; grid-template-columns: 1fr auto 1fr auto 1fr; gap: 0; margin: var(--sp-16) auto 0; max-width: 980px; align-items: start; }
+    .step { text-align: center; padding: 0 var(--sp-5); }
     .step-num {
-      width: 48px; height: 48px;
-      background: var(--bg-card); border: 1px solid var(--border);
-      border-radius: 50%; display: flex; align-items: center; justify-content: center;
-      font-weight: 800; font-size: 1rem; color: var(--accent-hi);
-      margin-bottom: 1rem; position: relative;
+      width: 50px; height: 50px;
+      background: var(--bg-elev);
+      border: 1px solid var(--border-2);
+      border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      font-family: var(--mono); font-weight: 600; font-size: var(--fs-md);
+      color: var(--accent-hi);
+      margin: 0 auto var(--sp-4);
       box-shadow: 0 0 0 6px var(--bg), 0 0 0 7px var(--border);
     }
-    .step h3 { font-size: 0.95rem; font-weight: 700; margin-bottom: 0.5rem; }
-    .step p { font-size: 0.82rem; color: var(--text-muted); line-height: 1.65; }
-    .step code { font-family: var(--mono); font-size: 0.75rem; background: var(--accent-dim); border: 1px solid var(--accent-dim2); padding: 0.1rem 0.4rem; border-radius: 4px; color: var(--accent-hi); white-space: nowrap; }
-    .step-connector { display: flex; align-items: center; padding-top: 30px; }
-    .step-connector-line { width: 48px; height: 1px; background: linear-gradient(90deg, var(--border), var(--accent-dim2), var(--border)); position: relative; }
+    .step h3 { font-size: var(--fs-md); font-weight: 700; }
+    .step p { margin-top: var(--sp-2); font-size: var(--fs-sm); color: var(--text-muted); line-height: 1.65; }
+    .step-connector { display: flex; align-items: center; padding-top: 26px; }
+    .step-connector-line { width: 44px; height: 1px; background: linear-gradient(90deg, var(--border), var(--accent-dim2), var(--border)); position: relative; }
     .step-connector-line::after { content: ''; position: absolute; right: -3px; top: -3px; width: 7px; height: 7px; border-top: 1px solid var(--accent-dim2); border-right: 1px solid var(--accent-dim2); transform: rotate(45deg); }
-    .lane-note { margin: 2.5rem auto 0; max-width: 760px; background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius); padding: 1.4rem 1.6rem; font-size: 0.87rem; color: var(--text-muted); line-height: 1.7; }
-    .lane-note strong { color: var(--text); }
-    @media (max-width: 820px) {
-      .steps { grid-template-columns: 1fr; gap: 2rem; }
-      .step-connector { display: none; }
-      .step { text-align: left; padding: 0; display: flex; gap: 1rem; align-items: flex-start; }
-      .step-head { margin-bottom: 0; flex-shrink: 0; }
-      .step-num { width: 36px; height: 36px; font-size: 0.85rem; margin-bottom: 0; box-shadow: none; }
+    .lane-note {
+      margin: var(--sp-12) auto 0;
+      max-width: 780px;
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-left: 2px solid var(--accent-dim2);
+      border-radius: var(--r-lg);
+      padding: var(--sp-6) var(--sp-8);
+      font-size: var(--fs-base);
+      color: var(--text-muted);
+      line-height: 1.7;
     }
+    .lane-note strong { color: var(--text); }
 
-    /* ── OBSERVATORY ── */
-    #observatory { padding: 96px 0; }
-    .dash-preview { margin-top: 3rem; border-radius: 14px; overflow: hidden; border: 1px solid var(--border); box-shadow: 0 48px 140px rgba(0,0,0,0.65), 0 0 50px rgba(148,142,189,0.05); background: var(--bg); }
-    .dash-chrome { background: var(--sidebar); padding: 0.6rem 1.1rem; display: flex; align-items: center; gap: 0.4rem; border-bottom: 1px solid var(--border); }
-    .dash-chrome .url { font-family: var(--mono); font-size: 0.72rem; color: var(--text-dim); margin-left: 1rem; }
-    .dash-body { display: flex; min-height: 430px; background: var(--bg); }
-    .dash-sidebar { width: 156px; background: var(--sidebar); border-right: 1px solid var(--border); display: flex; flex-direction: column; flex-shrink: 0; padding: 0.75rem 0; }
-    .dash-sidebar-head { padding: 0.2rem 0.9rem 0.6rem; font-size: 0.65rem; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-dim); }
-    .dash-nav-item { display: flex; align-items: center; gap: 0.55rem; padding: 0.48rem 0.85rem; font-size: 0.8rem; color: var(--text-muted); cursor: default; transition: background var(--ease), color var(--ease); margin: 0 0.4rem; border-radius: 6px; }
+    /* ── Observatory ────────────────────────────────────────────────────── */
+    .dash-preview {
+      margin-top: var(--sp-12);
+      border: 1px solid var(--border);
+      border-radius: var(--r-lg);
+      overflow: hidden;
+      background: var(--bg);
+      box-shadow: var(--sh-lg), 0 0 60px rgba(148, 142, 189, 0.06);
+    }
+    .dash-chrome { display: flex; align-items: center; gap: var(--sp-2); height: 38px; padding-inline: var(--sp-4); background: #121217; border-bottom: 1px solid var(--border); }
+    .dash-led { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 8px var(--accent-glow), 0 0 0 3px var(--accent-dim); }
+    .dash-chrome .url { font-family: var(--mono); font-size: var(--fs-xs); color: var(--text-dim); margin-left: var(--sp-2); }
+    .dash-body { display: flex; min-height: 420px; background: var(--bg); }
+    .dash-sidebar { width: 160px; background: var(--sidebar); border-right: 1px solid var(--border); display: flex; flex-direction: column; flex-shrink: 0; padding: var(--sp-3) 0; }
+    .dash-sidebar-head { padding: var(--sp-1) var(--sp-4) var(--sp-3); font-size: var(--fs-2xs); font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; color: var(--text-dim); }
+    .dash-nav-item { display: flex; align-items: center; gap: var(--sp-2); margin: 0 var(--sp-2) 2px; padding: 0.5rem 0.7rem; font-size: var(--fs-sm); color: var(--text-muted); border-radius: var(--r-sm); }
     .dash-nav-item.active { background: var(--accent-dim); color: var(--accent-hi); font-weight: 600; }
     .dash-nav-item svg { width: 14px; height: 14px; flex-shrink: 0; }
-    .dash-content { flex: 1; overflow: hidden; display: flex; flex-direction: column; }
-    .dash-pane { flex: 1; position: relative; min-height: 300px; }
-    .dash-pane svg { width: 100%; height: 100%; display: block; }
-    .dash-foot { border-top: 1px solid var(--border); padding: 0.5rem 0.9rem; display: flex; gap: 1.1rem; font-family: var(--mono); font-size: 0.66rem; color: var(--text-dim); background: #131316; flex-wrap: wrap; }
-    .dash-foot b { color: var(--accent-hi); font-weight: 600; }
-    .debug-table { width: 100%; border-collapse: collapse; font-family: var(--mono); font-size: 0.7rem; }
-    .debug-table th { text-align: left; font-weight: 600; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.07em; font-size: 0.6rem; padding: 0.5rem 0.9rem; border-bottom: 1px solid var(--border); }
-    .debug-table td { padding: 0.44rem 0.9rem; border-bottom: 1px solid rgba(255,255,255,0.03); color: var(--text-muted); white-space: nowrap; }
-    .debug-table tr:hover td { background: rgba(255,255,255,0.02); }
-    .lane-tag { display: inline-block; font-size: 0.62rem; padding: 0.08rem 0.42rem; border-radius: 4px; font-weight: 600; }
+    .dash-content { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+    .dash-toolbar { padding: var(--sp-3) var(--sp-4) 0; display: flex; gap: var(--sp-2); align-items: center; flex-wrap: wrap; }
+    .lane-tag { display: inline-block; font-family: var(--mono); font-size: var(--fs-2xs); padding: 0.12rem 0.45rem; border-radius: var(--r-sm); font-weight: 600; }
     .lt-v { background: var(--accent-dim); color: var(--accent-hi); border: 1px solid var(--accent-dim2); }
-    .lt-g { background: var(--green-dim); color: var(--green); border: 1px solid var(--green-dim2); }
-    .lt-o { background: var(--obs-dim); color: var(--obs); border: 1px solid var(--obs-dim2); }
-    .lt-gold { background: var(--gold-dim); color: var(--gold); border: 1px solid var(--gold-dim2); }
-    .ok-dot { color: var(--green); }
-    .obs-notes { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 0.85rem; margin-top: 1.5rem; }
-    .obs-note { background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius); padding: 1.2rem 1.3rem; }
-    .obs-note h4 { font-size: 0.85rem; font-weight: 700; margin-bottom: 0.4rem; }
-    .obs-note p { font-size: 0.8rem; color: var(--text-muted); line-height: 1.6; }
-    .obs-note code { font-family: var(--mono); font-size: 0.78em; color: var(--accent-hi); }
-    @media (max-width: 820px) { .dash-sidebar { width: 116px; } .dash-sidebar-head { font-size: 0.58rem; } }
+    .lt-g { background: var(--green-dim); color: var(--green-hi); border: 1px solid var(--green-dim2); }
+    .lt-o { background: var(--obs-dim); color: var(--obs-hi); border: 1px solid var(--obs-dim2); }
+    .lt-gold { background: var(--gold-dim); color: var(--gold-hi); border: 1px solid var(--gold-dim2); }
+    .dash-toolbar .hint { font-family: var(--mono); font-size: var(--fs-xs); color: var(--text-dim); }
+    .table-scroll { margin-top: var(--sp-3); overflow-x: auto; }
+    .table-scroll:focus-visible { outline: 2px solid var(--accent-hi); outline-offset: -2px; }
+    .debug-table { width: 100%; border-collapse: collapse; font-family: var(--mono); font-size: 0.72rem; }
+    .debug-table th { text-align: left; font-weight: 600; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.07em; font-size: var(--fs-2xs); padding: var(--sp-2) var(--sp-4); border-bottom: 1px solid var(--border); white-space: nowrap; }
+    .debug-table td { padding: 0.5rem var(--sp-4); border-bottom: 1px solid rgba(255, 255, 255, 0.04); color: var(--text-muted); white-space: nowrap; }
+    .debug-table tbody tr:hover td { background: rgba(255, 255, 255, 0.02); }
+    .ok-dot { color: var(--green-hi); }
+    .dash-foot { border-top: 1px solid var(--border); padding: var(--sp-2) var(--sp-4); display: flex; gap: var(--sp-5); flex-wrap: wrap; font-family: var(--mono); font-size: var(--fs-2xs); color: var(--text-dim); background: #121217; }
+    .dash-foot b { color: var(--accent-hi); font-weight: 600; }
+    .obs-notes { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: var(--sp-4); margin-top: var(--sp-6); }
+    .obs-note { background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--r-lg); padding: var(--sp-5) var(--sp-6); }
+    .obs-note h3 { font-size: var(--fs-base); font-weight: 700; }
+    .obs-note p { margin-top: var(--sp-2); font-size: var(--fs-sm); color: var(--text-muted); line-height: 1.6; }
 
-    /* ── CTA ── */
-    #cta { padding: 112px 0; text-align: center; background: radial-gradient(ellipse 70% 45% at 50% 50%, rgba(148,142,189,0.06) 0%, transparent 70%); }
+    /* ── CTA ────────────────────────────────────────────────────────────── */
+    #cta { text-align: center; padding-block: var(--sp-24); background: radial-gradient(ellipse 70% 45% at 50% 50%, rgba(148, 142, 189, 0.07), transparent 70%); }
+    #cta .section-head { margin-inline: auto; }
     #cta h2 { font-size: clamp(1.9rem, 4vw, 3rem); }
-    #cta > .container > p { margin: 1.1rem auto; max-width: 560px; color: var(--text-muted); font-size: 1.02rem; }
-    .cta-cmd { display: inline-flex; align-items: center; gap: 0.85rem; background: rgba(255,255,255,0.03); border: 1px solid var(--border); border-radius: 11px; padding: 0.9rem 1.4rem; margin: 1.8rem auto; font-family: var(--mono); font-size: 0.92rem; color: var(--accent-hi); cursor: pointer; transition: all var(--ease); }
-    .cta-cmd:hover { border-color: var(--accent-dim2); background: var(--accent-dim); }
-    .cta-copy-hint { font-size: 0.7rem; color: var(--text-dim); }
-    .cta-links { display: flex; gap: 0.85rem; justify-content: center; flex-wrap: wrap; margin-top: 1.75rem; }
-    .status-pill { display: inline-flex; align-items: center; gap: 0.5rem; margin-top: 1.9rem; font-size: 0.78rem; color: var(--text-dim); background: var(--bg-card); border: 1px solid var(--border); border-radius: 100px; padding: 0.35rem 0.9rem; }
-    .status-pill .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--gold); box-shadow: 0 0 6px rgba(179,146,98,0.6); }
+    .cta-cmd {
+      display: inline-flex;
+      align-items: center;
+      gap: var(--sp-3);
+      margin-top: var(--sp-8);
+      padding: 0.85rem 1.3rem;
+      background: rgba(255, 255, 255, 0.03);
+      border: 1px solid var(--border);
+      border-radius: var(--r-md);
+      font-family: var(--mono);
+      font-size: var(--fs-base);
+      color: var(--accent-hi);
+      cursor: pointer;
+      transition: background var(--t) var(--ease), border-color var(--t) var(--ease), color var(--t) var(--ease);
+    }
+    .cta-cmd:hover { background: var(--accent-dim); border-color: var(--accent-dim2); }
+    .cta-cmd .hint { font-size: var(--fs-xs); color: var(--text-dim); font-family: var(--font); }
+    .cta-cmd.copied { color: var(--green-hi); border-color: var(--green-dim2); background: var(--green-dim); }
+    .cta-links { margin-top: var(--sp-8); display: flex; flex-wrap: wrap; gap: var(--sp-3); justify-content: center; }
+    .status-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: var(--sp-2);
+      margin-top: var(--sp-8);
+      padding: 0.35rem 0.9rem;
+      font-size: var(--fs-sm);
+      color: var(--text-dim);
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--r-pill);
+    }
+    .status-pill .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--gold); box-shadow: 0 0 6px rgba(179, 146, 98, 0.6); }
 
-    /* ── FOOTER ── */
-    footer { border-top: 1px solid var(--border); padding: 2.5rem 0 1.75rem; font-size: 0.83rem; }
-    .footer-inner { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 1.25rem; }
-    .footer-logo { display: flex; align-items: center; gap: 7px; font-weight: 700; color: var(--text); text-decoration: none; }
-    .footer-logo img { width: 20px; height: 20px; }
-    .footer-links { display: flex; gap: 1.25rem; list-style: none; flex-wrap: wrap; }
-    .footer-links a { color: var(--text-dim); text-decoration: none; transition: color var(--ease); }
-    .footer-links a:hover { color: var(--text-muted); }
-    .footer-copy { color: var(--text-dim); }
-    .footer-copy a { color: var(--text-muted); text-decoration: none; }
-    .families { display: flex; justify-content: center; gap: 1.6rem; flex-wrap: wrap; margin: 2.4rem 0 1.4rem; font-size: 0.82rem; color: var(--text-dim); }
-    .families b { color: var(--text-muted); font-weight: 600; }
+    /* ── Footer ─────────────────────────────────────────────────────────── */
+    .site-footer { border-top: 1px solid var(--border); padding-top: var(--sp-12); padding-bottom: var(--sp-8); font-size: var(--fs-sm); }
+    .footer-top { display: grid; grid-template-columns: 1.5fr 1fr 1fr; gap: var(--sp-8); padding-bottom: var(--sp-10); border-bottom: 1px solid var(--border); }
+    .footer-brand { display: flex; flex-direction: column; gap: var(--sp-4); align-items: flex-start; }
+    .site-footer .brand { font-size: 1.25rem; padding-block: 0; }
+    .footer-tag { max-width: 34ch; color: var(--text-muted); line-height: 1.65; }
+    .footer-col h3 { font-family: var(--mono); font-size: var(--fs-xs); font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; color: var(--text-dim); margin-bottom: var(--sp-4); }
+    .footer-col ul { display: flex; flex-direction: column; gap: var(--sp-1); }
+    .footer-col a { display: inline-flex; align-items: center; gap: var(--sp-2); min-height: 44px; color: var(--text-muted); text-decoration: none; transition: color var(--t) var(--ease); }
+    .footer-col a:hover { color: var(--accent-hi); }
+    .footer-col a .ext { font-size: 0.85em; color: var(--text-dim); }
+    .footer-bottom { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: var(--sp-4); padding-top: var(--sp-6); color: var(--text-dim); }
+    .footer-bottom a { color: var(--text-muted); text-decoration: none; padding-block: 6px; display: inline-flex; align-items: center; min-height: 44px; }
+    .footer-bottom a:hover { color: var(--accent-hi); }
 
-    /* Toast */
-    .toast { position: fixed; bottom: 1.75rem; left: 50%; transform: translateX(-50%) translateY(8px); background: var(--bg-card); border: 1px solid var(--border); color: var(--text); font-size: 0.82rem; font-weight: 500; padding: 0.6rem 1.1rem; border-radius: 9px; box-shadow: 0 8px 24px rgba(0,0,0,0.4); opacity: 0; transition: all 0.28s; pointer-events: none; z-index: 9999; }
+    /* ── Toast ──────────────────────────────────────────────────────────── */
+    .toast {
+      position: fixed;
+      left: 50%;
+      bottom: var(--sp-6);
+      transform: translateX(-50%) translateY(10px);
+      z-index: 300;
+      padding: 0.6rem 1.1rem;
+      background: var(--bg-elev);
+      border: 1px solid var(--border-2);
+      border-radius: var(--r-md);
+      font-size: var(--fs-sm);
+      font-weight: 500;
+      color: var(--text);
+      box-shadow: var(--sh-lg);
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity var(--t) var(--ease), transform var(--t) var(--ease);
+    }
     .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
 
-    @media (max-width: 768px) {
-      .nav-links { display: none; }
+    /* ── Reveal / motion system ─────────────────────────────────────────── */
+    .reveal {
+      transition: opacity var(--dur-4) var(--ease-out), transform var(--dur-4) var(--ease-out);
+      transition-delay: var(--d, 0ms);
+    }
+    .js .reveal { opacity: 0; transform: translateY(22px); }
+    .js .reveal.in { opacity: 1; transform: none; }
+
+    .js .hero-inner .reveal.in { animation: heroIn var(--dur-4) var(--ease-out) var(--d, 0ms) both; }
+    @keyframes heroIn {
+      from { opacity: 0; transform: translateY(22px); filter: blur(6px); }
+      to   { opacity: 1; transform: none;             filter: blur(0); }
+    }
+
+    /* ── Responsive ─────────────────────────────────────────────────────── */
+    @media (max-width: 1024px) {
+      .feature-grid { grid-template-columns: repeat(2, 1fr); }
+    }
+
+    @media (max-width: 960px) {
+      .console-grid { grid-template-columns: 1fr; }
+      .mind-grid { grid-template-columns: 1fr; }
+      .footer-top { grid-template-columns: 1fr 1fr; }
+      .footer-brand { grid-column: 1 / -1; }
+      .map-stage { min-height: 320px; }
+    }
+
+    @media (max-width: 820px) {
+      .nav-menu, .nav-actions .btn { display: none; }
+      .burger { display: inline-flex; }
+      .steps { grid-template-columns: 1fr; gap: var(--sp-6); max-width: 480px; }
+      .step-connector { display: none; }
+      .step { display: flex; gap: var(--sp-4); text-align: left; padding: 0; }
+      .step-num { margin: 0; width: 40px; height: 40px; font-size: var(--fs-sm); box-shadow: none; flex-shrink: 0; }
+    }
+
+    @media (max-width: 640px) {
+      :root { --nav-h: 60px; }
+      .container { padding-inline: var(--sp-5); }
+      .section { padding-block: var(--sp-16); }
+      .hero { padding-top: calc(var(--nav-h) + var(--sp-12)); }
+      .hero-console { margin-top: var(--sp-12); }
+      .console-tab:not(.is-on), .console-tab-spacer, .console-meta { display: none; }
+      .terminal-body, .map-stage { min-height: 320px; }
+      .terminal-body { font-size: 0.75rem; }
+      .statband-inner { grid-template-columns: repeat(2, 1fr); gap: var(--sp-4) var(--sp-6); }
       .states { grid-template-columns: 1fr; }
-      .footer-inner { flex-direction: column; align-items: flex-start; }
+      .mind-foot { font-size: var(--fs-sm); }
+      .footer-top { grid-template-columns: 1fr; gap: var(--sp-6); }
+      .footer-bottom { flex-direction: column; align-items: flex-start; }
+      .dash-sidebar { width: 116px; }
+      .dash-sidebar-head { font-size: 0.6rem; }
+    }
+
+    @media (max-width: 360px) {
+      .console-tab { display: none; }
+      .cta-cmd { flex-wrap: wrap; justify-content: center; padding: 0.7rem 1rem; }
+      .cta-cmd .hint { flex-basis: 100%; }
+    }
+
+    /* ── Print ──────────────────────────────────────────────────────────── */
+    @media print {
+      .reveal, .js .reveal { opacity: 1 !important; transform: none !important; }
+      .site-header, .mobile-menu, .toast { display: none !important; }
+    }
+
+    /* ── Reduced motion ─────────────────────────────────────────────────── */
+    @media (prefers-reduced-motion: reduce) {      html { scroll-behavior: auto; }
+      *, *::before, *::after {
+        animation-duration: 0.001ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.001ms !important;
+      }
+      .reveal, .js .reveal { opacity: 1; transform: none; }
+      .js .hero-inner .reveal.in { animation: none; opacity: 1; }
+      .js .terminal-body .t-line { opacity: 1; transform: none; }
+      .feature-card:hover, .btn-primary:hover { transform: none; }
+      .fbar i { width: var(--w, 0%) !important; }
+      .console-tilt { transform: none !important; }
+      .btn-primary::after { display: none; }
+      .terminal-body::before, .terminal-body::after { display: none; }
+      .t-cursor { animation: none; }
     }
   </style>
 </head>
 <body>
 
-<!-- NAV -->
-<nav>
-  <a class="nav-logo" href="#hero">
-    <img src="assets/logo.svg" alt="neoBrain" />
-    neo<span class="bn">Brain</span>
-  </a>
-  <ul class="nav-links">
-    <li><a href="#features">Features</a></li>
-    <li><a href="#mind">Mind Model</a></li>
-    <li><a href="#how">How It Works</a></li>
-    <li><a href="#observatory">Observatory</a></li>
-  </ul>
-  <div class="nav-actions">
-    <a class="btn btn-ghost" href="#observatory">See the Observatory</a>
-    <a class="btn btn-primary" href="#how">Get Started</a>
-  </div>
-</nav>
+<a class="skip-link" href="#main">Skip to content</a>
 
-<!-- HERO -->
-<section id="hero">
-  <div class="orb orb-violet" style="width:680px;height:680px;top:-200px;left:50%;transform:translateX(-50%)"></div>
-  <div class="orb orb-dream" style="width:320px;height:320px;bottom:4%;left:-8%"></div>
-  <div class="orb orb-dream" style="width:320px;height:320px;bottom:4%;right:-8%"></div>
-
-  <div class="hero-badge">
-    <span class="live-dot"></span>
-    A local daemon &middot; a mind you can watch
-  </div>
-
-  <h1>A simulated brain<br /><span class="grad">for AI agents</span></h1>
-
-  <p>Durable memory, rank-based forgetting, nightly dreams and a self-authored soul — one local daemon, one dashboard. The user watches; the agent becomes.</p>
-
-  <div class="hero-actions">
-    <a class="btn btn-primary btn-xl" href="#how">
-      Get Started
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+<!-- ── Header ─────────────────────────────────────────────────────────── -->
+<header class="site-header">
+  <nav class="nav container" aria-label="Primary">
+    <a class="brand" href="#hero" aria-label="neoBrain — home">
+      <img src="assets/logo.svg" alt="neoBrain" width="28" height="28" />
+      <span class="wm" aria-hidden="true">neoBrain</span>
     </a>
-    <a class="btn btn-ghost btn-lg" href="#mind">How the mind works</a>
-  </div>
 
-  <div class="hero-install">
-    <span>Then&nbsp;→</span>
-    <code onclick="copyText('neobrain init', this)">neobrain init</code>
-    <code onclick="copyText('neobrain start', this)">neobrain start</code>
-    <code onclick="copyText('neobrain ui', this)">neobrain ui</code>
-  </div>
+    <ul class="nav-menu">
+      <li><a class="nav-link" href="#capabilities" data-section="capabilities">Capabilities</a></li>
+      <li><a class="nav-link" href="#mind" data-section="mind">Mind Model</a></li>
+      <li><a class="nav-link" href="#how" data-section="how">Quickstart</a></li>
+      <li><a class="nav-link" href="#observatory" data-section="observatory">Observatory</a></li>
+    </ul>
 
-  <!-- HERO: Terminal + Observatory -->
-  <div class="hero-windows">
-
-    <!-- Left: Terminal -->
-    <div class="window-frame">
-      <div class="win-bar">
-        <div class="win-dot" style="background:#ff5f57"></div>
-        <div class="win-dot" style="background:#febc2e"></div>
-        <div class="win-dot" style="background:#28c840"></div>
-        <div class="win-tabs">
-          <div class="win-tab active">Terminal — quickstart</div>
-        </div>
-      </div>
-      <div class="terminal-body" id="terminal"></div>
+    <div class="nav-actions">
+      <a class="btn btn-ghost" href="#observatory">See the Observatory</a>
+      <a class="btn btn-primary" href="#how">Get started</a>
+      <button class="burger" type="button" aria-label="Open menu" aria-expanded="false" aria-controls="mobile-menu">
+        <span class="bars" aria-hidden="true"><span></span><span></span><span></span></span>
+      </button>
     </div>
+  </nav>
+</header>
 
-    <!-- Right: Observatory (mini) -->
-    <div class="window-frame">
-      <div class="win-bar">
-        <div class="win-dot" style="background:#ff5f57"></div>
-        <div class="win-dot" style="background:#febc2e"></div>
-        <div class="win-dot" style="background:#28c840"></div>
-        <span class="win-title">127.0.0.1:9192 — Observatory</span>
-      </div>
-      <div class="obs-mini">
-        <div class="obs-mini-main">
-          <div class="mini-side">
-            <div class="mini-side-head">Observatory</div>
-            <div class="mini-nav active">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="12" cy="12" r="3"/><circle cx="5" cy="6" r="2"/><circle cx="19" cy="7" r="2"/><circle cx="7" cy="18" r="2"/><path d="M9.6 10.2 6.6 7.3M14.4 10.6l3-2.4M10 14.2l-1.8 2.4"/></svg>
-              Brain
-            </div>
-            <div class="mini-nav">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>
-              Dreams
-            </div>
-            <div class="mini-nav">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M4 6h16M4 12h16M4 18h10"/></svg>
-              Memory
-            </div>
-            <div class="mini-nav">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="12" cy="8" r="3.2"/><path d="M5 20a7 7 0 0 1 14 0"/></svg>
-              Identity
-            </div>
-            <div class="mini-nav">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M12 3v18M5 8l7-5 7 5M5 16l7 5 7-5"/></svg>
-              Infra
-            </div>
-            <div class="mini-nav">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
-              Debug
-            </div>
-          </div>
-          <div class="mini-graph">
-            <svg viewBox="0 0 440 340" preserveAspectRatio="xMidYMid meet" aria-label="Brain graph mockup">
-              <defs>
-                <radialGradient id="graphGlow" cx="0.5" cy="0.5" r="0.5">
-                  <stop offset="0" stop-color="#948ebd" stop-opacity="0.14"/>
-                  <stop offset="1" stop-color="#948ebd" stop-opacity="0"/>
-                </radialGradient>
-                <radialGradient id="hubGlow" cx="0.5" cy="0.5" r="0.5">
-                  <stop offset="0" stop-color="#948ebd" stop-opacity="0.18"/>
-                  <stop offset="1" stop-color="#948ebd" stop-opacity="0"/>
-                </radialGradient>
-                <linearGradient id="hubGrad" x1="0" y1="0" x2="1" y2="1">
-                  <stop offset="0" stop-color="#c3bfec"/>
-                  <stop offset="1" stop-color="#7d77ab"/>
-                </linearGradient>
-              </defs>
-              <rect width="440" height="340" fill="#101013"/>
-              <circle cx="206" cy="168" r="150" fill="url(#graphGlow)"/>
-
-              <!-- hub to atom edges, opacity graded by distance -->
-              <g fill="none" stroke="#4a5064" stroke-width="1" stroke-linecap="round">
-                <line x1="206" y1="168" x2="206" y2="48"  opacity="0.50"/>
-                <line x1="206" y1="168" x2="340" y2="102" opacity="0.44"/>
-                <line x1="206" y1="168" x2="366" y2="218" opacity="0.40"/>
-                <line x1="206" y1="168" x2="248" y2="292" opacity="0.50"/>
-                <line x1="206" y1="168" x2="88"  y2="248" opacity="0.46"/>
-                <line x1="206" y1="168" x2="70"  y2="120" opacity="0.46"/>
-                <line x1="206" y1="168" x2="322" y2="158" opacity="0.52"/>
-                <line x1="206" y1="168" x2="138" y2="148" opacity="0.60"/>
-              </g>
-
-              <!-- typed edges between atoms -->
-              <g fill="none" stroke-width="1" stroke-linecap="round" opacity="0.8">
-                <line x1="206" y1="48"  x2="340" y2="102" stroke="#b39262"/>
-                <line x1="340" y1="102" x2="366" y2="218" stroke="#7ba38c"/>
-                <line x1="88"  y1="248" x2="70"  y2="120" stroke="#948ebd"/>
-                <line x1="366" y1="218" x2="248" y2="292" stroke="#a488b6"/>
-                <line x1="70"  y1="120" x2="206" y2="48"  stroke="#7e8393"/>
-                <line x1="322" y1="158" x2="340" y2="102" stroke="#b39262"/>
-              </g>
-
-              <!-- hub -->
-              <circle cx="206" cy="168" r="30" fill="url(#hubGlow)"/>
-              <circle cx="206" cy="168" r="7" fill="#0f0f10"/>
-              <circle cx="206" cy="168" r="5.5" fill="url(#hubGrad)"/>
-              <circle cx="206" cy="168" r="5.5" fill="none" stroke="#c3bfec" stroke-width="0.9" opacity="0.7"/>
-
-              <!-- atoms: halo + core, varied radii -->
-              <circle cx="206" cy="48"  r="8.5" fill="none" stroke="#8fa3b8" stroke-width="0.9" opacity="0.22"/>
-              <circle cx="206" cy="48"  r="4.5" fill="#8fa3b8"/>
-
-              <circle cx="340" cy="102" r="8"   fill="none" stroke="#b39262" stroke-width="0.9" opacity="0.22"/>
-              <circle cx="340" cy="102" r="4"   fill="#b39262"/>
-
-              <circle cx="366" cy="218" r="8.5" fill="none" stroke="#7ba38c" stroke-width="0.9" opacity="0.22"/>
-              <circle cx="366" cy="218" r="4.5" fill="#7ba38c"/>
-
-              <circle cx="248" cy="292" r="7.5" fill="none" stroke="#a488b6" stroke-width="0.9" opacity="0.22"/>
-              <circle cx="248" cy="292" r="3.5" fill="#a488b6"/>
-
-              <circle cx="88"  cy="248" r="9.5" fill="none" stroke="#948ebd" stroke-width="0.9" opacity="0.26"/>
-              <circle cx="88"  cy="248" r="5.5" fill="#948ebd"/>
-              <circle cx="86.6" cy="246.6" r="1.4" fill="#c3bfec" opacity="0.85"/>
-
-              <circle cx="70"  cy="120" r="7.5" fill="none" stroke="#7e8393" stroke-width="0.9" opacity="0.22"/>
-              <circle cx="70"  cy="120" r="3.5" fill="#7e8393"/>
-
-              <circle cx="322" cy="158" r="6.8" fill="none" stroke="#b39262" stroke-width="0.9" opacity="0.22"/>
-              <circle cx="322" cy="158" r="2.8" fill="#b39262"/>
-
-              <circle cx="138" cy="148" r="6.8" fill="none" stroke="#948ebd" stroke-width="0.9" opacity="0.22"/>
-              <circle cx="138" cy="148" r="2.8" fill="#948ebd"/>
-            </svg>
-          </div>
-        </div>
-        <div class="mini-legend">
-          <span><i style="background:#948ebd"></i>preference</span>
-          <span><i style="background:#b39262"></i>decision</span>
-          <span><i style="background:#7ba38c"></i>lesson</span>
-          <span><i style="background:#a488b6"></i>dream</span>
-          <span><i style="background:#8fa3b8"></i>observation</span>
-        </div>
-      </div>
-    </div>
-
-  </div>
-</section>
-
-<!-- FEATURES -->
-<section id="features">
-  <div class="container">
-    <div class="fade-in">
-      <div class="section-label">Features</div>
-      <h2>A mind, not a log.<br /><span class="accent">Every organ accounted for.</span></h2>
-      <p class="subtitle">Atoms, hubs and typed edges in local SQLite. Deterministic rank. Dreams that consolidate. A soul authored by the agent itself.</p>
-    </div>
-    <div class="features-grid">
-
-      <div class="feat-card fade-in">
-        <div class="feat-icon fi-a"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><circle cx="5" cy="6" r="2"/><circle cx="19" cy="7" r="2"/><circle cx="7" cy="18" r="2"/><path d="M9.6 10.2 6.6 7.3M14.4 10.6l3-2.4M10 14.2l-1.8 2.4"/></svg></div>
-        <h3>Durable memory</h3>
-        <p>Atoms + hubs + typed edges in SQLite, carrying ids, links and provenance. A mind model rather than an append-only log.</p>
-      </div>
-
-      <div class="feat-card fade-in fd1">
-        <div class="feat-icon fi-o"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3M11 8v6M8 11h6"/></svg></div>
-        <h3>Hybrid recall</h3>
-        <p>Lexical match blended with cosine vectors. Returns top-K <em>by rank within a token budget</em> — never the whole store.</p>
-      </div>
-
-      <div class="feat-card fade-in fd2">
-        <div class="feat-icon fi-gold"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><path d="m7 14 3-3 3 3 5-6"/></svg></div>
-        <h3>Deterministic rank</h3>
-        <p><code>quality = clamp01(feedback · decay · conn)</code>. The model has no discretion — retention is an economy, not a guess.</p>
-      </div>
-
-      <div class="feat-card fade-in">
-        <div class="feat-icon fi-g"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14"/></svg></div>
-        <h3>Forgetting, not deletion</h3>
-        <p>Low rank + low exposure becomes <code>ignored</code>; low rank + high exposure is <code>archived</code> — unretrievable but recoverable. Nothing is silently destroyed.</p>
-      </div>
-
-      <div class="feat-card fade-in fd1">
-        <div class="feat-icon fi-d"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg></div>
-        <h3>Nightly dreams</h3>
-        <p>Light / rem / deep replay consolidates top-ranked atoms into summaries and associations, and writes the first-person <code>DREAMS.md</code> diary.</p>
-      </div>
-
-      <div class="feat-card fade-in fd2">
-        <div class="feat-icon fi-a"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="3.2"/><path d="M5 20a7 7 0 0 1 14 0"/></svg></div>
-        <h3>Self-authored soul</h3>
-        <p><code>IDENTITY.md</code> and <code>SOUL.md</code> are written only by the agent's own reflect and dream phases, from its own experience. Safety red lines stay immutable.</p>
-      </div>
-
-      <div class="feat-card fade-in">
-        <div class="feat-icon fi-o"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 1 1-2.6-6.4"/><polyline points="21 3 21 9 15 9"/></svg></div>
-        <h3>Life loop</h3>
-        <p>An in-process state machine: perceive → reflect → act → rest. Cadence lives in code and the database — not in OS timers.</p>
-      </div>
-
-      <div class="feat-card fade-in fd1">
-        <div class="feat-icon fi-gold"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2 20 7v10l-8 5-8-5V7z"/><path d="M12 22V12M4 7l8 5 8-5"/></svg></div>
-        <h3>Standing directives</h3>
-        <p>Pinned preferences become a compact imperative block <strong>re-injected on every model call</strong> — so time, drift and compaction cannot drop the must-follow rules.</p>
-      </div>
-
-      <div class="feat-card fade-in fd2">
-        <div class="feat-icon fi-g"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M4 12h16M4 18h10"/><circle cx="20" cy="18" r="2.4"/></svg></div>
-        <h3>Per-turn recall</h3>
-        <p>The message is recalled against the mind and a rank-ordered index is injected automatically — the agent does not have to ask.</p>
-      </div>
-
-      <div class="feat-card fade-in">
-        <div class="feat-icon fi-d"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7h18M3 12h18M3 17h18" opacity="0.5"/><path d="M9 3v18" opacity="0.5"/></svg></div>
-        <h3>Compaction hook</h3>
-        <p>The directives block is injected into the summary request too, so rules survive a compact and the lanes re-arm next turn.</p>
-      </div>
-
-      <div class="feat-card fade-in fd1">
-        <div class="feat-icon fi-o"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M8 9h8M8 13h5"/></svg></div>
-        <h3>Injection logging</h3>
-        <p>Every plugin lane POSTs what it pushed. The Debug page renders the daemon's one blind spot: is the memory actually firing right now.</p>
-      </div>
-
-      <div class="feat-card fade-in fd2">
-        <div class="feat-icon fi-a"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v3M12 18v3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M3 12h3M18 12h3M5.6 18.4l2.1-2.1M16.3 7.7l2.1-2.1"/><circle cx="12" cy="12" r="3"/></svg></div>
-        <h3>Local-first by default</h3>
-        <p>Local Ollama embeddings — memory never leaves the host. The brain's own cognition uses a BYOK OpenAI-compatible endpoint.</p>
-      </div>
-
-      <div class="feat-card fade-in">
-        <div class="feat-icon fi-g"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 7h16M4 12h16M4 17h16"/><path d="m9 4 3 3-3 3M15 14l3 3-3 3"/></svg></div>
-        <h3>Ingest adapters</h3>
-        <p>The perceive phase runs OpenCode sessions, git repositories and workspace docs — or a one-shot <code>neobrain ingest</code>.</p>
-      </div>
-
+<!-- ── Mobile menu ────────────────────────────────────────────────────── -->
+<div class="mobile-menu" id="mobile-menu" hidden>
+  <div class="mobile-panel" role="dialog" aria-modal="true" aria-label="Site navigation">
+    <nav aria-label="Sections">
+      <p class="menu-label">Sections</p>
+      <a href="#capabilities">Capabilities <span aria-hidden="true">↓</span></a>
+      <a href="#mind">Mind Model <span aria-hidden="true">↓</span></a>
+      <a href="#how">Quickstart <span aria-hidden="true">↓</span></a>
+      <a href="#observatory">Observatory <span aria-hidden="true">↓</span></a>
+    </nav>
+    <div class="menu-cta">
+      <a class="btn btn-ghost" href="#observatory">See the Observatory</a>
+      <a class="btn btn-primary" href="#how">Get started</a>
     </div>
   </div>
-</section>
+</div>
 
-<!-- MIND MODEL -->
-<section id="mind">
-  <div class="container">
-    <div class="fade-in">
-      <div class="section-label">The Mind Model</div>
-      <h2>Forgetting is an economy,<br /><span class="accent">not a deletion.</span></h2>
-      <p class="subtitle">Rank decides what surfaces. It is fully deterministic, and the model never gets a vote.</p>
-    </div>
+<main id="main">
 
-    <div class="mind-grid">
-      <div class="mind-card fade-in">
-        <h3>Rank, computed in the open</h3>
-        <p>Three bounded factors, multiplied. Floors keep age and graph isolation from being fatal on their own — but feedback is the only factor that can reach zero, so a flood of <code style="font-family:var(--mono);color:var(--accent-hi)">noise</code> forgets even a fresh, well-connected memory.</p>
-        <div class="formula">
-          <span class="c"># deterministic — no model discretion</span><br />
-          <span class="k">quality</span> = clamp01( <span class="f">feedback</span> &middot; <span class="f">decay</span> &middot; <span class="f">conn</span> )<br />
-          <span class="k">decay</span>&nbsp;&nbsp; = floor + (1&minus;floor) &middot; recency<br />
-          <span class="k">conn</span>&nbsp;&nbsp;&nbsp; = floor + (1&minus;floor) &middot; connectivity<br />
-          <span class="c"># exposure (served + 3·interacted) never raises quality</span>
-        </div>
-        <div class="factors">
-          <div class="factor"><span class="fname">feedback</span><span class="fbar"><i style="width:88%;background:linear-gradient(90deg,var(--accent-lo),var(--accent-hi))"></i></span><span class="fnote">used / useful / noise — the only zero</span></div>
-          <div class="factor"><span class="fname">decay</span><span class="fbar"><i style="width:64%;background:linear-gradient(90deg,#6d5a86,var(--dream))"></i></span><span class="fnote">recency half-life</span></div>
-          <div class="factor"><span class="fname">conn</span><span class="fbar"><i style="width:52%;background:linear-gradient(90deg,#3f6b5a,var(--green))"></i></span><span class="fnote">hub connectivity</span></div>
-        </div>
+  <!-- ── Hero ─────────────────────────────────────────────────────────── -->
+  <section class="hero" id="hero" aria-labelledby="hero-title">
+    <div class="orb orb-1" aria-hidden="true"></div>
+    <div class="orb orb-2" aria-hidden="true"></div>
+    <div class="orb orb-3" aria-hidden="true"></div>
+
+    <div class="container hero-inner">
+      <span class="eyebrow reveal"><span class="dot" aria-hidden="true"></span>Local-first mind daemon</span>
+      <h1 id="hero-title" class="reveal" style="--d:60ms">A simulated brain <span class="grad">for AI agents</span></h1>
+      <p class="hero-lede reveal" style="--d:120ms">neoBrain gives AI agents durable memory, deterministic forgetting, nightly dreams and a self-authored soul — one local daemon, one dashboard. You watch the mind; the agent becomes.</p>
+      <div class="hero-actions reveal" style="--d:180ms">
+        <a class="btn btn-primary btn-lg" href="#how">Quickstart
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+        </a>
+        <a class="btn btn-ghost btn-lg" href="#mind">Explore the Mind Model</a>
+      </div>
+      <div class="hero-install reveal" style="--d:240ms">
+        <span class="arrow" aria-hidden="true">→</span>
+        <button class="copy-chip" type="button" data-copy="neobrain init" aria-label="Copy command: neobrain init">neobrain init</button>
+        <button class="copy-chip" type="button" data-copy="neobrain start" aria-label="Copy command: neobrain start">neobrain start</button>
+        <button class="copy-chip" type="button" data-copy="neobrain ui" aria-label="Copy command: neobrain ui">neobrain ui</button>
       </div>
 
-      <div class="mind-card fade-in fd1">
-        <h3>Rank states — and what they mean</h3>
-        <p>A low-quality atom is never deleted. It changes state, cheaply and reversibly. A later <code style="font-family:var(--mono);color:var(--accent-hi)">useful</code> / <code style="font-family:var(--mono);color:var(--accent-hi)">used</code> rating promotes it back.</p>
-        <div class="states">
-          <div class="state">
-            <div class="sname s-served">served</div>
-            <p>High rank. Surfaced in recall, within the token budget.</p>
+      <div class="hero-console reveal" id="console" style="--d:300ms">
+        <div class="console-tilt" id="consoleTilt">
+          <div class="console-chrome">
+            <span class="console-led" aria-hidden="true"></span>
+            <span class="console-id" aria-hidden="true">neobrain <span class="console-sep">//</span> mission-control</span>
+            <span class="console-tabs" aria-hidden="true">
+              <span class="console-tab is-on">terminal</span>
+              <span class="console-tab">mind map</span>
+              <span class="console-tab-spacer"></span>
+              <span class="console-meta">local <span class="console-sep">·</span> 127.0.0.1:9192</span>
+            </span>
           </div>
-          <div class="state">
-            <div class="sname s-ignored">ignored</div>
-            <p>Low rank, low exposure. Never surfaced. Zero cost. Never deleted.</p>
-          </div>
-          <div class="state">
-            <div class="sname s-archived">archived</div>
-            <p>Low rank, high exposure. Unretrievable but recoverable — archive &#8800; delete.</p>
+
+          <div class="console-grid">
+            <figure class="pane pane--cli">
+              <div class="pane-head" aria-hidden="true">
+                <span class="pane-dot pane-dot--acc"></span>
+                <span class="pane-title">terminal</span>
+                <span class="pane-sub">quickstart</span>
+              </div>
+              <div class="terminal-body" id="terminal" role="img" aria-label="Terminal transcript: initialise the store, start the daemon on 127.0.0.1:9192, then open the Observatory. The plugin lanes for wakeup, recall and standing directives fire automatically.">
+                <div class="t-line" data-t="cmd">
+                  <span class="t-prompt" aria-hidden="true"><span class="t-user">you</span><span class="t-punc">:</span><span class="t-dir">~/agent</span><span class="t-caret">$</span></span>
+                  <span class="t-msg">neobrain init</span>
+                </div>
+                <div class="t-line" data-t="out">
+                  <span class="t-name t-acc">neobrain</span>
+                  <span class="t-msg">initialised SQLite mind store — atoms, hubs and typed edges</span>
+                </div>
+                <div class="t-line" data-t="cmd">
+                  <span class="t-prompt" aria-hidden="true"><span class="t-user">you</span><span class="t-punc">:</span><span class="t-dir">~/agent</span><span class="t-caret">$</span></span>
+                  <span class="t-msg">neobrain start</span>
+                </div>
+                <div class="t-line" data-t="out">
+                  <span class="t-name t-acc">neobrain</span>
+                  <span class="t-msg">daemon on 127.0.0.1:9192 — life loop running</span>
+                </div>
+                <div class="t-line" data-t="out">
+                  <span class="t-name t-mid">lane</span>
+                  <span class="t-msg t-mid">wakeup   → identity · open loops · active hubs</span>
+                </div>
+                <div class="t-line" data-t="out">
+                  <span class="t-name t-green">lane</span>
+                  <span class="t-msg t-mid">recall   → top-K one-liners, budget-bounded</span>
+                </div>
+                <div class="t-line" data-t="out">
+                  <span class="t-name t-gold">lane</span>
+                  <span class="t-msg t-mid">directives → pinned rules, re-injected every call</span>
+                </div>
+                <div class="t-line" data-t="cmd">
+                  <span class="t-prompt" aria-hidden="true"><span class="t-user">you</span><span class="t-punc">:</span><span class="t-dir">~/agent</span><span class="t-caret">$</span></span>
+                  <span class="t-msg">neobrain ui</span>
+                </div>
+                <div class="t-line" data-t="out">
+                  <span class="t-name t-dream">neobrain</span>
+                  <span class="t-msg">Observatory → http://127.0.0.1:9192</span>
+                </div>
+                <div class="t-status" id="tStatus" hidden aria-hidden="true">
+                  <span class="t-spin" id="tSpin"></span>
+                  <span id="tStatusText"></span>
+                </div>
+              </div>
+            </figure>
+
+            <figure class="pane pane--map">
+              <div class="pane-head" aria-hidden="true">
+                <span class="pane-dot pane-dot--net"></span>
+                <span class="pane-title">mind map</span>
+                <span class="pane-sub">live</span>
+              </div>
+              <div class="map-stage">
+                <canvas id="mindCanvas" role="img" aria-label="Live brain graph: a central hub connected to atoms by typed edges coloured by memory type — preference, decision, lesson, dream and observation. Pulses travel the synapses as memories are recalled."></canvas>
+              </div>
+              <figcaption class="map-legend">
+                <span><i style="background:#948ebd" aria-hidden="true"></i>preference</span>
+                <span><i style="background:#b39262" aria-hidden="true"></i>decision</span>
+                <span><i style="background:#7ba38c" aria-hidden="true"></i>lesson</span>
+                <span><i style="background:#a488b6" aria-hidden="true"></i>dream</span>
+                <span><i style="background:#8fa3b8" aria-hidden="true"></i>observation</span>
+              </figcaption>
+            </figure>
           </div>
         </div>
-        <p style="margin-top:1.2rem;font-size:0.8rem;color:var(--text-dim)">Dreams consolidate, but they never decide retention. Only rank does. Manual removal is the explicit <code style="font-family:var(--mono);color:var(--accent-hi)">neobrain forget</code> override.</p>
       </div>
     </div>
-  </div>
-</section>
+  </section>
 
-<!-- HOW -->
-<section id="how">
-  <div class="container" style="text-align:center">
-    <div class="fade-in">
-      <div class="section-label">How It Works</div>
-      <h2>Three commands.<br /><span class="accent">A mind that keeps living.</span></h2>
-      <p class="subtitle" style="margin:0 auto">Install from a checkout of the repo. The daemon owns the life loop and serves both the JSON API and the built Observatory.</p>
+  <!-- ── At a glance ──────────────────────────────────────────────────── -->
+  <section class="statband" aria-label="neoBrain at a glance">
+    <div class="container statband-inner">
+      <div class="stat reveal"><span class="stat-n" data-count="1">1</span><span class="stat-l">local daemon</span></div>
+      <div class="stat reveal" style="--d:80ms"><span class="stat-n" data-count="3">3</span><span class="stat-l">rank states</span></div>
+      <div class="stat reveal" style="--d:160ms"><span class="stat-n" data-count="3">3</span><span class="stat-l">dream phases</span></div>
+      <div class="stat reveal" style="--d:240ms"><span class="stat-n" data-count="5">5</span><span class="stat-l">typed edge kinds</span></div>
     </div>
-    <div class="steps fade-in">
-      <div class="step">
-        <div class="step-head">
+  </section>
+
+  <!-- ── Capabilities ─────────────────────────────────────────────────── -->
+  <section class="section" id="capabilities" aria-labelledby="capabilities-title">
+    <div class="container">
+      <div class="section-head reveal">
+        <span class="eyebrow">Capabilities</span>
+        <h2 id="capabilities-title">A mind, not a log.<br /><span class="grad">Every organ accounted for.</span></h2>
+        <p>Atoms, hubs and typed edges in local SQLite. Deterministic rank. Dreams that consolidate. A soul authored by the agent itself.</p>
+      </div>
+
+      <div class="feature-grid">
+        <article class="feature-card reveal">
+          <div class="fc-icon fi-a" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><circle cx="5" cy="6" r="2"/><circle cx="19" cy="7" r="2"/><circle cx="7" cy="18" r="2"/><path d="M9.6 10.2 6.6 7.3M14.4 10.6l3-2.4M10 14.2l-1.8 2.4"/></svg></div>
+          <h3>Durable memory</h3>
+          <p>Atoms, hubs and typed edges in local SQLite — each carrying an id, links and provenance. A mind model rather than an append-only log.</p>
+        </article>
+
+        <article class="feature-card reveal">
+          <div class="fc-icon fi-o" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3M11 8v6M8 11h6"/></svg></div>
+          <h3>Hybrid recall</h3>
+          <p>Lexical match blended with local cosine vectors. Returns the top-K active memories by relevance score within a token budget — never the whole store.</p>
+        </article>
+
+        <article class="feature-card reveal">
+          <div class="fc-icon fi-d" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg></div>
+          <h3>Nightly dreams</h3>
+          <p>Light, REM and deep replay consolidates top-ranked atoms into summaries and associations, then writes the first-person <code>DREAMS.md</code> diary.</p>
+        </article>
+
+        <article class="feature-card reveal">
+          <div class="fc-icon fi-a" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="3.2"/><path d="M5 20a7 7 0 0 1 14 0"/></svg></div>
+          <h3>Self-authored soul</h3>
+          <p><code>IDENTITY.md</code> and <code>SOUL.md</code> are written only by the agent's own reflect and dream phases, from its own experience. Safety red lines stay immutable.</p>
+        </article>
+
+        <article class="feature-card reveal">
+          <div class="fc-icon fi-o" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 1 1-2.6-6.4"/><polyline points="21 3 21 9 15 9"/></svg></div>
+          <h3>Life loop</h3>
+          <p>An in-process state machine: perceive → reflect → act → rest. Cadence lives in code and the database — not in OS timers.</p>
+        </article>
+
+        <article class="feature-card reveal">
+          <div class="fc-icon fi-o" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M8 9h8M8 13h5"/></svg></div>
+          <h3>Deterministic context injection</h3>
+          <p>Standing directives, per-turn recall, compaction hooks and injection logging are pushed by the OpenCode plugin lanes — no model tool choice required.</p>
+        </article>
+
+        <article class="feature-card reveal">
+          <div class="fc-icon fi-a" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v3M12 18v3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M3 12h3M18 12h3M5.6 18.4l2.1-2.1M16.3 7.7l2.1-2.1"/><circle cx="12" cy="12" r="3"/></svg></div>
+          <h3>Local-first by default</h3>
+          <p>Embeddings run on a local Ollama model, so memory never leaves the host. The brain's own cognition uses a BYOK OpenAI-compatible endpoint.</p>
+        </article>
+
+        <article class="feature-card reveal">
+          <div class="fc-icon fi-g" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 7h16M4 12h16M4 17h16"/><path d="m9 4 3 3-3 3M15 14l3 3-3 3"/></svg></div>
+          <h3>Ingest adapters</h3>
+          <p>The perceive phase reads OpenCode sessions, git repositories and workspace docs — or ingest a one-shot payload with <code>neobrain ingest</code>.</p>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── Mind model ───────────────────────────────────────────────────── -->
+  <section class="section" id="mind" aria-labelledby="mind-title">
+    <div class="container">
+      <div class="section-head reveal">
+        <span class="eyebrow">The Mind Model</span>
+        <h2 id="mind-title">Forgetting is an economy,<br /><span class="grad">not a deletion.</span></h2>
+        <p>Rank decides what surfaces. It is fully deterministic, and the model never gets a vote.</p>
+      </div>
+
+      <div class="mind-grid">
+        <article class="mind-card reveal">
+          <h3>Rank, computed in the open</h3>
+          <p>Three bounded factors, multiplied. Floors keep age and graph isolation from being fatal on their own — but feedback is the only factor that can reach zero, so a flood of <code>noise</code> forgets even a fresh, well-connected memory.</p>
+          <div class="formula">
+            <span class="c"># deterministic — no model discretion</span><br />
+            <span class="k">quality</span> = clamp01( <span class="f">feedback</span> &middot; <span class="f">decay</span> &middot; <span class="f">conn</span> )<br />
+            <span class="k">decay</span>&nbsp;&nbsp; = floor + (1&minus;floor) &middot; recency<br />
+            <span class="k">conn</span>&nbsp;&nbsp;&nbsp; = floor + (1&minus;floor) &middot; connectivity<br />
+            <span class="c"># exposure (served + 3&middot;interacted) never raises quality</span>
+          </div>
+          <div class="factors">
+            <div class="factor"><span class="fname">feedback</span><span class="fbar"><i style="--w:88%;background:linear-gradient(90deg,var(--accent-lo),var(--accent-hi))"></i></span><span class="fnote">the only zero</span></div>
+            <div class="factor"><span class="fname">decay</span><span class="fbar"><i style="--w:64%;background:linear-gradient(90deg,#6d5a86,var(--dream))"></i></span><span class="fnote">recency</span></div>
+            <div class="factor"><span class="fname">conn</span><span class="fbar"><i style="--w:52%;background:linear-gradient(90deg,#3f6b5a,var(--green))"></i></span><span class="fnote">connectivity</span></div>
+          </div>
+        </article>
+
+        <article class="mind-card reveal" style="--d:100ms">
+          <h3>Rank states — and what they mean</h3>
+          <p>A low-quality atom is never deleted. It changes state, cheaply and reversibly. A later <code>useful</code> or <code>used</code> rating promotes it back.</p>
+          <div class="states">
+            <div class="state">
+              <div class="sname s-active">active</div>
+              <p>High rank. Eligible for recall and served when relevant within the token budget.</p>
+            </div>
+            <div class="state">
+              <div class="sname s-ignored">ignored</div>
+              <p>Low rank, low exposure. Never surfaced. Zero cost. Never deleted.</p>
+            </div>
+            <div class="state">
+              <div class="sname s-archived">archived</div>
+              <p>Low rank, high exposure. Unretrievable but recoverable — archive &ne; delete.</p>
+            </div>
+          </div>
+          <p class="mind-foot">Dreams consolidate, but they never decide retention. Only rank does. Manual removal is the explicit <code>neobrain forget</code> override.</p>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── How it works ─────────────────────────────────────────────────── -->
+  <section class="section" id="how" aria-labelledby="how-title">
+    <div class="container">
+      <div class="section-head is-center reveal">
+        <span class="eyebrow">Quickstart</span>
+        <h2 id="how-title">Three commands.<br /><span class="grad">A mind that keeps living.</span></h2>
+        <p>Install from a checkout of the repo. The daemon owns the life loop and serves both the JSON API and the built Observatory.</p>
+      </div>
+
+      <div class="steps reveal">
+        <div class="step">
           <div class="step-num">1</div>
+          <div>
+            <h3>Create the store</h3>
+            <p><code>neobrain init</code> builds the SQLite store and prints the next steps. Add <code>--install-plugin</code> to symlink the OpenCode adapter in one go.</p>
+          </div>
         </div>
-        <div>
-          <h3>Create the store</h3>
-          <p><code>neobrain init</code> builds the SQLite store and prints the next steps. Add <code>--install-plugin</code> to symlink the OpenCode adapter in one go.</p>
-        </div>
-      </div>
-      <div class="step-connector"><div class="step-connector-line"></div></div>
-      <div class="step">
-        <div class="step-head">
+        <div class="step-connector" aria-hidden="true"><div class="step-connector-line"></div></div>
+        <div class="step">
           <div class="step-num">2</div>
+          <div>
+            <h3>Start the daemon</h3>
+            <p><code>neobrain start</code> runs the API, the dashboard and the in-process life loop: perceive, reflect, act, rest.</p>
+          </div>
         </div>
-        <div>
-          <h3>Start the daemon</h3>
-          <p><code>neobrain start</code> runs the API, the dashboard and the in-process life loop: perceive, reflect, act, rest.</p>
-        </div>
-      </div>
-      <div class="step-connector"><div class="step-connector-line"></div></div>
-      <div class="step">
-        <div class="step-head">
+        <div class="step-connector" aria-hidden="true"><div class="step-connector-line"></div></div>
+        <div class="step">
           <div class="step-num">3</div>
-        </div>
-        <div>
-          <h3>Open the Observatory</h3>
-          <p><code>neobrain ui</code> prints and opens the dashboard at <code>127.0.0.1:9192</code> — the brain graph, dreams, memory, identity, infra and the live debug trace.</p>
-        </div>
-      </div>
-    </div>
-
-    <div class="lane-note fade-in fd1">
-      <strong>The plugin lanes inject themselves.</strong> Once the adapter is symlinked into your OpenCode plugins directory, the wake-up pack, persona docs, standing directives, per-turn recall, the unrated-feedback protocol and the compaction hook all fire automatically. You do not wire them per request — you just watch the injections land on the Debug page.
-    </div>
-  </div>
-</section>
-
-<!-- OBSERVATORY -->
-<section id="observatory">
-  <div class="container">
-    <div class="fade-in" style="display:flex;justify-content:space-between;align-items:flex-end;flex-wrap:wrap;gap:1rem">
-      <div>
-        <div class="section-label">The Observatory</div>
-        <h2>Watch the mind<br /><span class="accent">think, dream and forget.</span></h2>
-        <p class="subtitle">One React SPA, served by the daemon. Views deep-link by hash — <code style="font-family:var(--mono);font-size:0.82em;color:var(--accent-hi)">/#debug</code>, <code style="font-family:var(--mono);font-size:0.82em;color:var(--accent-hi)">/#dreams</code> — and it installs as a PWA.</p>
-      </div>
-    </div>
-
-    <div class="dash-preview fade-in">
-      <div class="dash-chrome">
-        <div class="win-dot" style="background:#ff5f57"></div>
-        <div class="win-dot" style="background:#febc2e"></div>
-        <div class="win-dot" style="background:#28c840"></div>
-        <span class="url">127.0.0.1:9192/#debug — Observatory</span>
-      </div>
-      <div class="dash-body">
-        <div class="dash-sidebar">
-          <div class="dash-sidebar-head">Observatory</div>
-          <div class="dash-nav-item">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="12" cy="12" r="3"/><circle cx="5" cy="6" r="2"/><circle cx="19" cy="7" r="2"/><circle cx="7" cy="18" r="2"/><path d="M9.6 10.2 6.6 7.3M14.4 10.6l3-2.4M10 14.2l-1.8 2.4"/></svg>
-            Brain
-          </div>
-          <div class="dash-nav-item">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>
-            Dreams
-          </div>
-          <div class="dash-nav-item">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M4 6h16M4 12h16M4 18h10"/></svg>
-            Memory
-          </div>
-          <div class="dash-nav-item">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="12" cy="8" r="3.2"/><path d="M5 20a7 7 0 0 1 14 0"/></svg>
-            Identity
-          </div>
-          <div class="dash-nav-item">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M12 3v18M5 8l7-5 7 5M5 16l7 5 7-5"/></svg>
-            Infra
-          </div>
-          <div class="dash-nav-item active">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
-            Debug
-          </div>
-        </div>
-
-        <div class="dash-content">
-          <div style="padding:0.9rem 0.9rem 0;display:flex;gap:0.5rem;align-items:center">
-            <span class="lane-tag lt-v">live trace</span>
-            <span style="font-family:var(--mono);font-size:0.66rem;color:var(--text-dim)">rolling request log + plugin lane injections</span>
-          </div>
-          <div style="overflow:hidden;margin-top:0.5rem">
-            <table class="debug-table">
-              <thead>
-                <tr><th>method</th><th>route</th><th>lane</th><th>injected</th><th>ms</th><th></th></tr>
-              </thead>
-              <tbody>
-                <tr><td>POST</td><td>/api/debug/injections</td><td><span class="lane-tag lt-v">directives</span></td><td>8 lines / 412 chars</td><td>3</td><td class="ok-dot">&#10003;</td></tr>
-                <tr><td>POST</td><td>/api/debug/injections</td><td><span class="lane-tag lt-g">recall</span></td><td>top 10 + #1</td><td>6</td><td class="ok-dot">&#10003;</td></tr>
-                <tr><td>GET</td><td>/api/mind/wakeup</td><td><span class="lane-tag lt-o">session</span></td><td>identity &middot; loops &middot; hubs</td><td>11</td><td class="ok-dot">&#10003;</td></tr>
-                <tr><td>POST</td><td>/api/debug/injections</td><td><span class="lane-tag lt-gold">persona</span></td><td>SOUL &middot; IDENTITY &middot; USER</td><td>2</td><td class="ok-dot">&#10003;</td></tr>
-                <tr><td>GET</td><td>/api/mind/memories</td><td><span class="lane-tag lt-o">read</span></td><td>&mdash;</td><td>4</td><td class="ok-dot">&#10003;</td></tr>
-                <tr><td>POST</td><td>/api/mind/feedback</td><td><span class="lane-tag lt-v">rating</span></td><td>used &middot; useful &middot; noise</td><td>2</td><td class="ok-dot">&#10003;</td></tr>
-                <tr><td>GET</td><td>/api/mind/recall</td><td><span class="lane-tag lt-g">recall</span></td><td>budget-bounded</td><td>7</td><td class="ok-dot">&#10003;</td></tr>
-              </tbody>
-            </table>
-          </div>
-          <div class="dash-foot">
-            <span><b>life</b> rest &rarr; dreaming</span>
-            <span><b>rank</b> served 128 &middot; ignored 9 &middot; archived 3</span>
-            <span><b>pending</b> 0 unrated</span>
+          <div>
+            <h3>Open the Observatory</h3>
+            <p><code>neobrain ui</code> opens the dashboard at <code>127.0.0.1:9192</code> — brain graph, dreams, memory, identity, infra and the live debug trace.</p>
           </div>
         </div>
       </div>
-    </div>
 
-    <div class="obs-notes">
-      <div class="obs-note fade-in">
-        <h4>Brain graph</h4>
-        <p>Atoms, hubs and typed edges — supersedes, derived-from, caused-by, consolidates — laid out as a graph you can actually read.</p>
-      </div>
-      <div class="obs-note fade-in fd1">
-        <h4>Live debug</h4>
-        <p>The daemon's blind spot, rendered: every lane injection and every request, with the exact lines it pushed.</p>
-      </div>
-      <div class="obs-note fade-in fd2">
-        <h4>Dreams &amp; soul</h4>
-        <p>What the nightly passes wrote into the diary, and how the persona docs have evolved over time.</p>
+      <div class="lane-note reveal" style="--d:120ms">
+        <strong>The plugin lanes inject themselves.</strong> Once the adapter is symlinked into your OpenCode plugins directory, the wake-up pack, persona docs, standing directives, per-turn recall, the unrated-feedback protocol and the compaction hook all fire automatically. You do not wire them per request — you just watch the injections land on the Debug view.
       </div>
     </div>
-  </div>
-</section>
+  </section>
 
-<!-- CTA -->
-<section id="cta">
-  <div class="container">
-    <div class="fade-in">
-      <h2>Give your agent<br /><span class="accent">a mind of its own</span></h2>
-      <p>Local-first. MIT licensed. No cloud account, no API keys held by the daemon.</p>
-      <div style="display:flex;justify-content:center">
-        <div class="cta-cmd" onclick="copyText('pip install -e . && neobrain init', this)">
+  <!-- ── Observatory ──────────────────────────────────────────────────── -->
+  <section class="section" id="observatory" aria-labelledby="observatory-title">
+    <div class="container">
+      <div class="section-head reveal">
+        <span class="eyebrow">The Observatory</span>
+        <h2 id="observatory-title">Watch the mind<br /><span class="grad">think, dream and forget.</span></h2>
+        <p>One SPA served by the daemon. Views deep-link by hash — <code>/#debug</code>, <code>/#dreams</code> — and it installs as a PWA.</p>
+      </div>
+
+      <div class="dash-preview reveal">
+        <div class="dash-chrome">
+          <span class="dash-led" aria-hidden="true"></span>
+          <span class="url">127.0.0.1:9192/#debug — Observatory</span>
+        </div>
+        <div class="dash-body">
+          <div class="dash-sidebar">
+            <div class="dash-sidebar-head">Observatory</div>
+            <div class="dash-nav-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><circle cx="12" cy="12" r="3"/><circle cx="5" cy="6" r="2"/><circle cx="19" cy="7" r="2"/><circle cx="7" cy="18" r="2"/><path d="M9.6 10.2 6.6 7.3M14.4 10.6l3-2.4M10 14.2l-1.8 2.4"/></svg>Brain</div>
+            <div class="dash-nav-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>Dreams</div>
+            <div class="dash-nav-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h10"/></svg>Memory</div>
+            <div class="dash-nav-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><circle cx="12" cy="8" r="3.2"/><path d="M5 20a7 7 0 0 1 14 0"/></svg>Identity</div>
+            <div class="dash-nav-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M12 3v18M5 8l7-5 7 5M5 16l7 5 7-5"/></svg>Infra</div>
+            <div class="dash-nav-item active"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>Debug</div>
+          </div>
+
+          <div class="dash-content">
+            <div class="dash-toolbar">
+              <span class="lane-tag lt-v">live trace</span>
+              <span class="hint">rolling request log + plugin lane injections</span>
+            </div>
+            <div class="table-scroll" role="region" aria-label="Debug injection log" tabindex="0">
+              <table class="debug-table">
+                <thead>
+                  <tr><th scope="col">method</th><th scope="col">route</th><th scope="col">lane</th><th scope="col">injected</th><th scope="col">ms</th><th scope="col">status</th></tr>
+                </thead>
+                <tbody>
+                  <tr><td>POST</td><td>/api/debug/injections</td><td><span class="lane-tag lt-v">directives</span></td><td>8 lines / 412 chars</td><td>3</td><td class="ok-dot"><span class="sr-only">Success</span><span aria-hidden="true">&#10003;</span></td></tr>
+                  <tr><td>POST</td><td>/api/debug/injections</td><td><span class="lane-tag lt-g">recall</span></td><td>top 10 + #1</td><td>6</td><td class="ok-dot"><span class="sr-only">Success</span><span aria-hidden="true">&#10003;</span></td></tr>
+                  <tr><td>GET</td><td>/api/mind/wakeup</td><td><span class="lane-tag lt-o">session</span></td><td>identity &middot; loops &middot; hubs</td><td>11</td><td class="ok-dot"><span class="sr-only">Success</span><span aria-hidden="true">&#10003;</span></td></tr>
+                  <tr><td>POST</td><td>/api/debug/injections</td><td><span class="lane-tag lt-gold">persona</span></td><td>SOUL &middot; IDENTITY &middot; USER</td><td>2</td><td class="ok-dot"><span class="sr-only">Success</span><span aria-hidden="true">&#10003;</span></td></tr>
+                  <tr><td>GET</td><td>/api/mind/memories</td><td><span class="lane-tag lt-o">read</span></td><td>&mdash;</td><td>4</td><td class="ok-dot"><span class="sr-only">Success</span><span aria-hidden="true">&#10003;</span></td></tr>
+                  <tr><td>POST</td><td>/api/mind/feedback</td><td><span class="lane-tag lt-v">rating</span></td><td>used &middot; useful &middot; noise</td><td>2</td><td class="ok-dot"><span class="sr-only">Success</span><span aria-hidden="true">&#10003;</span></td></tr>
+                  <tr><td>GET</td><td>/api/mind/recall</td><td><span class="lane-tag lt-g">recall</span></td><td>budget-bounded</td><td>7</td><td class="ok-dot"><span class="sr-only">Success</span><span aria-hidden="true">&#10003;</span></td></tr>
+                </tbody>
+              </table>
+            </div>
+            <div class="dash-foot">
+              <span><b>life</b> rest &rarr; dreaming</span>
+              <span><b>rank</b> active 128 &middot; ignored 9 &middot; archived 3</span>
+              <span><b>pending</b> 0 unrated</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="obs-notes">
+        <article class="obs-note reveal">
+          <h3>Brain graph</h3>
+          <p>Atoms, hubs and typed edges — about, supersedes, derived-from, caused-by, consolidates — laid out as a graph you can actually read.</p>
+        </article>
+        <article class="obs-note reveal" style="--d:90ms">
+          <h3>Live debug</h3>
+          <p>The daemon's blind spot, rendered: every lane injection and every request, with the exact lines it pushed.</p>
+        </article>
+        <article class="obs-note reveal" style="--d:180ms">
+          <h3>Dreams &amp; soul</h3>
+          <p>What the nightly passes wrote into the diary, and how the persona docs have evolved over time.</p>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── CTA ──────────────────────────────────────────────────────────── -->
+  <section class="section" id="cta" aria-labelledby="cta-title">
+    <div class="container">
+      <div class="section-head is-center reveal">
+        <span class="eyebrow">Get started</span>
+        <h2 id="cta-title">Give your agent<br /><span class="grad">a mind of its own</span></h2>
+        <p>Local-first. MIT licensed. No cloud account, and no memory leaves the host.</p>
+      </div>
+      <div class="reveal" style="--d:120ms">
+        <button class="cta-cmd" type="button" data-copy="pip install -e . && neobrain init" aria-label="Copy command: pip install -e . and neobrain init">
           <span>$ pip install -e . &amp;&amp; neobrain init</span>
-          <span class="cta-copy-hint">click to copy</span>
-        </div>
+          <span class="hint">click to copy</span>
+        </button>
       </div>
-      <div class="cta-links">
-        <a class="btn btn-primary btn-xl" href="#how">Quickstart</a>
-        <a class="btn btn-ghost btn-lg" href="https://alionix.com" target="_blank">alionix.com</a>
-        <a class="btn btn-ghost btn-lg" href="https://neohive.alionix.com" target="_blank">neohive — agents collaborate</a>
+      <div class="cta-links reveal" style="--d:180ms">
+        <a class="btn btn-primary btn-lg" href="https://github.com/fakiho/neobrain" target="_blank" rel="noopener">View on GitHub <span class="ext" aria-hidden="true">↗</span></a>
+        <a class="btn btn-ghost btn-lg" href="#how">Quickstart</a>
+        <a class="btn btn-ghost btn-lg" href="https://alionix.com" target="_blank" rel="noopener">alionix.com <span class="ext" aria-hidden="true">↗</span></a>
+        <a class="btn btn-ghost btn-lg" href="https://neohive.alionix.com" target="_blank" rel="noopener">neohive — agents collaborate <span class="ext" aria-hidden="true">↗</span></a>
       </div>
-      <div class="status-pill">
-        <span class="dot"></span>
-        Active development &middot; public repo coming with packaging (no published package yet)
+      <div class="status-pill reveal" style="--d:240ms">
+        <span class="dot" aria-hidden="true"></span>
+        Open source on GitHub &middot; PyPI and npm packaging in active development
       </div>
     </div>
-  </div>
-</section>
+  </section>
 
-<!-- FOOTER -->
-<footer>
+  <div class="toast" id="toast" role="status" aria-live="polite" aria-atomic="true"></div>
+
+</main>
+
+<!-- ── Footer ─────────────────────────────────────────────────────────── -->
+<footer class="site-footer">
   <div class="container">
-    <div class="families">
-      <span><b>alionix</b> family</span>
-      <span>neohive — <b>agents collaborate</b></span>
-      <span>neoBrain — <b>agents remember</b></span>
+    <div class="footer-top">
+      <div class="footer-brand">
+        <a class="brand" href="#hero" aria-label="neoBrain — back to top">
+          <img src="assets/logo.svg" alt="neoBrain" width="28" height="28" />
+          <span class="wm" aria-hidden="true">neoBrain</span>
+        </a>
+        <p class="footer-tag">A local mind daemon for AI agents — durable memory, deterministic forgetting, nightly dreams and a self-authored soul.</p>
+      </div>
+      <div class="footer-col">
+        <h3>This page</h3>
+        <ul>
+          <li><a href="#capabilities">Capabilities</a></li>
+          <li><a href="#mind">Mind Model</a></li>
+          <li><a href="#how">Quickstart</a></li>
+          <li><a href="#observatory">Observatory</a></li>
+        </ul>
+      </div>
+      <div class="footer-col">
+        <h3>The family</h3>
+        <ul>
+          <li><a href="https://alionix.com" target="_blank" rel="noopener">alionix <span class="ext" aria-hidden="true">↗</span></a></li>
+          <li><a href="https://neohive.alionix.com" target="_blank" rel="noopener">neohive <span class="ext" aria-hidden="true">↗</span></a></li>
+          <li><a href="https://github.com/fakiho/neobrain" target="_blank" rel="noopener">neoBrain on GitHub <span class="ext" aria-hidden="true">↗</span></a></li>
+        </ul>
+      </div>
     </div>
-    <div class="footer-inner">
-      <a class="footer-logo" href="#hero">
-        <img src="assets/logo.svg" alt="neoBrain" />
-        neo<span style="color:var(--accent-hi)">Brain</span>
-      </a>
-      <ul class="footer-links">
-        <li><a href="#features">Features</a></li>
-        <li><a href="#mind">Mind Model</a></li>
-        <li><a href="#how">How It Works</a></li>
-        <li><a href="#observatory">Observatory</a></li>
-        <li><a href="https://alionix.com" target="_blank">alionix.com</a></li>
-        <li><a href="https://neohive.alionix.com" target="_blank">neohive</a></li>
-      </ul>
-      <span class="footer-copy">MIT License &middot; built by <a href="https://alionix.com" target="_blank">alionix</a></span>
+    <div class="footer-bottom">
+      <span>MIT License &middot; built by <a href="https://alionix.com" target="_blank" rel="noopener">alionix</a></span>
+      <span>agents remember</span>
     </div>
   </div>
 </footer>
 
-<div class="toast" id="toast">Copied to clipboard</div>
+<script>
+/* =========================================================================
+   neoBrain — interactions & living brain map
+   Zero dependencies. One master rAF loop drives the terminal transcript and
+   the mind-map canvas; it stops when off-screen, on a hidden tab, or under
+   prefers-reduced-motion. Everything degrades gracefully without JS.
+   ========================================================================= */
+(function () {
+  'use strict';
+
+  var root = document.documentElement;
+  var reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  var finePointer = window.matchMedia('(hover: hover) and (pointer: fine)').matches;
+
+  /* Debug hook for the performance harness. */
+  window.__neobrain = window.__neobrain || { frame: 0 };
+
+  var master = { raf: 0, running: false, visible: true, armed: false, last: 0, pointer: { x: 0, y: 0, tx: 0, ty: 0 } };
+
+  function clamp(v, lo, hi) { return v < lo ? lo : v > hi ? hi : v; }
+  function rand(min, max) { return min + Math.random() * (max - min); }
+
+  /* ── Header scroll state ─────────────────────────────────────────────── */
+  var header = document.querySelector('.site-header');
+  function onScrollHeader() { if (header) header.classList.toggle('scrolled', window.scrollY > 8); }
+  onScrollHeader();
+  window.addEventListener('scroll', onScrollHeader, { passive: true });
+
+  /* ── Scroll reveals (with automatic sibling stagger) ─────────────────── */
+  var revealEls = Array.prototype.slice.call(document.querySelectorAll('.reveal'));
+  /* automatic stagger: nth .reveal within its parent, unless an explicit --d exists */
+  (function stagger() {
+    var groups = [];
+    revealEls.forEach(function (el) {
+      if (el.style.getPropertyValue('--d')) return;
+      var parent = el.parentElement;
+      if (!parent) return;
+      var g = groups.filter(function (x) { return x.parent === parent; })[0];
+      if (!g) { g = { parent: parent, list: [] }; groups.push(g); }
+      g.list.push(el);
+    });
+    groups.forEach(function (g) {
+      if (g.list.length < 2) return;
+      g.list.forEach(function (el, i) { el.style.setProperty('--d', Math.min(i * 70, 420) + 'ms'); });
+    });
+  })();
+  if (reduceMotion || !('IntersectionObserver' in window)) {
+    revealEls.forEach(function (el) { el.classList.add('in'); });
+  } else {
+    var revealObs = new IntersectionObserver(function (entries) {
+      entries.forEach(function (e) {
+        if (e.isIntersecting) { e.target.classList.add('in'); revealObs.unobserve(e.target); }
+      });
+    }, { threshold: 0.12, rootMargin: '0px 0px -8% 0px' });
+    revealEls.forEach(function (el) { revealObs.observe(el); });
+  }
+
+  /* ── Animated counters ───────────────────────────────────────────────── */
+  var counters = Array.prototype.slice.call(document.querySelectorAll('.stat-n[data-count]'));
+  function runCounter(el) {
+    var target = parseInt(el.getAttribute('data-count'), 10) || 0;
+    if (reduceMotion) { el.textContent = String(target); return; }
+    var start = 0, t0 = 0;
+    function step(now) {
+      if (!t0) t0 = now;
+      var p = clamp((now - t0) / 900, 0, 1);
+      var eased = 1 - Math.pow(1 - p, 3);
+      el.textContent = String(Math.round(start + (target - start) * eased));
+      if (p < 1) requestAnimationFrame(step);
+    }
+    requestAnimationFrame(step);
+  }
+  if (counters.length) {
+    if (reduceMotion || !('IntersectionObserver' in window)) counters.forEach(runCounter);
+    else {
+      var countObs = new IntersectionObserver(function (entries) {
+        entries.forEach(function (e) { if (e.isIntersecting) { runCounter(e.target); countObs.unobserve(e.target); } });
+      }, { threshold: 0.6 });
+      counters.forEach(function (el) { countObs.observe(el); });
+    }
+  }
+
+  /* ── Active section highlight ────────────────────────────────────────── */
+  var navLinks = Array.prototype.slice.call(document.querySelectorAll('.nav-menu .nav-link[data-section]'));
+  if (navLinks.length && 'IntersectionObserver' in window) {
+    var sectionMap = {};
+    navLinks.forEach(function (l) { sectionMap[l.getAttribute('data-section')] = l; });
+    var sectionObs = new IntersectionObserver(function (entries) {
+      entries.forEach(function (entry) {
+        var link = sectionMap[entry.target.id];
+        if (!link || !entry.isIntersecting) return;
+        navLinks.forEach(function (l) { l.classList.remove('is-active'); l.removeAttribute('aria-current'); });
+        link.classList.add('is-active');
+        link.setAttribute('aria-current', 'true');
+      });
+    }, { rootMargin: '-45% 0px -50% 0px', threshold: 0 });
+    Object.keys(sectionMap).forEach(function (id) {
+      var s = document.getElementById(id);
+      if (s) sectionObs.observe(s);
+    });
+  }
+
+  /* ── Mobile menu ─────────────────────────────────────────────────────── */
+  var menu = document.getElementById('mobile-menu');
+  var burger = document.querySelector('.burger');
+  var lastFocused = null, closeTimer = null;
+
+  function focusables() {
+    if (!menu) return [];
+    return Array.prototype.slice.call(menu.querySelectorAll('a[href], button:not([disabled])')).filter(function (el) { return el.offsetParent !== null; });
+  }
+  function openMenu() {
+    if (!menu || !burger) return;
+    window.clearTimeout(closeTimer);
+    lastFocused = document.activeElement;
+    menu.hidden = false;
+    burger.setAttribute('aria-expanded', 'true');
+    burger.setAttribute('aria-label', 'Close menu');
+    document.body.style.overflow = 'hidden';
+    if ('inert' in HTMLElement.prototype) {
+      var bgEls = document.querySelectorAll('main, .site-header');
+      for (var i = 0; i < bgEls.length; i++) bgEls[i].inert = true;
+    }
+    window.requestAnimationFrame(function () { menu.classList.add('open'); focusFirst(90); });
+  }
+  function focusFirst(attempts) {
+    if (!menu || burger.getAttribute('aria-expanded') !== 'true') return;
+    var f = focusables();
+    if (f.length) { f[0].focus(); if (document.activeElement === f[0]) return; }
+    if (attempts > 0) window.requestAnimationFrame(function () { focusFirst(attempts - 1); });
+  }
+  function closeMenu(restore) {
+    if (!menu || !burger) return;
+    menu.classList.remove('open');
+    burger.setAttribute('aria-expanded', 'false');
+    burger.setAttribute('aria-label', 'Open menu');
+    document.body.style.overflow = '';
+    if ('inert' in HTMLElement.prototype) {
+      var bgEls = document.querySelectorAll('main, .site-header');
+      for (var i = 0; i < bgEls.length; i++) bgEls[i].inert = false;
+    }
+    closeTimer = window.setTimeout(function () { menu.hidden = true; }, reduceMotion ? 0 : 420);
+    if (restore && lastFocused && lastFocused.focus) lastFocused.focus();
+  }
+  if (menu && burger) {
+    burger.addEventListener('click', function () {
+      if (burger.getAttribute('aria-expanded') === 'true') closeMenu(true); else openMenu();
+    });
+    menu.addEventListener('click', function (e) {
+      if (e.target === menu) closeMenu(true);
+      var link = e.target.closest ? e.target.closest('a[href]') : null;
+      if (link) closeMenu(false);
+    });
+    document.addEventListener('keydown', function (e) {
+      if (menu.hidden) return;
+      if (e.key === 'Escape') { e.preventDefault(); closeMenu(true); return; }
+      if (e.key !== 'Tab') return;
+      var f = focusables(); if (!f.length) return;
+      var first = f[0], last = f[f.length - 1];
+      if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+      else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+    });
+    window.addEventListener('resize', function () {
+      if (window.innerWidth > 820 && burger.getAttribute('aria-expanded') === 'true') closeMenu(false);
+    });
+  }
+
+  /* ── Copy buttons + toast ────────────────────────────────────────────── */
+  var toast = document.getElementById('toast');
+  var toastTimer = null;
+  function showToast(msg) {
+    if (!toast) return;
+    toast.textContent = msg;
+    toast.classList.add('show');
+    window.clearTimeout(toastTimer);
+    toastTimer = window.setTimeout(function () { toast.classList.remove('show'); }, 1900);
+  }
+  function fallbackCopy(text) {
+    var ta = document.createElement('textarea');
+    ta.value = text; ta.setAttribute('readonly', ''); ta.style.position = 'fixed'; ta.style.opacity = '0';
+    document.body.appendChild(ta); ta.select();
+    try { document.execCommand('copy'); } catch (e) {}
+    document.body.removeChild(ta);
+  }
+  Array.prototype.forEach.call(document.querySelectorAll('[data-copy]'), function (btn) {
+    btn.addEventListener('click', function () {
+      var text = btn.getAttribute('data-copy');
+      var done = function () {
+        btn.classList.add('copied');
+        window.setTimeout(function () { btn.classList.remove('copied'); }, 1500);
+        showToast('Copied: ' + text);
+      };
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(done, function () { fallbackCopy(text); done(); });
+      } else { fallbackCopy(text); done(); }
+    });
+  });
+
+  /* =====================================================================
+     Terminal transcript
+     ===================================================================== */
+  function createTerminal() {
+    var body = document.getElementById('terminal');
+    if (!body) return null;
+    var lines = Array.prototype.slice.call(body.querySelectorAll('.t-line'));
+    var status = document.getElementById('tStatus');
+    var spinEl = document.getElementById('tSpin');
+    var statusText = document.getElementById('tStatusText');
+    var BRAILLE = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
+
+    function showAll() { lines.forEach(function (l) { l.classList.add('vis'); }); }
+    if (reduceMotion) { showAll(); return { start: function () {}, tick: function () {} }; }
+
+    var seq = [];
+    lines.forEach(function (l) {
+      l.classList.remove('vis', 't-fresh');
+      var msg = l.querySelector('.t-msg');
+      var kind = l.getAttribute('data-t') === 'cmd' ? 'cmd' : 'out';
+      var item = { line: l, msg: msg, kind: kind, text: '', run: '' };
+      if (kind === 'cmd') { item.text = msg ? msg.textContent : ''; if (msg) msg.textContent = ''; }
+      else {
+        var nameEl = l.querySelector('.t-name');
+        var cls = nameEl ? nameEl.className : '';
+        item.run = cls.indexOf('t-gold') >= 0 ? 'pinning directives…' : 'waking the mind…';
+        item.spin = seq.length && seq[seq.length - 1].kind === 'cmd';
+      }
+      seq.push(item);
+    });
+    if (status) { status.classList.add('t-line'); status.hidden = true; }
+
+    var st = { i: -1, mode: 'idle', acc: 0, charDelay: 0, base: 24, cursor: null, spinAcc: 0, spinFor: 600, fresh: null, freshAcc: 0 };
+
+    function clearCursor() { if (st.cursor && st.cursor.parentNode) st.cursor.parentNode.removeChild(st.cursor); st.cursor = null; }
+    function beginTyping(item) {
+      item.line.classList.add('vis'); item.line.classList.remove('t-fresh');
+      if (item.msg) item.msg.textContent = '';
+      clearCursor();
+      st.cursor = document.createElement('span'); st.cursor.className = 't-cursor'; st.cursor.setAttribute('aria-hidden', 'true');
+      item.line.appendChild(st.cursor);
+      st.mode = 'type'; st.acc = 0;
+      st.base = rand(560, 880) / Math.max(1, item.text.length);
+      st.charDelay = st.base;
+    }
+    function beginSpin(item) {
+      if (status) { status.hidden = false; status.classList.add('vis'); if (statusText) statusText.textContent = item.run || 'working…'; }
+      st.mode = 'spin'; st.acc = 0; st.spinAcc = 0; st.spinFor = rand(420, 760);
+    }
+    function revealOut(item) {
+      item.line.classList.add('vis'); item.line.classList.remove('t-fresh');
+      void item.line.offsetWidth; item.line.classList.add('t-fresh');
+      st.fresh = item; st.freshAcc = 0;
+    }
+    function next() {
+      st.i++;
+      if (st.i >= seq.length) { st.mode = 'hold'; st.acc = 0; return; }
+      var item = seq[st.i];
+      if (item.kind === 'cmd') beginTyping(item);
+      else if (item.spin) beginSpin(item);
+      else { revealOut(item); st.mode = 'gap'; st.acc = 0; st.gapFor = rand(320, 620); }
+    }
+    function reset() {
+      clearCursor(); if (status) status.hidden = true;
+      lines.forEach(function (l) { l.classList.remove('vis', 't-fresh'); var m = l.querySelector('.t-msg'); if (l.getAttribute('data-t') === 'cmd' && m) m.textContent = ''; });
+      st.i = -1; st.fresh = null;
+    }
+    function start() { if (st.mode === 'idle') next(); }
+    function tick(dt) {
+      st.acc += dt;
+      if (st.fresh) { st.freshAcc += dt; if (st.freshAcc > 2200) { st.fresh.line.classList.remove('t-fresh'); st.fresh = null; } }
+      switch (st.mode) {
+        case 'type': {
+          var item = seq[st.i];
+          if (!item || !item.msg) { st.mode = 'gap'; st.acc = 0; st.gapFor = 400; break; }
+          if (st.acc >= st.charDelay) {
+            st.acc = 0;
+            var n = item.msg.textContent.length;
+            item.msg.textContent = item.text.slice(0, n + 1);
+            var ch = item.text.charAt(n);
+            st.charDelay = st.base * (ch === ' ' ? rand(1.4, 2.1) : rand(0.7, 1.3));
+            if (n + 1 >= item.text.length) { clearCursor(); st.mode = 'gap'; st.gapFor = rand(240, 420); }
+          }
+          break;
+        }
+        case 'spin': {
+          st.spinAcc += dt;
+          if (spinEl) spinEl.textContent = BRAILLE[Math.floor(st.spinAcc / 90) % BRAILLE.length];
+          if (st.spinAcc >= st.spinFor) { revealOut(seq[st.i]); if (status) status.hidden = true; st.mode = 'gap'; st.gapFor = rand(320, 520); }
+          break;
+        }
+        case 'gap': { if (st.acc >= st.gapFor) { st.acc = 0; next(); } break; }
+        case 'hold': { if (st.acc >= 5200) { st.acc = 0; body.classList.add('is-cycling'); st.mode = 'fade-out'; } break; }
+        case 'fade-out': { if (st.acc >= 460) { reset(); body.classList.remove('is-cycling'); st.mode = 'fade-in'; } break; }
+        case 'fade-in': { if (st.acc >= 380) { st.acc = 0; next(); } break; }
+      }
+    }
+    return { start: start, tick: tick };
+  }
+
+  /* =====================================================================
+     Mind map — living brain graph (canvas 2D)
+     ===================================================================== */
+  function hexA(hex, a) {
+    var h = hex.replace('#', '');
+    if (h.length === 3) h = h[0] + h[0] + h[1] + h[1] + h[2] + h[2];
+    var n = parseInt(h, 16);
+    return 'rgba(' + ((n >> 16) & 255) + ',' + ((n >> 8) & 255) + ',' + (n & 255) + ',' + a + ')';
+  }
+
+  function createMind(canvas) {
+    if (!canvas || !canvas.getContext) return null;
+    var ctx = canvas.getContext('2d');
+    if (!ctx) return null;
+
+    var W = 1, H = 1, cx = 0, cy = 0, k = 1, dpr = 1, small = false;
+    var hub = { x: 0, y: 0, r: 6 };
+    var atoms = [], typed = [], dust = [], packets = [], pulses = [];
+    var time = 0, spawnAcc = 0, nextSpawn = 1.1, spawnIdx = 0;
+    var COL = {
+      preference: '#948ebd', decision: '#b39262', lesson: '#7ba38c', dream: '#a488b6', observation: '#8fa3b8',
+      preferenceHi: '#cdc9f2', decisionHi: '#dcc08c', lessonHi: '#a2cdb4', dreamHi: '#c9aede', observationHi: '#b3c6da'
+    };
+    var TYPES = ['preference', 'decision', 'lesson', 'dream', 'observation', 'preference', 'lesson', 'decision', 'observation', 'dream'];
+
+    function buildDust() {
+      small = W < 560;
+      var n = small ? 34 : 64;
+      dust = [];
+      for (var i = 0; i < n; i++) dust.push({ x: Math.random() * W, y: Math.random() * H, s: rand(0.6, 1.6), a: rand(0.12, 0.5), ph: Math.random() * 6.283, tw: rand(0.3, 1.0) });
+    }
+    function buildLayout() {
+      cx = W * 0.5; cy = H * 0.5;
+      var R = Math.min(W * 0.40, H * 0.44);
+      k = clamp(R / 150, 0.62, 1.15);
+      hub = { x: cx, y: cy, r: Math.max(4, 6 * k) };
+      atoms = [];
+      for (var i = 0; i < TYPES.length; i++) {
+        var ring = (i % 2 === 0) ? 1 : 0.72;
+        var ang = (i / TYPES.length) * Math.PI * 2 + (i % 3) * 0.22 - Math.PI / 2;
+        var rr = R * ring * (0.86 + ((i * 37) % 13) / 13 * 0.16);
+        atoms.push({ x: cx + Math.cos(ang) * rr, y: cy + Math.sin(ang) * rr * 0.92, r: (3.2 + ((i * 29) % 5) * 0.5) * k, type: TYPES[i] });
+      }
+      typed = [];
+      [[0, 5], [1, 6], [2, 7], [3, 8], [4, 9], [0, 3], [1, 4]].forEach(function (p) {
+        if (atoms[p[0]] && atoms[p[1]]) typed.push({ a: atoms[p[0]], b: atoms[p[1]], type: atoms[p[1]].type });
+      });
+      buildDust();
+    }
+    function resize() {
+      var r = canvas.getBoundingClientRect();
+      W = Math.max(1, r.width); H = Math.max(1, r.height);
+      dpr = Math.min(window.devicePixelRatio || 1, 2);
+      canvas.width = Math.round(W * dpr); canvas.height = Math.round(H * dpr);
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      buildLayout();
+      if (!master.running) renderStatic();
+    }
+    function pathPoint(atom, t) { return { x: hub.x + (atom.x - hub.x) * t, y: hub.y + (atom.y - hub.y) * t }; }
+    function spawn() {
+      var max = small ? 3 : 6;
+      if (packets.length >= max) return;
+      var atom = atoms[spawnIdx % atoms.length]; spawnIdx++;
+      var fromHub = (spawnIdx % 3) !== 0;
+      var p = fromHub ? pathPoint(atom, 0) : pathPoint(atom, 1);
+      packets.push({ atom: atom, t: fromHub ? 0 : 1, dir: fromHub ? 1 : -1, x: p.x, y: p.y, color: COL[atom.type + 'Hi'], trail: [] });
+    }
+    function update(dt) {
+      for (var i = packets.length - 1; i >= 0; i--) {
+        var p = packets[i];
+        p.t += p.dir * (0.30 + 0.14 * k) * dt;
+        if (p.t >= 1 || p.t <= 0) {
+          pulses.push({ x: p.atom.x, y: p.atom.y, color: COL[p.atom.type], life: 0 });
+          packets.splice(i, 1); continue;
+        }
+        var np = pathPoint(p.atom, p.t);
+        p.x = np.x; p.y = np.y;
+        p.trail.push({ x: np.x, y: np.y });
+        if (p.trail.length > 16) p.trail.shift();
+      }
+      spawnAcc += dt;
+      if (spawnAcc >= nextSpawn) { spawnAcc = 0; nextSpawn = rand(1.1, 2.4); spawn(); }
+      for (var j = pulses.length - 1; j >= 0; j--) { pulses[j].life += dt * 1.3; if (pulses[j].life >= 1) pulses.splice(j, 1); }
+    }
+
+    function drawDust(animate) {
+      for (var i = 0; i < dust.length; i++) {
+        var d = dust[i];
+        if (animate) { d.y += 2.2 * d.s * 0.04; d.x += 1.1 * d.s * 0.04; if (d.x > W + 4) d.x = -4; if (d.y > H + 4) d.y = -4; }
+        var tw = 0.6 + 0.4 * Math.sin(time * d.tw + d.ph);
+        ctx.globalAlpha = d.a * tw;
+        ctx.fillStyle = '#cdc9f2';
+        ctx.fillRect(d.x, d.y, d.s, d.s);
+      }
+      ctx.globalAlpha = 1;
+    }
+    function drawHub() {
+      var breath = 0.5 + 0.5 * Math.sin(time * 0.55);
+      var g = ctx.createRadialGradient(cx, cy, 0, cx, cy, Math.max(60, W * 0.42));
+      g.addColorStop(0, 'rgba(148,142,189,' + (0.13 + 0.06 * breath).toFixed(3) + ')');
+      g.addColorStop(0.55, 'rgba(148,142,189,0.045)');
+      g.addColorStop(1, 'rgba(148,142,189,0)');
+      ctx.fillStyle = g; ctx.beginPath(); ctx.arc(cx, cy, Math.max(60, W * 0.42), 0, Math.PI * 2); ctx.fill();
+    }
+    function drawEdges() {
+      ctx.lineWidth = 1;
+      ctx.strokeStyle = 'rgba(74,80,100,0.55)';
+      for (var i = 0; i < atoms.length; i++) {
+        ctx.beginPath(); ctx.moveTo(hub.x, hub.y); ctx.lineTo(atoms[i].x, atoms[i].y); ctx.stroke();
+      }
+      ctx.lineWidth = 1;
+      for (var j = 0; j < typed.length; j++) {
+        ctx.strokeStyle = hexA(COL[typed[j].type], 0.5);
+        ctx.beginPath(); ctx.moveTo(typed[j].a.x, typed[j].a.y); ctx.lineTo(typed[j].b.x, typed[j].b.y); ctx.stroke();
+      }
+    }
+    function drawAtoms() {
+      for (var i = 0; i < atoms.length; i++) {
+        var a = atoms[i], c = COL[a.type], hi = COL[a.type + 'Hi'];
+        ctx.strokeStyle = hexA(c, 0.26); ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.arc(a.x, a.y, a.r * 2.6, 0, Math.PI * 2); ctx.stroke();
+        ctx.fillStyle = c; ctx.beginPath(); ctx.arc(a.x, a.y, a.r, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = hi; ctx.globalAlpha = 0.85;
+        ctx.beginPath(); ctx.arc(a.x - a.r * 0.3, a.y - a.r * 0.3, a.r * 0.32, 0, Math.PI * 2); ctx.fill();
+        ctx.globalAlpha = 1;
+      }
+    }
+    function drawHubCore() {
+      var g = ctx.createRadialGradient(hub.x, hub.y, 0, hub.x, hub.y, hub.r * 3.4);
+      g.addColorStop(0, 'rgba(205,201,242,0.6)');
+      g.addColorStop(0.35, 'rgba(148,142,189,0.28)');
+      g.addColorStop(1, 'rgba(148,142,189,0)');
+      ctx.fillStyle = g; ctx.beginPath(); ctx.arc(hub.x, hub.y, hub.r * 3.4, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#948ebd'; ctx.beginPath(); ctx.arc(hub.x, hub.y, hub.r, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#e6e3fb'; ctx.beginPath(); ctx.arc(hub.x - 1, hub.y - 1, hub.r * 0.34, 0, Math.PI * 2); ctx.fill();
+    }
+    function drawPulses() {
+      for (var i = 0; i < pulses.length; i++) {
+        var p = pulses[i];
+        ctx.globalAlpha = (1 - p.life) * 0.5;
+        ctx.strokeStyle = p.color; ctx.lineWidth = 1.4;
+        ctx.beginPath(); ctx.arc(p.x, p.y, (5 + p.life * 22) * k, 0, Math.PI * 2); ctx.stroke();
+      }
+      ctx.globalAlpha = 1;
+    }
+    function drawPackets() {
+      ctx.lineCap = 'round';
+      for (var i = 0; i < packets.length; i++) {
+        var p = packets[i], len = p.trail.length;
+        for (var j = 1; j < len; j++) {
+          var f = j / (len - 1 || 1);
+          ctx.globalAlpha = f * f * 0.5;
+          ctx.strokeStyle = p.color;
+          ctx.lineWidth = Math.max(0.4, f * 2.1 * k);
+          ctx.beginPath(); ctx.moveTo(p.trail[j - 1].x, p.trail[j - 1].y); ctx.lineTo(p.trail[j].x, p.trail[j].y); ctx.stroke();
+        }
+        ctx.globalAlpha = 1;
+        var g = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, 8 * k);
+        g.addColorStop(0, hexA('#ffffff', 0.9)); g.addColorStop(0.35, hexA(p.color, 0.5)); g.addColorStop(1, hexA(p.color, 0));
+        ctx.fillStyle = g; ctx.beginPath(); ctx.arc(p.x, p.y, 8 * k, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = '#ffffff'; ctx.beginPath(); ctx.arc(p.x, p.y, 1.5 * k, 0, Math.PI * 2); ctx.fill();
+      }
+      ctx.lineCap = 'butt';
+    }
+    function draw(animate) {
+      ctx.clearRect(0, 0, W, H);
+      drawDust(animate); drawHub(); drawEdges(); drawHubCore(); drawAtoms(); drawPulses(); drawPackets();
+    }
+    function step(dt) { dt = Math.min(dt, 90) / 1000; time += dt; update(dt); draw(true); }
+    function renderStatic() {
+      time = 1.2; packets = []; pulses = [];
+      spawn(); spawn(); spawn();
+      packets.forEach(function (p, i) { p.t = [0.45, 0.7, 0.3][i] || 0.5; p.trail = []; for (var q = 9; q >= 1; q--) { var tt = clamp(p.t - p.dir * q * 0.02, 0, 1); p.trail.push(pathPoint(p.atom, tt)); } var pp = pathPoint(p.atom, p.t); p.x = pp.x; p.y = pp.y; });
+      pulses.push({ x: atoms[0].x, y: atoms[0].y, color: COL[atoms[0].type], life: 0.3 });
+      draw(false);
+    }
+    if ('ResizeObserver' in window) new ResizeObserver(function () { resize(); }).observe(canvas);
+    else window.addEventListener('resize', resize);
+    resize();
+    return { step: step, renderStatic: renderStatic };
+  }
+
+  /* ── Wire the console ────────────────────────────────────────────────── */
+  var consoleEl = document.getElementById('console');
+  var tiltEl = document.getElementById('consoleTilt');
+  var mindCanvas = document.getElementById('mindCanvas');
+  var mind = consoleEl && mindCanvas ? createMind(mindCanvas) : null;
+  var term = createTerminal();
+
+  if (tiltEl && finePointer && !reduceMotion) {
+    window.addEventListener('pointermove', function (e) {
+      var r = tiltEl.getBoundingClientRect(); if (!r.width) return;
+      master.pointer.tx = clamp((e.clientX - (r.left + r.width / 2)) / (r.width / 2), -1, 1);
+      master.pointer.ty = clamp((e.clientY - (r.top + r.height / 2)) / (r.height / 2), -1, 1);
+    }, { passive: true });
+  } else if (consoleEl) { consoleEl.classList.add('no-tilt'); }
+
+  /* ── Master loop ─────────────────────────────────────────────────────── */
+  function tick(now) {
+    master.raf = window.requestAnimationFrame(tick);
+    var dt = now - master.last; master.last = now;
+    if (!(dt >= 0)) dt = 0;
+    if (dt > 90) dt = 90;
+    window.__neobrain.frame++;
+    var p = master.pointer;
+    p.x += (p.tx - p.x) * 0.08; p.y += (p.ty - p.y) * 0.08;
+    if (tiltEl) tiltEl.style.transform = 'rotateX(' + (-p.y * 2.6).toFixed(3) + 'deg) rotateY(' + (p.x * 2.6).toFixed(3) + 'deg)';
+    if (master.armed) { if (term) term.tick(dt); if (mind) mind.step(dt); }
+  }
+  function syncRun() {
+    var should = !reduceMotion && master.visible && !document.hidden;
+    if (should && !master.running) { master.running = true; master.last = window.performance.now(); master.raf = window.requestAnimationFrame(tick); }
+    else if (!should && master.running) { master.running = false; window.cancelAnimationFrame(master.raf); }
+    if (consoleEl) consoleEl.classList.toggle('is-paused', !should);
+  }
+  if (consoleEl && 'IntersectionObserver' in window) {
+    new IntersectionObserver(function (entries) { master.visible = entries[0].isIntersecting; syncRun(); }, { threshold: 0, rootMargin: '-8% 0px -8% 0px' }).observe(consoleEl);
+  }
+  document.addEventListener('visibilitychange', syncRun);
+
+  window.setTimeout(function () {
+    master.armed = true;
+    if (term) term.start();
+  }, reduceMotion ? 0 : 900);
+
+  if (reduceMotion) {
+    if (mind) mind.renderStatic();
+    if (consoleEl) consoleEl.classList.add('is-paused');
+  } else { syncRun(); }
+
+  if (reduceMotion && document.fonts && document.fonts.ready) {
+    document.fonts.ready.then(function () { if (mind) mind.renderStatic(); });
+  }
+
+  /* ── Card sheen follows the pointer (fine pointers only) ─────────────── */
+  if (finePointer && !reduceMotion) {
+    Array.prototype.forEach.call(document.querySelectorAll('.feature-card'), function (card) {
+      card.addEventListener('pointermove', function (e) {
+        var r = card.getBoundingClientRect();
+        card.style.setProperty('--mx', ((e.clientX - r.left) / r.width * 100) + '%');
+        card.style.setProperty('--my', ((e.clientY - r.top) / r.height * 100) + '%');
+      });
+    });
+  }
+})();
+</script>
 
 <script>
-// ── HERO TERMINAL ──
-const lines = [
-  { cls:'t-sys',  name:'$',       msg:'pip install -e .', d:0 },
-  { cls:'t-acc',  name:'neobrain', msg:'init — store created at NEOBRAIN_DATA_DIR/neobrain.db (WAL)', d:600 },
-  { cls:'t-gold', name:'neobrain', msg:'start — API + dashboard on 0.0.0.0:9192', d:1300 },
-  { cls:'t-sys',  name:'',        msg:'   life loop: perceive → reflect → act → rest', d:2000 },
-  { cls:'t-acc',  name:'lane',    msg:'wakeup   → identity · open loops · active hubs', d:2800 },
-  { cls:'t-green',name:'lane',    msg:'recall   → top 10 one-liners + #1 hit, budget-bounded', d:3500 },
-  { cls:'t-gold', name:'lane',    msg:'directives → pinned preferences, re-injected every call', d:4200 },
-  { cls:'t-sys',  name:'',        msg:'   [ rest · running dream phases: light / rem / deep ]', d:5000 },
-  { cls:'t-green',name:'neobrain',msg:'neobrain ui → http://127.0.0.1:9192', d:6000 },
-  { cls:'t-sys',  name:'',        msg:'   the user watches; the agent becomes.', d:7000 },
-  { cursor: true, d: 7800 },
-];
-
-function renderTerminal() {
-  const el = document.getElementById('terminal');
-  if (!el) return;
-  el.innerHTML = '';
-  lines.forEach(l => {
-    const d = document.createElement('div');
-    d.className = 't-line';
-    if (l.cursor) {
-      d.innerHTML = '<span class="t-name"></span><span class="cur"></span>';
-    } else {
-      d.innerHTML = '<span class="t-name ' + l.cls + '">' + l.name + '</span><span class="t-msg">' + l.msg + '</span>';
-    }
-    el.appendChild(d);
-    setTimeout(() => d.classList.add('vis'), l.d);
-  });
-}
-renderTerminal();
-setInterval(renderTerminal, 9500);
-
-// ── COPY ──
-function copyText(text, el) {
-  const done = () => {
-    const t = document.getElementById('toast');
-    t.classList.add('show');
-    setTimeout(() => t.classList.remove('show'), 2000);
-    if (el) {
-      const orig = el.getAttribute('data-orig') || el.textContent;
-      el.setAttribute('data-orig', orig);
-      el.textContent = 'Copied!';
-      setTimeout(() => el.textContent = orig, 1500);
-    }
-  };
-  if (navigator.clipboard && navigator.clipboard.writeText) {
-    navigator.clipboard.writeText(text).then(done).catch(() => fallbackCopy(text, done));
-  } else {
-    fallbackCopy(text, done);
+  /* Cloudflare Web Analytics — production hosts only (keeps localhost clean). */
+  if (/(^|\.)alionix\.com$/.test(location.hostname)) {
+    var cf = document.createElement('script');
+    cf.type = 'module';
+    cf.src = 'https://static.cloudflareinsights.com/beacon.min.js';
+    cf.setAttribute('data-cf-beacon', '{"token": "af4bbe0ff0724eee92af6a086003c825"}');
+    document.head.appendChild(cf);
   }
-}
-function fallbackCopy(text, done) {
-  const ta = document.createElement('textarea');
-  ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
-  document.body.appendChild(ta); ta.select();
-  try { document.execCommand('copy'); } catch (e) {}
-  document.body.removeChild(ta); done();
-}
-
-// ── SCROLL FADE ──
-const obs = new IntersectionObserver(
-  entries => entries.forEach(e => { if (e.isIntersecting) e.target.classList.add('visible'); }),
-  { threshold: 0.1 }
-);
-document.querySelectorAll('.fade-in').forEach(el => obs.observe(el));
 </script>
-<!-- Cloudflare Web Analytics --><script type='module' src='https://static.cloudflareinsights.com/beacon.min.js' data-cf-beacon='{"token": "af4bbe0ff0724eee92af6a086003c825"}'></script><!-- End Cloudflare Web Analytics -->
 </body>
 </html>
