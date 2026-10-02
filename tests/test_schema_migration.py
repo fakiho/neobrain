@@ -1,4 +1,4 @@
-"""v1 -> v2 additive migration (m_rank backfill) and schema guarantees."""
+"""Additive migrations (v1 -> v2 rank backfill, v2 -> v3 FTS rowid rebuild)."""
 from __future__ import annotations
 
 import sqlite3
@@ -22,9 +22,9 @@ def _insert_atom(conn: sqlite3.Connection, atom_id: str) -> None:
     )
 
 
-def test_v1_to_v2_backfills_rank_rows(tmp_path):
+def test_v1_to_v3_backfills_rank_rows(tmp_path):
     conn = _connect(tmp_path / "v1.db")
-    conn.executescript(schema.SCHEMA)          # current (v2) schema...
+    conn.executescript(schema.SCHEMA)          # current (v3) schema...
     conn.execute("DROP TABLE m_rank")          # ...rewound to a v1 store
     conn.execute("PRAGMA user_version = 1")
     _insert_atom(conn, "a1")
@@ -32,8 +32,8 @@ def test_v1_to_v2_backfills_rank_rows(tmp_path):
     conn.commit()
     assert schema.user_version(conn) == 1
 
-    assert schema.migrate(conn, now=123) == 2
-    assert schema.user_version(conn) == 2
+    assert schema.migrate(conn, now=123) == 3
+    assert schema.user_version(conn) == 3
 
     rows = list(conn.execute(
         "SELECT atom_id,quality,served,interacted,last_served,state,state_since,updated "
@@ -47,7 +47,7 @@ def test_v1_to_v2_backfills_rank_rows(tmp_path):
         assert row["updated"] == 123
     # existing data intact; second migrate is a no-op
     assert conn.execute("SELECT COUNT(*) FROM m_atoms").fetchone()[0] == 2
-    assert schema.migrate(conn, now=999) == 2
+    assert schema.migrate(conn, now=999) == 3
     assert conn.execute("SELECT COUNT(*) FROM m_rank").fetchone()[0] == 2
     conn.close()
 
@@ -70,16 +70,60 @@ def test_migrate_preserves_existing_rank_state(tmp_path):
     conn.close()
 
 
-def test_fresh_init_is_v2(tmp_path, monkeypatch):
+def test_fresh_init_is_v3(tmp_path, monkeypatch):
     from neobrain import config
 
     monkeypatch.setattr(config, "DATA_DIR", tmp_path)
     conn = db.connect(tmp_path / "fresh.db")
     db.init_db(conn)
-    assert schema.user_version(conn) == 2
-    assert schema.USER_VERSION == 2
+    assert schema.user_version(conn) == 3
+    assert schema.USER_VERSION == 3
     assert conn.execute(
         "SELECT 1 FROM sqlite_master WHERE type='table' AND name='m_rank'").fetchone() is not None
+    conn.close()
+
+
+def test_v3_rebuild_realigns_fts_rowids(tmp_path):
+    """A legacy index (wrong rowids, stale rows) is rebuilt to match events."""
+    conn = _connect(tmp_path / "fts.db")
+    conn.executescript(schema.SCHEMA)
+    conn.execute("PRAGMA user_version = 2")  # legacy store, index not aligned
+    conn.execute(
+        "INSERT INTO events(id,ts,source,lane,category,actor,title,detail,ingested_at) "
+        "VALUES('a',1,'git','action','commit','git:x','hello','world',1)")
+    conn.execute("INSERT INTO events_fts(rowid,event_id,title,detail) VALUES(99,'a','hello','world')")
+    conn.execute("INSERT INTO events_fts(rowid,event_id,title,detail) VALUES(500,'ghost','stale','stale')")
+    conn.commit()
+
+    assert schema.migrate(conn) == 3
+
+    rows = list(conn.execute("SELECT rowid, event_id FROM events_fts"))
+    assert len(rows) == 1 and rows[0]["event_id"] == "a"     # stale row gone
+    rid = conn.execute("SELECT rowid FROM events WHERE id='a'").fetchone()[0]
+    assert rows[0]["rowid"] == rid                           # aligned
+    conn.close()
+
+
+def test_upsert_events_keeps_fts_in_sync(tmp_path):
+    """Re-upserting updates the FTS row in place — no duplicates, new text found."""
+    conn = db.connect(tmp_path / "sync.db")
+    db.init_db(conn)
+    from neobrain.models import Event
+
+    ev = Event(ts=1, source="git", lane="action", category="commit", actor="git:x",
+               title="first title", id="e1", detail="first detail")
+    assert db.upsert_events(conn, [ev]) == (1, 0)
+    rid = conn.execute("SELECT rowid FROM events WHERE id='e1'").fetchone()[0]
+
+    ev.title, ev.detail = "second title", "second detail"
+    assert db.upsert_events(conn, [ev]) == (0, 1)
+
+    assert conn.execute("SELECT COUNT(*) FROM events_fts").fetchone()[0] == 1
+    assert conn.execute("SELECT rowid FROM events_fts").fetchone()[0] == rid
+    assert conn.execute(
+        "SELECT COUNT(*) FROM events_fts WHERE events_fts MATCH 'second'").fetchone()[0] == 1
+    assert conn.execute(
+        "SELECT COUNT(*) FROM events_fts WHERE events_fts MATCH 'first'").fetchone()[0] == 0
     conn.close()
 
 
