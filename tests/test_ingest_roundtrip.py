@@ -144,6 +144,21 @@ def test_run_all_records_per_source_ingest_runs(conn, workspace):
         assert r["errors"] == 0
 
 
+def test_ingest_run_rows_open_before_the_work(conn, workspace):
+    runner.run_all(conn)
+    rows = list(conn.execute(
+        "SELECT source, started_at, finished_at FROM ingest_runs ORDER BY id"
+    ))
+    by_source = {r["source"]: r for r in rows}
+    assert set(by_source) == {"opencode", "git", "docs"}
+    for r in rows:
+        assert r["started_at"] <= r["finished_at"]
+    # The last row opened (git's, in the adapter phase) must already exist by
+    # the time the first row is finished (after the shared upsert), i.e. the
+    # rows span the real work window instead of only the bookkeeping loop.
+    assert by_source["git"]["started_at"] <= by_source["opencode"]["finished_at"]
+
+
 def test_second_run_updates_instead_of_adding(conn, workspace):
     first = runner.run_all(conn)
     second = runner.run_all(conn)
