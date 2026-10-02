@@ -24,8 +24,9 @@ Family: [alionix](https://alionix.com) — neohive (agents collaborate) + neoBra
 Durable memory for AI agents, built as a mind model rather than a log:
 
 - **Memory** — atoms + hubs + typed edges in SQLite. Hybrid recall (lexical +
-  cosine vectors, local Ollama embeddings by default); top-K **by rank within
-  a token budget**, never the whole store.
+  cosine vectors, local Ollama embeddings by default); top-K by relevance
+  within a token budget — never the whole store, and forgotten atoms are
+  never candidates. See [Hybrid recall](#hybrid-recall).
 - **Rank** — deterministic, no model discretion:
   `quality = clamp01(feedback · decay · conn)`. Feedback (`used | useful |
   noise`) is the only factor that can reach zero; knobs live in `config.py`.
@@ -73,6 +74,41 @@ Durable memory for AI agents, built as a mind model rather than a log:
 - **Observatory** — React/Vite SPA (`web/src/brain/`): Brain graph, Memory
   feed, Dreams, Reader, Debug. Views deep-link by hash — `/#debug`,
   `/#dreams` — which is handy for jumping straight at the live trace.
+
+## Hybrid recall
+
+Search is two scorers blended, not one. Every active atom is ranked by:
+
+```
+score = lexical_norm + α · cosine_norm          (α = 2.0, `recall_alpha`)
+```
+
+- **Lexical** — a small BM25-flavoured model: IDF weighting, term-frequency
+  saturation, field weights (label 3.0 · tags/hub 2.5 · text 1.0), a hub-anchor
+  bonus (query hubs count, synonyms included) and length normalisation. This
+  half anchors exact ids, paths and rare tokens.
+- **Semantic** — cosine similarity between the query vector and each atom's
+  embedding (label + body), min-max stretched over the candidate set so both
+  terms share a 0..1 scale for *any* embedding provider. That normalisation is
+  what makes α portable across models.
+
+Vectors earn their keep on paraphrases — "the thing that watches the front
+door" surfaces the doorbell atom even with no word overlap — while lexical
+still wins on identifiers. Relevance dominates: feedback can only nudge a
+score by ±10%.
+
+**Degradation is graceful.** Embeddings are best-effort everywhere: vectors
+live in an `m_embeddings` side table (L2-normalised float32, so cosine is a
+plain dot product — no numpy dependency), atoms embed at `remember`/ingest
+time, and if the provider is down or unconfigured recall silently falls back
+to lexical-only. A memory write can never fail because of embeddings.
+
+**Local by default.** The default provider is on-host Ollama (`embeddinggemma`,
+768-dim): memory text never leaves the machine. An OpenAI-compatible off-host
+provider (`NEOBRAIN_EMBED_PROVIDER=litellm`) is opt-in. Vectors are keyed by
+`provider:model`, so switching providers re-embeds automatically — no
+migration. `neobrain embed` backfills idempotently (hash-keyed, prunes vectors
+of deleted atoms).
 
 ## The OpenCode integration
 
@@ -181,7 +217,11 @@ Read-mostly JSON; groups worth knowing (full schema at `/api/schema`):
 ```
 
 117 tests passing (verified 2026-10-02), including rank calibration and
-parity tests against the old timeline oracle (`tests/parity/`).
+parity tests against the old timeline oracle (`tests/parity/`). Ranking
+correctness is covered directly (`test_recall_rank.py`, `test_rank_*.py`).
+There is no published retrieval benchmark (recall@k / MRR) yet — until one
+exists, treat α as a starting point and tune it on your own store
+(`recall --lexical` vs. hybrid makes the comparison by hand).
 
 ## Status
 

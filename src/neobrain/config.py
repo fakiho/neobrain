@@ -165,7 +165,7 @@ EMBED_ENABLED = settings.embed_enabled.strip().lower() not in ("0", "false", "no
 EMBED_KEY_FILE: Path | None = Path(settings.embed_key_file).expanduser() if settings.embed_key_file else None
 
 # Hybrid recall weight: score = lexical_norm + alpha * cosine_norm (both 0..1).
-# Tuned on tools/recall_eval.py; provider-agnostic because of the min-max norm.
+# Provider-agnostic because of the min-max norm.
 RECALL_ALPHA = settings.recall_alpha
 
 _embed_key: str | None = None
