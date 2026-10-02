@@ -1,6 +1,6 @@
 """Ingest orchestration: run adapters, upsert, record runs and links.
 
-PORT-NOTE: verbatim logic port of ``timeline/app/ingest/runner.py`` with three
+PORT-NOTE: verbatim logic port of ``timeline/app/ingest/runner.py`` with four
 deviations, each marked inline:
 
 * imports use the ``neobrain.*`` package;
@@ -8,7 +8,10 @@ deviations, each marked inline:
   ``errors`` budget and can never abort the other sources (the S6b contract
   exposes per-source ``errors``; the old code had no error handling);
 * ``run_all()`` is the new public entry point (``{source: {added, updated,
-  errors}}``) used by the life loop; ``run()`` keeps the old rich summary.
+  errors}}``) used by the life loop; ``run()`` keeps the old rich summary;
+* each source's ``ingest_runs`` row is opened before that source's adapters
+  run, so ``started_at``/``finished_at`` bracket the real work instead of the
+  post-upsert bookkeeping.
 
 Both functions record one ``ingest_runs`` row per source, as the old code did,
 and both run the same post-processing: ``mind.import_mind``, a best-effort
@@ -80,8 +83,12 @@ def _run_locked(conn: sqlite3.Connection, sources: Iterable[str] = DEFAULT_SOURC
     opencode_events: list[Event] = []
     per_source: dict[str, int] = {}
     errors: dict[str, int] = {}
+    # Run rows open before each source's adapters run so started_at brackets the
+    # real work; sources with no adapter branch fall back in the loop below.
+    run_ids: dict[str, int] = {}
 
     if "opencode" in sources:
+        run_ids["opencode"] = db.start_run(conn, "opencode")
         try:
             evs, meta = opencode.iter_events()
             opencode_events = evs
@@ -98,6 +105,7 @@ def _run_locked(conn: sqlite3.Connection, sources: Iterable[str] = DEFAULT_SOURC
             errors["opencode"] = 1
 
     if "docs" in sources:
+        run_ids["docs"] = db.start_run(conn, "docs")
         try:
             devs, dvers = docs_adapter.iter_events()
             all_events.extend(devs)
@@ -111,6 +119,7 @@ def _run_locked(conn: sqlite3.Connection, sources: Iterable[str] = DEFAULT_SOURC
             errors["docs"] = 1
 
     if "git" in sources:
+        run_ids["git"] = db.start_run(conn, "git")
         try:
             gev = gitrepo.iter_events()
             all_events.extend(gev)
@@ -157,7 +166,9 @@ def _run_locked(conn: sqlite3.Connection, sources: Iterable[str] = DEFAULT_SOURC
 
     for source in sources:
         db.set_ingest_state(conn, source, cursor="full-rescan", note=f"{per_source.get(source, 0)} events")
-        rid = db.start_run(conn, source)
+        rid = run_ids.pop(source, None)
+        if rid is None:
+            rid = db.start_run(conn, source)
         # PORT-NOTE: the old code wrote `added=per_source` (event count) and
         # always 0 updated/errors; the accurate per-source numbers now exist.
         bucket = by_source.get(source, {"added": 0, "updated": 0, "errors": errors.get(source, 0)})
