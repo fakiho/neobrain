@@ -1168,7 +1168,7 @@
                 <span class="pane-sub">live</span>
               </div>
               <div class="map-stage">
-                <canvas id="mindCanvas" role="img" aria-label="Live brain graph: a central hub connected to atoms by typed edges coloured by memory type — preference, decision, lesson, dream and observation. Pulses travel the synapses as memories are recalled."></canvas>
+                <canvas id="mindCanvas" role="img" aria-label="Live brain neuron: a pre-synaptic soma holding memory atoms, sending a live recall pulse down the axon across the synapse to a post-synaptic neuron."></canvas>
               </div>
               <figcaption class="map-legend">
                 <span><i style="background:#948ebd" aria-hidden="true"></i>preference</span>
@@ -1798,92 +1798,68 @@
     var ctx = canvas.getContext('2d');
     if (!ctx) return null;
 
-    var W = 1, H = 1, cx = 0, cy = 0, k = 1, dpr = 1, small = false;
-    var hub = { x: 0, y: 0, r: 6 };
-    var atoms = [], typed = [], dust = [], packets = [], pulses = [];
-    var time = 0, spawnAcc = 0, nextSpawn = 1.1, spawnIdx = 0;
-    var COL = {
-      preference: '#948ebd', decision: '#b39262', lesson: '#7ba38c', dream: '#a488b6', observation: '#8fa3b8',
-      preferenceHi: '#cdc9f2', decisionHi: '#dcc08c', lessonHi: '#a2cdb4', dreamHi: '#c9aede', observationHi: '#b3c6da'
-    };
-    var TYPES = ['preference', 'decision', 'lesson', 'dream', 'observation', 'preference', 'lesson', 'decision', 'observation', 'dream'];
+    var W = 1, H = 1, k = 1, dpr = 1, small = false;
+    var time = 0;
+    var dust = [];
+    var soma = { x: 0, y: 0, r: 1 };
+    var post = { x: 0, y: 0, r: 1 };
+    var bouton = { x: 0, y: 0, r: 1 };
+    var cleft = { x: 0, y: 0, w: 1, h: 1 };
+    var axon = { x0: 0, y0: 0, c1x: 0, c1y: 0, c2x: 0, c2y: 0, x1: 0, y1: 0 };
+    var dendrites = [];
+    var postDendrites = [];
+    var memoryNodes = [];
+    var pulses = [
+      { t: 0.12, speed: 0.34, color: '#c3bfec' },
+      { t: 0.62, speed: 0.34, color: '#a488b6' }
+    ];
+    var cleftFlash = 0;
+
+    var MEM_COLORS = ['#b39262', '#7ba38c', '#a488b6', '#8fa3b8', '#c3bfec', '#b39262'];
 
     function buildDust() {
       small = W < 560;
-      var n = small ? 34 : 64;
+      var n = small ? 26 : 44;
       dust = [];
-      for (var i = 0; i < n; i++) dust.push({ x: Math.random() * W, y: Math.random() * H, s: rand(0.6, 1.6), a: rand(0.12, 0.5), ph: Math.random() * 6.283, tw: rand(0.3, 1.0) });
+      for (var i = 0; i < n; i++) dust.push({ x: Math.random() * W, y: Math.random() * H, s: rand(0.5, 1.4), a: rand(0.1, 0.4), ph: Math.random() * 6.283, tw: rand(0.3, 1.0) });
     }
+
     function buildLayout() {
-      cx = W * 0.5; cy = H * 0.5;
-      var R = Math.min(W * 0.36, H * 0.38);
-      k = clamp(R / 140, 0.65, 1.15);
-      hub = { x: cx - 8 * k, y: cy + 4 * k, r: Math.max(4.5, 6.5 * k) };
+      k = clamp(Math.min(W / 465, H / 384), 0.7, 1.25);
 
-      var layoutConfig = [
-        { ang: -2.35, dist: 0.42, r: 4.8 },
-        { ang: -2.85, dist: 0.72, r: 4.0 },
-        { ang: -1.80, dist: 0.62, r: 4.4 },
-        { ang: -0.75, dist: 0.40, r: 4.6 },
-        { ang: -0.32, dist: 0.65, r: 4.2 },
-        { ang: -1.15, dist: 0.76, r: 4.5 },
-        { ang:  0.18, dist: 0.74, r: 3.8 },
-        { ang:  1.65, dist: 0.44, r: 4.4 },
-        { ang:  1.15, dist: 0.70, r: 4.2 },
-        { ang:  2.35, dist: 0.60, r: 4.0 }
+      soma.x = W * 0.22; soma.y = H * 0.55; soma.r = Math.min(W * 0.115, H * 0.2) * k;
+      post.x = W * 0.85; post.y = H * 0.5; post.r = soma.r * 0.5;
+      bouton.x = W * 0.775; bouton.y = H * 0.5; bouton.r = 6.5 * k;
+      cleft.x = W * 0.795; cleft.y = H * 0.5; cleft.w = 5 * k; cleft.h = 13 * k;
+
+      axon.x0 = soma.x + soma.r * 0.78; axon.y0 = soma.y + soma.r * 0.1;
+      axon.c1x = W * 0.42; axon.c1y = soma.y - soma.r * 0.55;
+      axon.c2x = W * 0.62; axon.c2y = soma.y + soma.r * 0.5;
+      axon.x1 = bouton.x - bouton.r * 0.6; axon.y1 = bouton.y;
+
+      dendrites = [
+        { root: { x: soma.x - soma.r * 0.55, y: soma.y - soma.r * 0.5 }, c1: { x: soma.x - soma.r * 1.5, y: soma.y - soma.r * 1.1 }, fork: { x: soma.x - soma.r * 2.0, y: soma.y - soma.r * 0.55 }, c2: { x: soma.x - soma.r * 2.5, y: soma.y - soma.r * 1.0 }, tip: { x: soma.x - soma.r * 3.0, y: soma.y - soma.r * 0.5 }, c3: { x: soma.x - soma.r * 2.4, y: soma.y - soma.r * 0.1 }, tip2: { x: soma.x - soma.r * 2.9, y: soma.y - soma.r * 0.15 } },
+        { root: { x: soma.x - soma.r * 0.6, y: soma.y - soma.r * 0.1 }, c1: { x: soma.x - soma.r * 1.6, y: soma.y - soma.r * 0.2 }, fork: { x: soma.x - soma.r * 2.1, y: soma.y - soma.r * 0.1 }, c2: { x: soma.x - soma.r * 2.6, y: soma.y - soma.r * 0.3 }, tip: { x: soma.x - soma.r * 3.1, y: soma.y - soma.r * 0.1 }, c3: { x: soma.x - soma.r * 2.5, y: soma.y + soma.r * 0.2 }, tip2: { x: soma.x - soma.r * 3.0, y: soma.y + soma.r * 0.1 } },
+        { root: { x: soma.x - soma.r * 0.5, y: soma.y + soma.r * 0.45 }, c1: { x: soma.x - soma.r * 1.4, y: soma.y + soma.r * 0.7 }, fork: { x: soma.x - soma.r * 1.9, y: soma.y + soma.r * 0.5 }, c2: { x: soma.x - soma.r * 2.4, y: soma.y + soma.r * 0.8 }, tip: { x: soma.x - soma.r * 2.9, y: soma.y + soma.r * 0.5 }, c3: { x: soma.x - soma.r * 2.3, y: soma.y + soma.r * 0.2 }, tip2: { x: soma.x - soma.r * 2.8, y: soma.y + soma.r * 0.3 } }
       ];
 
-      atoms = [];
-      for (var i = 0; i < layoutConfig.length; i++) {
-        var cfg = layoutConfig[i];
-        var jAng = ((i * 19) % 7 - 3) * 0.02;
-        var jDist = ((i * 23) % 9 - 4) * 0.015;
-        var a = cfg.ang + jAng;
-        var d = R * (cfg.dist + jDist);
-        var ax = hub.x + Math.cos(a) * d;
-        var ay = hub.y + Math.sin(a) * d * 0.94;
-
-        var mx = (hub.x + ax) * 0.5, my = (hub.y + ay) * 0.5;
-        var vdx = ax - hub.x, vdy = ay - hub.y;
-        var vlen = Math.sqrt(vdx * vdx + vdy * vdy) || 1;
-        var nx = -vdy / vlen, ny = vdx / vlen;
-        var bendSign = (i % 2 === 0) ? 1 : -1;
-        var bendMag = vlen * (0.16 + ((i * 13) % 5) * 0.02) * bendSign;
-
-        atoms.push({
-          x: ax,
-          y: ay,
-          r: cfg.r * k,
-          type: TYPES[i],
-          cpx: mx + nx * bendMag,
-          cpy: my + ny * bendMag
-        });
-      }
-
-      typed = [];
-      var typedEdges = [
-        [0, 1], [1, 2], [2, 5], [3, 4], [4, 6], [6, 8], [7, 9], [9, 0], [3, 7]
+      postDendrites = [
+        { root: { x: post.x + post.r * 0.5, y: post.y - post.r * 0.4 }, c1: { x: post.x + post.r * 1.4, y: post.y - post.r * 0.7 }, tip: { x: post.x + post.r * 1.9, y: post.y - post.r * 0.4 } },
+        { root: { x: post.x + post.r * 0.5, y: post.y + post.r * 0.3 }, c1: { x: post.x + post.r * 1.3, y: post.y + post.r * 0.6 }, tip: { x: post.x + post.r * 1.8, y: post.y + post.r * 0.3 } }
       ];
-      for (var e = 0; e < typedEdges.length; e++) {
-        var pair = typedEdges[e];
-        var atA = atoms[pair[0]], atB = atoms[pair[1]];
-        if (atA && atB) {
-          var emx = (atA.x + atB.x) * 0.5, emy = (atA.y + atB.y) * 0.5;
-          var edx = atB.x - atA.x, edy = atB.y - atA.y;
-          var elen = Math.sqrt(edx * edx + edy * edy) || 1;
-          var enx = -edy / elen, eny = edx / elen;
-          var ebend = elen * 0.15 * ((e % 2 === 0) ? 1 : -1);
-          typed.push({
-            a: atA,
-            b: atB,
-            type: atB.type,
-            cpx: emx + enx * ebend,
-            cpy: emy + eny * ebend
-          });
-        }
-      }
+
+      memoryNodes = [
+        { x: soma.x - soma.r * 0.3, y: soma.y - soma.r * 0.25, r: 3.4 * k, c: MEM_COLORS[0] },
+        { x: soma.x + soma.r * 0.1, y: soma.y - soma.r * 0.4, r: 2.8 * k, c: MEM_COLORS[1] },
+        { x: soma.x + soma.r * 0.3, y: soma.y - soma.r * 0.05, r: 3.0 * k, c: MEM_COLORS[2] },
+        { x: soma.x - soma.r * 0.1, y: soma.y + soma.r * 0.1, r: 2.6 * k, c: MEM_COLORS[3] },
+        { x: soma.x + soma.r * 0.15, y: soma.y + soma.r * 0.3, r: 2.9 * k, c: MEM_COLORS[4] },
+        { x: soma.x - soma.r * 0.35, y: soma.y + soma.r * 0.2, r: 2.4 * k, c: MEM_COLORS[5] }
+      ];
+
       buildDust();
     }
+
     function resize() {
       var r = canvas.getBoundingClientRect();
       W = Math.max(1, r.width); H = Math.max(1, r.height);
@@ -1893,43 +1869,28 @@
       buildLayout();
       if (!master.running) renderStatic();
     }
-    function pathPoint(atom, t) {
-      var omt = 1 - t;
+
+    function getAxonPoint(t) {
+      var u = 1 - t;
       return {
-        x: omt * omt * hub.x + 2 * omt * t * atom.cpx + t * t * atom.x,
-        y: omt * omt * hub.y + 2 * omt * t * atom.cpy + t * t * atom.y
+        x: u * u * u * axon.x0 + 3 * u * u * t * axon.c1x + 3 * u * t * t * axon.c2x + t * t * t * axon.x1,
+        y: u * u * u * axon.y0 + 3 * u * u * t * axon.c1y + 3 * u * t * t * axon.c2y + t * t * t * axon.y1
       };
     }
-    function spawn() {
-      var max = small ? 3 : 6;
-      if (packets.length >= max) return;
-      var atom = atoms[spawnIdx % atoms.length]; spawnIdx++;
-      var fromHub = (spawnIdx % 3) !== 0;
-      var p = fromHub ? pathPoint(atom, 0) : pathPoint(atom, 1);
-      packets.push({ atom: atom, t: fromHub ? 0 : 1, dir: fromHub ? 1 : -1, x: p.x, y: p.y, color: COL[atom.type + 'Hi'], trail: [] });
-    }
+
     function update(dt) {
-      for (var i = packets.length - 1; i >= 0; i--) {
-        var p = packets[i];
-        p.t += p.dir * (0.30 + 0.14 * k) * dt;
-        if (p.t >= 1 || p.t <= 0) {
-          pulses.push({ x: p.atom.x, y: p.atom.y, color: COL[p.atom.type], life: 0 });
-          packets.splice(i, 1); continue;
-        }
-        var np = pathPoint(p.atom, p.t);
-        p.x = np.x; p.y = np.y;
-        p.trail.push({ x: np.x, y: np.y });
-        if (p.trail.length > 16) p.trail.shift();
+      for (var i = 0; i < pulses.length; i++) {
+        var p = pulses[i];
+        p.t += p.speed * dt;
+        if (p.t >= 1) { p.t = 0; cleftFlash = 1; }
       }
-      spawnAcc += dt;
-      if (spawnAcc >= nextSpawn) { spawnAcc = 0; nextSpawn = rand(1.1, 2.4); spawn(); }
-      for (var j = pulses.length - 1; j >= 0; j--) { pulses[j].life += dt * 1.3; if (pulses[j].life >= 1) pulses.splice(j, 1); }
+      cleftFlash = Math.max(0, cleftFlash - dt * 1.6);
     }
 
     function drawDust(animate) {
       for (var i = 0; i < dust.length; i++) {
         var d = dust[i];
-        if (animate) { d.y += 2.2 * d.s * 0.04; d.x += 1.1 * d.s * 0.04; if (d.x > W + 4) d.x = -4; if (d.y > H + 4) d.y = -4; }
+        if (animate) { d.y += 1.6 * d.s * 0.04; d.x += 0.8 * d.s * 0.04; if (d.x > W + 4) d.x = -4; if (d.y > H + 4) d.y = -4; }
         var tw = 0.6 + 0.4 * Math.sin(time * d.tw + d.ph);
         ctx.globalAlpha = d.a * tw;
         ctx.fillStyle = '#cdc9f2';
@@ -1937,94 +1898,173 @@
       }
       ctx.globalAlpha = 1;
     }
-    function drawHub() {
-      var breath = 0.5 + 0.5 * Math.sin(time * 0.55);
-      var g = ctx.createRadialGradient(hub.x, hub.y, 0, hub.x, hub.y, Math.max(60, W * 0.40));
-      g.addColorStop(0, 'rgba(148,142,189,' + (0.13 + 0.06 * breath).toFixed(3) + ')');
-      g.addColorStop(0.55, 'rgba(148,142,189,0.045)');
-      g.addColorStop(1, 'rgba(148,142,189,0)');
-      ctx.fillStyle = g; ctx.beginPath(); ctx.arc(hub.x, hub.y, Math.max(60, W * 0.40), 0, Math.PI * 2); ctx.fill();
-    }
-    function drawEdges() {
-      ctx.lineWidth = 1.1;
-      ctx.strokeStyle = 'rgba(74,80,100,0.55)';
-      for (var i = 0; i < atoms.length; i++) {
-        var at = atoms[i];
-        ctx.beginPath();
-        ctx.moveTo(hub.x, hub.y);
-        ctx.quadraticCurveTo(at.cpx, at.cpy, at.x, at.y);
-        ctx.stroke();
+
+    function drawSomaBlob(cx, cy, r, pts, fillGrad, strokeCol, lw) {
+      ctx.beginPath();
+      ctx.moveTo(cx + pts[0].x * r, cy + pts[0].y * r);
+      for (var i = 1; i < pts.length; i++) {
+        var prev = pts[i - 1], cur = pts[i];
+        var mx = (prev.x + cur.x) / 2, my = (prev.y + cur.y) / 2;
+        ctx.quadraticCurveTo(cx + prev.x * r, cy + prev.y * r, cx + mx * r, cy + my * r);
       }
-      ctx.lineWidth = 1;
-      for (var j = 0; j < typed.length; j++) {
-        var te = typed[j];
-        ctx.strokeStyle = hexA(COL[te.type], 0.50);
-        ctx.beginPath();
-        ctx.moveTo(te.a.x, te.a.y);
-        ctx.quadraticCurveTo(te.cpx, te.cpy, te.b.x, te.b.y);
-        ctx.stroke();
+      var last = pts[pts.length - 1], first = pts[0];
+      var lmx = (last.x + first.x) / 2, lmy = (last.y + first.y) / 2;
+      ctx.quadraticCurveTo(cx + last.x * r, cy + last.y * r, cx + lmx * r, cy + lmy * r);
+      ctx.closePath();
+      ctx.fillStyle = fillGrad; ctx.fill();
+      ctx.strokeStyle = strokeCol; ctx.lineWidth = lw; ctx.stroke();
+    }
+
+    function drawTaperedBranch(root, c1, tip, w0, w1, color) {
+      var segs = 10;
+      ctx.strokeStyle = color; ctx.lineCap = 'round';
+      for (var i = 0; i < segs; i++) {
+        var t0 = i / segs, t1 = (i + 1) / segs;
+        var p0 = quadPoint(root, c1, tip, t0), p1 = quadPoint(root, c1, tip, t1);
+        var w = w0 + (w1 - w0) * (t0 + t1) / 2;
+        ctx.lineWidth = Math.max(0.6, w);
+        ctx.beginPath(); ctx.moveTo(p0.x, p0.y); ctx.lineTo(p1.x, p1.y); ctx.stroke();
       }
     }
-    function drawAtoms() {
-      for (var i = 0; i < atoms.length; i++) {
-        var a = atoms[i], c = COL[a.type], hi = COL[a.type + 'Hi'];
-        ctx.strokeStyle = hexA(c, 0.26); ctx.lineWidth = 1;
-        ctx.beginPath(); ctx.arc(a.x, a.y, a.r * 2.6, 0, Math.PI * 2); ctx.stroke();
-        ctx.fillStyle = c; ctx.beginPath(); ctx.arc(a.x, a.y, a.r, 0, Math.PI * 2); ctx.fill();
-        ctx.fillStyle = hi; ctx.globalAlpha = 0.85;
-        ctx.beginPath(); ctx.arc(a.x - a.r * 0.3, a.y - a.r * 0.3, a.r * 0.32, 0, Math.PI * 2); ctx.fill();
+
+    function quadPoint(a, c, b, t) {
+      var u = 1 - t;
+      return { x: u * u * a.x + 2 * u * t * c.x + t * t * b.x, y: u * u * a.y + 2 * u * t * c.y + t * t * b.y };
+    }
+
+    function drawDendrites() {
+      for (var i = 0; i < dendrites.length; i++) {
+        var d = dendrites[i];
+        drawTaperedBranch(d.root, d.c1, d.fork, 5.2 * k, 3.4 * k, '#4a5064');
+        drawTaperedBranch(d.fork, d.c2, d.tip, 3.4 * k, 1.8 * k, '#7d77ab');
+        drawTaperedBranch(d.fork, d.c3, d.tip2, 3.4 * k, 1.8 * k, '#7d77ab');
+        ctx.fillStyle = '#c3bfec'; ctx.globalAlpha = 0.5;
+        ctx.beginPath(); ctx.arc(d.tip.x, d.tip.y, 1.4 * k, 0, Math.PI * 2); ctx.fill();
+        ctx.beginPath(); ctx.arc(d.tip2.x, d.tip2.y, 1.4 * k, 0, Math.PI * 2); ctx.fill();
         ctx.globalAlpha = 1;
       }
     }
-    function drawHubCore() {
-      var g = ctx.createRadialGradient(hub.x, hub.y, 0, hub.x, hub.y, hub.r * 3.4);
-      g.addColorStop(0, 'rgba(205,201,242,0.6)');
-      g.addColorStop(0.35, 'rgba(148,142,189,0.28)');
-      g.addColorStop(1, 'rgba(148,142,189,0)');
-      ctx.fillStyle = g; ctx.beginPath(); ctx.arc(hub.x, hub.y, hub.r * 3.4, 0, Math.PI * 2); ctx.fill();
-      ctx.fillStyle = '#948ebd'; ctx.beginPath(); ctx.arc(hub.x, hub.y, hub.r, 0, Math.PI * 2); ctx.fill();
-      ctx.fillStyle = '#e6e3fb'; ctx.beginPath(); ctx.arc(hub.x - 1, hub.y - 1, hub.r * 0.34, 0, Math.PI * 2); ctx.fill();
+
+    function drawPostDendrites() {
+      for (var i = 0; i < postDendrites.length; i++) {
+        var d = postDendrites[i];
+        drawTaperedBranch(d.root, d.c1, d.tip, 3.2 * k, 1.6 * k, '#4a5064');
+        ctx.fillStyle = '#c9aede'; ctx.globalAlpha = 0.5;
+        ctx.beginPath(); ctx.arc(d.tip.x, d.tip.y, 1.2 * k, 0, Math.PI * 2); ctx.fill();
+        ctx.globalAlpha = 1;
+      }
     }
+
+    function drawAxon() {
+      var g = ctx.createLinearGradient(axon.x0, axon.y0, axon.x1, axon.y1);
+      g.addColorStop(0, '#7d77ab'); g.addColorStop(0.5, '#948ebd'); g.addColorStop(1, '#a488b6');
+      ctx.strokeStyle = g; ctx.lineCap = 'round';
+      ctx.lineWidth = 6.2 * k;
+      ctx.beginPath(); ctx.moveTo(axon.x0, axon.y0); ctx.bezierCurveTo(axon.c1x, axon.c1y, axon.c2x, axon.c2y, axon.x1, axon.y1); ctx.stroke();
+      ctx.lineWidth = 2.6 * k;
+      ctx.strokeStyle = 'rgba(240,238,253,0.5)';
+      ctx.beginPath(); ctx.moveTo(axon.x0, axon.y0); ctx.bezierCurveTo(axon.c1x, axon.c1y, axon.c2x, axon.c2y, axon.x1, axon.y1); ctx.stroke();
+    }
+
+    function drawBouton() {
+      var g = ctx.createRadialGradient(bouton.x, bouton.y, 0, bouton.x, bouton.y, bouton.r * 1.6);
+      g.addColorStop(0, '#c3bfec'); g.addColorStop(0.6, '#948ebd'); g.addColorStop(1, '#7d77ab');
+      ctx.fillStyle = g; ctx.beginPath(); ctx.arc(bouton.x, bouton.y, bouton.r, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = '#7d77ab'; ctx.lineWidth = 1.2; ctx.stroke();
+    }
+
+    function drawCleft() {
+      var flash = 0.25 + cleftFlash * 0.75;
+      var g = ctx.createRadialGradient(cleft.x, cleft.y, 0, cleft.x, cleft.y, cleft.h * 1.1);
+      g.addColorStop(0, 'rgba(195,191,236,' + (0.5 * flash).toFixed(3) + ')');
+      g.addColorStop(0.5, 'rgba(164,136,182,' + (0.22 * flash).toFixed(3) + ')');
+      g.addColorStop(1, 'rgba(164,136,182,0)');
+      ctx.fillStyle = g; ctx.beginPath(); ctx.ellipse(cleft.x, cleft.y, cleft.w, cleft.h, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#e6e3fb'; ctx.globalAlpha = 0.5 * flash;
+      ctx.beginPath(); ctx.arc(cleft.x, cleft.y, 1.4 * k, 0, Math.PI * 2); ctx.fill();
+      ctx.globalAlpha = 1;
+    }
+
+    function drawPostSoma() {
+      var pts = [
+        { x: 0.9, y: 0 }, { x: 0.5, y: -0.7 }, { x: -0.1, y: -0.9 }, { x: -0.6, y: -0.5 },
+        { x: -0.8, y: 0 }, { x: -0.5, y: 0.6 }, { x: 0.1, y: 0.9 }, { x: 0.6, y: 0.5 }
+      ];
+      var g = ctx.createRadialGradient(post.x - post.r * 0.2, post.y - post.r * 0.2, 0, post.x, post.y, post.r * 1.4);
+      g.addColorStop(0, '#c9aede'); g.addColorStop(0.5, '#a488b6'); g.addColorStop(1, '#7d77ab');
+      drawSomaBlob(post.x, post.y, post.r, pts, g, '#7d77ab', 1.2);
+      var ng = ctx.createRadialGradient(post.x, post.y, 0, post.x, post.y, post.r * 0.4);
+      ng.addColorStop(0, 'rgba(240,238,253,0.5)'); ng.addColorStop(1, 'rgba(240,238,253,0)');
+      ctx.fillStyle = ng; ctx.beginPath(); ctx.arc(post.x, post.y, post.r * 0.4, 0, Math.PI * 2); ctx.fill();
+    }
+
+    function drawSoma() {
+      var pts = [
+        { x: 0.9, y: 0.1 }, { x: 0.6, y: -0.6 }, { x: 0.1, y: -0.95 }, { x: -0.4, y: -0.8 },
+        { x: -0.8, y: -0.4 }, { x: -0.95, y: 0.1 }, { x: -0.8, y: 0.6 }, { x: -0.3, y: 0.9 },
+        { x: 0.3, y: 0.85 }, { x: 0.75, y: 0.5 }
+      ];
+      var g = ctx.createRadialGradient(soma.x - soma.r * 0.3, soma.y - soma.r * 0.3, 0, soma.x, soma.y, soma.r * 1.5);
+      g.addColorStop(0, '#c3bfec'); g.addColorStop(0.45, '#948ebd'); g.addColorStop(0.8, '#7d77ab'); g.addColorStop(1, '#4a5064');
+      drawSomaBlob(soma.x, soma.y, soma.r, pts, g, '#7d77ab', 1.6);
+
+      var ng = ctx.createRadialGradient(soma.x, soma.y, 0, soma.x, soma.y, soma.r * 0.5);
+      ng.addColorStop(0, 'rgba(240,238,253,0.35)'); ng.addColorStop(1, 'rgba(240,238,253,0)');
+      ctx.fillStyle = ng; ctx.beginPath(); ctx.arc(soma.x, soma.y, soma.r * 0.5, 0, Math.PI * 2); ctx.fill();
+
+      for (var i = 0; i < memoryNodes.length; i++) {
+        var m = memoryNodes[i];
+        var halo = ctx.createRadialGradient(m.x, m.y, 0, m.x, m.y, m.r * 2.6);
+        halo.addColorStop(0, hexA(m.c, 0.4)); halo.addColorStop(1, hexA(m.c, 0));
+        ctx.fillStyle = halo; ctx.beginPath(); ctx.arc(m.x, m.y, m.r * 2.6, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = m.c; ctx.beginPath(); ctx.arc(m.x, m.y, m.r, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = '#f0eefd'; ctx.globalAlpha = 0.85;
+        ctx.beginPath(); ctx.arc(m.x - m.r * 0.3, m.y - m.r * 0.3, m.r * 0.3, 0, Math.PI * 2); ctx.fill();
+        ctx.globalAlpha = 1;
+      }
+    }
+
+    function drawAuras() {
+      var pre = ctx.createRadialGradient(soma.x, soma.y, 0, soma.x, soma.y, soma.r * 3.1);
+      pre.addColorStop(0, 'rgba(148,142,189,0.4)'); pre.addColorStop(0.5, 'rgba(148,142,189,0.14)'); pre.addColorStop(1, 'rgba(148,142,189,0)');
+      ctx.fillStyle = pre; ctx.beginPath(); ctx.arc(soma.x, soma.y, soma.r * 3.1, 0, Math.PI * 2); ctx.fill();
+
+      var postA = ctx.createRadialGradient(post.x, post.y, 0, post.x, post.y, post.r * 3.3);
+      postA.addColorStop(0, 'rgba(164,136,182,0.42)'); postA.addColorStop(0.5, 'rgba(164,136,182,0.14)'); postA.addColorStop(1, 'rgba(164,136,182,0)');
+      ctx.fillStyle = postA; ctx.beginPath(); ctx.arc(post.x, post.y, post.r * 3.3, 0, Math.PI * 2); ctx.fill();
+    }
+
     function drawPulses() {
       for (var i = 0; i < pulses.length; i++) {
         var p = pulses[i];
-        ctx.globalAlpha = (1 - p.life) * 0.5;
-        ctx.strokeStyle = p.color; ctx.lineWidth = 1.4;
-        ctx.beginPath(); ctx.arc(p.x, p.y, (5 + p.life * 22) * k, 0, Math.PI * 2); ctx.stroke();
+        var pt = getAxonPoint(p.t);
+        var tail = getAxonPoint(Math.max(0, p.t - 0.12));
+        var tg = ctx.createLinearGradient(tail.x, tail.y, pt.x, pt.y);
+        tg.addColorStop(0, hexA(p.color, 0)); tg.addColorStop(1, hexA(p.color, 0.5));
+        ctx.strokeStyle = tg; ctx.lineWidth = 3.4 * k; ctx.lineCap = 'round';
+        ctx.beginPath(); ctx.moveTo(tail.x, tail.y); ctx.lineTo(pt.x, pt.y); ctx.stroke();
+
+        var g = ctx.createRadialGradient(pt.x, pt.y, 0, pt.x, pt.y, 9 * k);
+        g.addColorStop(0, hexA('#ffffff', 0.95)); g.addColorStop(0.3, hexA(p.color, 0.55)); g.addColorStop(1, hexA(p.color, 0));
+        ctx.fillStyle = g; ctx.beginPath(); ctx.arc(pt.x, pt.y, 9 * k, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = '#ffffff'; ctx.beginPath(); ctx.arc(pt.x, pt.y, 2.6 * k, 0, Math.PI * 2); ctx.fill();
       }
-      ctx.globalAlpha = 1;
     }
-    function drawPackets() {
-      ctx.lineCap = 'round';
-      for (var i = 0; i < packets.length; i++) {
-        var p = packets[i], len = p.trail.length;
-        for (var j = 1; j < len; j++) {
-          var f = j / (len - 1 || 1);
-          ctx.globalAlpha = f * f * 0.5;
-          ctx.strokeStyle = p.color;
-          ctx.lineWidth = Math.max(0.4, f * 2.1 * k);
-          ctx.beginPath(); ctx.moveTo(p.trail[j - 1].x, p.trail[j - 1].y); ctx.lineTo(p.trail[j].x, p.trail[j].y); ctx.stroke();
-        }
-        ctx.globalAlpha = 1;
-        var g = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, 8 * k);
-        g.addColorStop(0, hexA('#ffffff', 0.9)); g.addColorStop(0.35, hexA(p.color, 0.5)); g.addColorStop(1, hexA(p.color, 0));
-        ctx.fillStyle = g; ctx.beginPath(); ctx.arc(p.x, p.y, 8 * k, 0, Math.PI * 2); ctx.fill();
-        ctx.fillStyle = '#ffffff'; ctx.beginPath(); ctx.arc(p.x, p.y, 1.5 * k, 0, Math.PI * 2); ctx.fill();
-      }
-      ctx.lineCap = 'butt';
-    }
+
     function draw(animate) {
       ctx.clearRect(0, 0, W, H);
-      drawDust(animate); drawHub(); drawEdges(); drawHubCore(); drawAtoms(); drawPulses(); drawPackets();
+      drawDust(animate); drawAuras(); drawDendrites(); drawPostDendrites(); drawAxon(); drawSoma(); drawBouton(); drawCleft(); drawPostSoma(); drawPulses();
     }
+
     function step(dt) { dt = Math.min(dt, 90) / 1000; time += dt; update(dt); draw(true); }
+
     function renderStatic() {
-      time = 1.2; packets = []; pulses = [];
-      spawn(); spawn(); spawn();
-      packets.forEach(function (p, i) { p.t = [0.45, 0.7, 0.3][i] || 0.5; p.trail = []; for (var q = 9; q >= 1; q--) { var tt = clamp(p.t - p.dir * q * 0.02, 0, 1); p.trail.push(pathPoint(p.atom, tt)); } var pp = pathPoint(p.atom, p.t); p.x = pp.x; p.y = pp.y; });
-      pulses.push({ x: atoms[0].x, y: atoms[0].y, color: COL[atoms[0].type], life: 0.3 });
+      time = 1.2;
+      pulses[0].t = 0.5; pulses[1].t = 0.85;
+      cleftFlash = 0.4;
       draw(false);
     }
+
     if ('ResizeObserver' in window) new ResizeObserver(function () { resize(); }).observe(canvas);
     else window.addEventListener('resize', resize);
     resize();
