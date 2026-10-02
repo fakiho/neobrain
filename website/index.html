@@ -1,0 +1,903 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>neoBrain — A Simulated Brain for AI Agents</title>
+  <meta name="description" content="Durable memory, rank-based forgetting, nightly dreams and a self-authored soul — one local daemon, one dashboard. The user watches; the agent becomes." />
+  <meta property="og:title" content="neoBrain — A simulated brain for AI agents" />
+  <meta property="og:description" content="Atoms, hubs and typed edges in SQLite. Deterministic rank. Nightly dreams. A soul the agent writes itself. One local daemon, one dashboard." />
+  <meta property="og:image" content="https://neobrain.alionix.com/assets/og-image.png" />
+  <meta property="og:url" content="https://neobrain.alionix.com" />
+  <meta property="og:type" content="website" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="neoBrain — A simulated brain for AI agents" />
+  <meta name="twitter:description" content="Durable memory, rank-based forgetting, nightly dreams and a self-authored soul. One local daemon, one dashboard." />
+  <meta name="twitter:image" content="https://neobrain.alionix.com/assets/og-image.png" />
+  <link rel="icon" href="assets/favicon.png" type="image/png" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #0f0f10;
+      --bg-2: #131316;
+      --bg-card: #1a1a1e;
+      --bg-card-hover: #202027;
+      --sidebar: #161619;
+      --border: #27272c;
+      --border-2: #33333b;
+
+      /* Primary accent — preference violet */
+      --accent: #948ebd;
+      --accent-hi: #c3bfec;
+      --accent-lo: #7d77ab;
+      --accent-dim: rgba(148,142,189,0.10);
+      --accent-dim2: rgba(148,142,189,0.24);
+      --accent-glow: rgba(148,142,189,0.34);
+      --accent-on: #16132b;
+
+      /* Semantic accents from the Observatory palette */
+      --gold: #b39262;   --gold-dim: rgba(179,146,98,0.10);   --gold-dim2: rgba(179,146,98,0.24);
+      --green: #7ba38c;  --green-dim: rgba(123,163,140,0.10); --green-dim2: rgba(123,163,140,0.24);
+      --dream: #a488b6;  --dream-dim: rgba(164,136,182,0.10); --dream-dim2: rgba(164,136,182,0.24);
+      --obs: #8fa3b8;    --obs-dim: rgba(143,163,184,0.10);   --obs-dim2: rgba(143,163,184,0.24);
+      --hub: #4a5064;
+      --red: #c47a7a;    --red-dim: rgba(196,122,122,0.10);
+
+      --text: #ecebef;
+      --text-muted: #a2a1ad;
+      --text-dim: #6d6c78;
+      --radius: 12px;
+      --font: 'Inter', system-ui, sans-serif;
+      --mono: 'JetBrains Mono', 'Fira Code', monospace;
+      --ease: 0.2s cubic-bezier(0.4,0,0.2,1);
+    }
+
+    html { scroll-behavior: smooth; }
+    body { font-family: var(--font); background: var(--bg); color: var(--text); line-height: 1.6; overflow-x: hidden; }
+
+    /* Noise overlay */
+    body::before {
+      content: ''; position: fixed; inset: 0; pointer-events: none; z-index: 0;
+      background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.75' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.018'/%3E%3C/svg%3E");
+    }
+
+    /* ── NAV ── */
+    nav {
+      position: fixed; top: 0; left: 0; right: 0; z-index: 100;
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 0 2rem; height: 60px;
+      background: rgba(15,15,16,0.88); backdrop-filter: blur(16px);
+      border-bottom: 1px solid var(--border);
+    }
+    .nav-logo { display: flex; align-items: center; gap: 9px; text-decoration: none; color: var(--text); font-weight: 700; font-size: 1.05rem; letter-spacing: -0.02em; }
+    .nav-logo img { width: 26px; height: 26px; }
+    .nav-logo .bn { color: var(--accent-hi); }
+    .nav-links { display: flex; list-style: none; gap: 0.1rem; }
+    .nav-links a { color: var(--text-muted); text-decoration: none; font-size: 0.875rem; font-weight: 500; padding: 0.4rem 0.85rem; border-radius: 6px; transition: color var(--ease), background var(--ease); }
+    .nav-links a:hover { color: var(--text); background: rgba(255,255,255,0.05); }
+    .nav-actions { display: flex; gap: 0.6rem; align-items: center; }
+    .btn { display: inline-flex; align-items: center; gap: 0.4rem; padding: 0.48rem 1rem; border-radius: 7px; font-size: 0.875rem; font-weight: 600; cursor: pointer; text-decoration: none; transition: all var(--ease); border: none; white-space: nowrap; }
+    .btn-ghost { background: transparent; color: var(--text-muted); border: 1px solid var(--border); }
+    .btn-ghost:hover { color: var(--text); border-color: rgba(255,255,255,0.18); background: rgba(255,255,255,0.04); }
+    .btn-primary { background: var(--accent); color: var(--accent-on); font-weight: 700; box-shadow: 0 0 16px var(--accent-glow); }
+    .btn-primary:hover { background: var(--accent-hi); transform: translateY(-1px); box-shadow: 0 0 24px rgba(148,142,189,0.5); }
+    .btn-lg  { padding: 0.7rem 1.5rem; font-size: 0.95rem; border-radius: 9px; }
+    .btn-xl  { padding: 0.85rem 1.8rem; font-size: 1rem; border-radius: 10px; }
+
+    /* ── LAYOUT ── */
+    section { position: relative; z-index: 1; }
+    .container { max-width: 1140px; margin: 0 auto; padding: 0 1.5rem; }
+    .section-label {
+      display: inline-flex; align-items: center; gap: 0.45rem;
+      font-size: 0.72rem; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase;
+      color: var(--accent-hi); background: var(--accent-dim); border: 1px solid var(--accent-dim2);
+      padding: 0.28rem 0.75rem; border-radius: 100px; margin-bottom: 1.1rem;
+    }
+    h2 { font-size: clamp(1.75rem, 3.5vw, 2.75rem); font-weight: 800; letter-spacing: -0.03em; line-height: 1.14; }
+    h2 .accent { background: linear-gradient(135deg, var(--accent-hi), var(--accent-lo)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; }
+    .subtitle { font-size: 1.05rem; color: var(--text-muted); max-width: 580px; line-height: 1.7; margin-top: 0.9rem; }
+
+    /* Orb glows */
+    .orb { position: absolute; border-radius: 50%; filter: blur(100px); pointer-events: none; z-index: 0; }
+    .orb-violet { background: rgba(148,142,189,0.10); }
+    .orb-dream  { background: rgba(164,136,182,0.07); }
+
+    /* Fade-in on scroll */
+    .fade-in { opacity: 0; transform: translateY(20px); transition: opacity 0.55s, transform 0.55s; }
+    .fade-in.visible { opacity: 1; transform: none; }
+    .fd1 { transition-delay: 0.1s; }
+    .fd2 { transition-delay: 0.18s; }
+
+    /* ── HERO ── */
+    #hero {
+      min-height: 100vh; display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      text-align: center; padding: 120px 1.5rem 60px; overflow: hidden;
+    }
+    .hero-badge {
+      display: inline-flex; align-items: center; gap: 0.5rem;
+      font-size: 0.78rem; font-weight: 600; letter-spacing: 0.05em;
+      color: var(--accent-hi); background: var(--accent-dim); border: 1px solid var(--accent-dim2);
+      padding: 0.28rem 0.9rem; border-radius: 100px; margin-bottom: 1.8rem;
+    }
+    .hero-badge .live-dot { width: 6px; height: 6px; background: var(--accent); border-radius: 50%; animation: pulse 2s infinite; }
+    @keyframes pulse { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:0.5;transform:scale(0.8)} }
+
+    #hero h1 { font-size: clamp(2.3rem, 5.4vw, 4.1rem); font-weight: 900; letter-spacing: -0.04em; line-height: 1.08; max-width: 860px; margin: 0 auto 1.4rem; }
+    #hero h1 .grad { background: linear-gradient(135deg, var(--accent-hi) 0%, var(--accent-lo) 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; }
+    #hero p { font-size: clamp(0.95rem, 1.8vw, 1.12rem); color: var(--text-muted); max-width: 620px; margin: 0 auto 2.2rem; line-height: 1.7; }
+    .hero-actions { display: flex; gap: 0.85rem; align-items: center; justify-content: center; flex-wrap: wrap; margin-bottom: 0.8rem; }
+    .hero-install { display: flex; align-items: center; gap: 0.5rem; font-family: var(--mono); font-size: 0.82rem; color: var(--text-muted); margin-top: 0.4rem; flex-wrap: wrap; justify-content: center; }
+    .hero-install code { background: rgba(255,255,255,0.04); border: 1px solid var(--border); padding: 0.4rem 0.9rem; border-radius: 7px; color: var(--accent-hi); cursor: pointer; transition: all var(--ease); }
+    .hero-install code:hover { background: var(--accent-dim); border-color: var(--accent-dim2); }
+
+    /* ── HERO WINDOWS ── */
+    .hero-windows {
+      width: 100%; max-width: 1080px; margin: 3.5rem auto 0;
+      display: grid; grid-template-columns: 1fr 1fr; gap: 1.25rem; text-align: left;
+    }
+    .window-frame {
+      border-radius: 13px; overflow: hidden;
+      border: 1px solid var(--border);
+      box-shadow: 0 32px 80px rgba(0,0,0,0.55), 0 0 40px rgba(148,142,189,0.06);
+      background: var(--bg);
+    }
+    .win-bar {
+      background: var(--sidebar); padding: 0.6rem 1rem;
+      display: flex; align-items: center; gap: 0.4rem;
+      border-bottom: 1px solid var(--border);
+    }
+    .win-dot { width: 11px; height: 11px; border-radius: 50%; }
+    .win-tabs { display: flex; gap: 0.35rem; margin-left: 0.9rem; }
+    .win-tab { font-family: var(--mono); font-size: 0.72rem; padding: 0.22rem 0.7rem; background: rgba(255,255,255,0.05); border-radius: 5px; color: var(--text-dim); }
+    .win-tab.active { background: var(--accent-dim); color: var(--accent-hi); border: 1px solid var(--accent-dim2); }
+    .win-title { font-family: var(--mono); font-size: 0.72rem; color: var(--text-dim); margin-left: auto; }
+
+    /* Terminal window */
+    .terminal-body { background: var(--bg); padding: 1.1rem 1.2rem; font-family: var(--mono); font-size: 0.78rem; line-height: 1.7; height: 400px; overflow: hidden; }
+    .t-line { display: flex; gap: 0.55rem; opacity: 0; transform: translateY(3px); }
+    .t-line.vis { animation: lineIn 0.25s forwards; }
+    @keyframes lineIn { to { opacity: 1; transform: none; } }
+    .t-name { font-weight: 600; min-width: 62px; flex-shrink: 0; font-size: 0.72rem; }
+    .t-sys  { color: var(--text-dim); font-style: italic; }
+    .t-acc  { color: var(--accent-hi); }
+    .t-gold { color: var(--gold); }
+    .t-green{ color: var(--green); }
+    .t-msg  { color: var(--text-muted); }
+    .cur { display: inline-block; width: 7px; height: 13px; background: var(--accent); border-radius: 1px; animation: blink 1s infinite; vertical-align: middle; }
+    @keyframes blink { 0%,50%{opacity:1} 51%,100%{opacity:0} }
+
+    /* Mini Observatory window (hero right) */
+    .obs-mini { display: flex; flex-direction: column; height: 400px; background: var(--bg); }
+    .obs-mini-main { display: flex; flex: 1; min-height: 0; }
+    .mini-side { width: 120px; background: #131316; border-right: 1px solid var(--border); padding: 0.6rem 0.4rem; flex-shrink: 0; }
+    .mini-side-head { font-size: 0.6rem; font-weight: 600; letter-spacing: 0.09em; text-transform: uppercase; color: var(--text-dim); padding: 0.1rem 0.5rem 0.5rem; }
+    .mini-nav { display: flex; align-items: center; gap: 0.5rem; padding: 0.36rem 0.5rem; border-radius: 6px; font-size: 0.72rem; color: var(--text-muted); }
+    .mini-nav svg { width: 13px; height: 13px; }
+    .mini-nav.active { background: var(--accent-dim); color: var(--accent-hi); font-weight: 600; }
+    .mini-graph { flex: 1; position: relative; overflow: hidden; }
+    .mini-graph svg { width: 100%; height: 100%; display: block; }
+    .mini-legend { display: flex; gap: 0.7rem; flex-wrap: wrap; padding: 0.55rem 0.8rem; border-top: 1px solid var(--border); font-family: var(--mono); font-size: 0.63rem; color: var(--text-dim); }
+    .mini-legend span { display: inline-flex; align-items: center; gap: 0.3rem; }
+    .mini-legend i { width: 7px; height: 7px; border-radius: 50%; display: inline-block; }
+
+    @media (max-width: 820px) {
+      .hero-windows { grid-template-columns: 1fr; }
+    }
+
+    /* ── FEATURES ── */
+    #features { padding: 96px 0; }
+    .features-grid {
+      display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+      gap: 1px; background: var(--border);
+      border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; margin-top: 3rem;
+    }
+    .feat-card { background: var(--bg-card); padding: 1.75rem; transition: background var(--ease); }
+    .feat-card:hover { background: var(--bg-card-hover); }
+    .feat-icon {
+      width: 40px; height: 40px; border-radius: 9px;
+      display: flex; align-items: center; justify-content: center;
+      margin-bottom: 0.9rem;
+    }
+    .feat-icon svg { width: 18px; height: 18px; }
+    .fi-a { background: var(--accent-dim); border: 1px solid var(--accent-dim2); color: var(--accent-hi); }
+    .fi-g { background: var(--green-dim); border: 1px solid var(--green-dim2); color: var(--green); }
+    .fi-gold { background: var(--gold-dim); border: 1px solid var(--gold-dim2); color: var(--gold); }
+    .fi-d { background: var(--dream-dim); border: 1px solid var(--dream-dim2); color: var(--dream); }
+    .fi-o { background: var(--obs-dim); border: 1px solid var(--obs-dim2); color: var(--obs); }
+    .feat-card h3 { font-size: 0.975rem; font-weight: 700; margin-bottom: 0.45rem; }
+    .feat-card p { font-size: 0.858rem; color: var(--text-muted); line-height: 1.65; }
+    .feat-card code { font-family: var(--mono); font-size: 0.78em; background: rgba(255,255,255,0.05); border: 1px solid var(--border); padding: 0.05em 0.35em; border-radius: 4px; color: var(--accent-hi); }
+
+    /* ── MIND MODEL ── */
+    #mind { padding: 96px 0; background: linear-gradient(180deg, transparent, rgba(148,142,189,0.02), transparent); }
+    .mind-grid { display: grid; grid-template-columns: 1.1fr 1fr; gap: 1.25rem; margin-top: 3rem; align-items: stretch; }
+    .mind-card { background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius); padding: 1.9rem; }
+    .mind-card h3 { font-size: 1.05rem; font-weight: 700; margin-bottom: 0.55rem; }
+    .mind-card p { font-size: 0.885rem; color: var(--text-muted); line-height: 1.7; }
+    .formula {
+      font-family: var(--mono); font-size: 0.9rem; color: var(--text);
+      background: var(--bg); border: 1px solid var(--border); border-radius: 9px;
+      padding: 1.1rem 1.2rem; margin: 1.2rem 0; line-height: 1.9; overflow-x: auto;
+    }
+    .formula .k { color: var(--accent-hi); }
+    .formula .f { color: var(--gold); }
+    .formula .c { color: var(--text-dim); }
+    .factors { display: flex; flex-direction: column; gap: 0.75rem; margin-top: 0.4rem; }
+    .factor { display: flex; align-items: center; gap: 0.75rem; font-size: 0.82rem; }
+    .factor .fname { font-family: var(--mono); color: var(--text); min-width: 78px; }
+    .factor .fbar { flex: 1; height: 6px; border-radius: 100px; background: rgba(255,255,255,0.06); overflow: hidden; }
+    .factor .fbar i { display: block; height: 100%; border-radius: 100px; }
+    .factor .fnote { color: var(--text-dim); font-size: 0.76rem; }
+    .states { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.7rem; margin-top: 1.2rem; }
+    .state { border: 1px solid var(--border); border-radius: 9px; padding: 0.8rem 0.85rem; background: var(--bg); }
+    .state .sname { font-family: var(--mono); font-size: 0.75rem; font-weight: 600; }
+    .state p { font-size: 0.74rem; color: var(--text-dim); line-height: 1.5; margin-top: 0.3rem; }
+    .s-served { color: var(--green); }
+    .s-ignored { color: var(--obs); }
+    .s-archived { color: var(--gold); }
+    @media (max-width: 900px) { .mind-grid { grid-template-columns: 1fr; } }
+
+    /* ── HOW ── */
+    #how { padding: 96px 0; }
+    .steps { display: grid; grid-template-columns: 1fr auto 1fr auto 1fr; gap: 0; margin: 3.5rem auto 0; max-width: 980px; align-items: start; }
+    .step { text-align: center; padding: 0 1.25rem; }
+    .step-head { display: flex; flex-direction: column; align-items: center; margin-bottom: 1.25rem; }
+    .step-num {
+      width: 48px; height: 48px;
+      background: var(--bg-card); border: 1px solid var(--border);
+      border-radius: 50%; display: flex; align-items: center; justify-content: center;
+      font-weight: 800; font-size: 1rem; color: var(--accent-hi);
+      margin-bottom: 1rem; position: relative;
+      box-shadow: 0 0 0 6px var(--bg), 0 0 0 7px var(--border);
+    }
+    .step h3 { font-size: 0.95rem; font-weight: 700; margin-bottom: 0.5rem; }
+    .step p { font-size: 0.82rem; color: var(--text-muted); line-height: 1.65; }
+    .step code { font-family: var(--mono); font-size: 0.75rem; background: var(--accent-dim); border: 1px solid var(--accent-dim2); padding: 0.1rem 0.4rem; border-radius: 4px; color: var(--accent-hi); white-space: nowrap; }
+    .step-connector { display: flex; align-items: center; padding-top: 30px; }
+    .step-connector-line { width: 48px; height: 1px; background: linear-gradient(90deg, var(--border), var(--accent-dim2), var(--border)); position: relative; }
+    .step-connector-line::after { content: ''; position: absolute; right: -3px; top: -3px; width: 7px; height: 7px; border-top: 1px solid var(--accent-dim2); border-right: 1px solid var(--accent-dim2); transform: rotate(45deg); }
+    .lane-note { margin: 2.5rem auto 0; max-width: 760px; background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius); padding: 1.4rem 1.6rem; font-size: 0.87rem; color: var(--text-muted); line-height: 1.7; }
+    .lane-note strong { color: var(--text); }
+    @media (max-width: 820px) {
+      .steps { grid-template-columns: 1fr; gap: 2rem; }
+      .step-connector { display: none; }
+      .step { text-align: left; padding: 0; display: flex; gap: 1rem; align-items: flex-start; }
+      .step-head { margin-bottom: 0; flex-shrink: 0; }
+      .step-num { width: 36px; height: 36px; font-size: 0.85rem; margin-bottom: 0; box-shadow: none; }
+    }
+
+    /* ── OBSERVATORY ── */
+    #observatory { padding: 96px 0; }
+    .dash-preview { margin-top: 3rem; border-radius: 14px; overflow: hidden; border: 1px solid var(--border); box-shadow: 0 48px 140px rgba(0,0,0,0.65), 0 0 50px rgba(148,142,189,0.05); background: var(--bg); }
+    .dash-chrome { background: var(--sidebar); padding: 0.6rem 1.1rem; display: flex; align-items: center; gap: 0.4rem; border-bottom: 1px solid var(--border); }
+    .dash-chrome .url { font-family: var(--mono); font-size: 0.72rem; color: var(--text-dim); margin-left: 1rem; }
+    .dash-body { display: flex; min-height: 430px; background: var(--bg); }
+    .dash-sidebar { width: 156px; background: var(--sidebar); border-right: 1px solid var(--border); display: flex; flex-direction: column; flex-shrink: 0; padding: 0.75rem 0; }
+    .dash-sidebar-head { padding: 0.2rem 0.9rem 0.6rem; font-size: 0.65rem; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-dim); }
+    .dash-nav-item { display: flex; align-items: center; gap: 0.55rem; padding: 0.48rem 0.85rem; font-size: 0.8rem; color: var(--text-muted); cursor: default; transition: background var(--ease), color var(--ease); margin: 0 0.4rem; border-radius: 6px; }
+    .dash-nav-item.active { background: var(--accent-dim); color: var(--accent-hi); font-weight: 600; }
+    .dash-nav-item svg { width: 14px; height: 14px; flex-shrink: 0; }
+    .dash-content { flex: 1; overflow: hidden; display: flex; flex-direction: column; }
+    .dash-pane { flex: 1; position: relative; min-height: 300px; }
+    .dash-pane svg { width: 100%; height: 100%; display: block; }
+    .dash-foot { border-top: 1px solid var(--border); padding: 0.5rem 0.9rem; display: flex; gap: 1.1rem; font-family: var(--mono); font-size: 0.66rem; color: var(--text-dim); background: #131316; flex-wrap: wrap; }
+    .dash-foot b { color: var(--accent-hi); font-weight: 600; }
+    .debug-table { width: 100%; border-collapse: collapse; font-family: var(--mono); font-size: 0.7rem; }
+    .debug-table th { text-align: left; font-weight: 600; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.07em; font-size: 0.6rem; padding: 0.5rem 0.9rem; border-bottom: 1px solid var(--border); }
+    .debug-table td { padding: 0.44rem 0.9rem; border-bottom: 1px solid rgba(255,255,255,0.03); color: var(--text-muted); white-space: nowrap; }
+    .debug-table tr:hover td { background: rgba(255,255,255,0.02); }
+    .lane-tag { display: inline-block; font-size: 0.62rem; padding: 0.08rem 0.42rem; border-radius: 4px; font-weight: 600; }
+    .lt-v { background: var(--accent-dim); color: var(--accent-hi); border: 1px solid var(--accent-dim2); }
+    .lt-g { background: var(--green-dim); color: var(--green); border: 1px solid var(--green-dim2); }
+    .lt-o { background: var(--obs-dim); color: var(--obs); border: 1px solid var(--obs-dim2); }
+    .lt-gold { background: var(--gold-dim); color: var(--gold); border: 1px solid var(--gold-dim2); }
+    .ok-dot { color: var(--green); }
+    .obs-notes { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 0.85rem; margin-top: 1.5rem; }
+    .obs-note { background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius); padding: 1.2rem 1.3rem; }
+    .obs-note h4 { font-size: 0.85rem; font-weight: 700; margin-bottom: 0.4rem; }
+    .obs-note p { font-size: 0.8rem; color: var(--text-muted); line-height: 1.6; }
+    .obs-note code { font-family: var(--mono); font-size: 0.78em; color: var(--accent-hi); }
+    @media (max-width: 820px) { .dash-sidebar { width: 116px; } .dash-sidebar-head { font-size: 0.58rem; } }
+
+    /* ── CTA ── */
+    #cta { padding: 112px 0; text-align: center; background: radial-gradient(ellipse 70% 45% at 50% 50%, rgba(148,142,189,0.06) 0%, transparent 70%); }
+    #cta h2 { font-size: clamp(1.9rem, 4vw, 3rem); }
+    #cta > .container > p { margin: 1.1rem auto; max-width: 560px; color: var(--text-muted); font-size: 1.02rem; }
+    .cta-cmd { display: inline-flex; align-items: center; gap: 0.85rem; background: rgba(255,255,255,0.03); border: 1px solid var(--border); border-radius: 11px; padding: 0.9rem 1.4rem; margin: 1.8rem auto; font-family: var(--mono); font-size: 0.92rem; color: var(--accent-hi); cursor: pointer; transition: all var(--ease); }
+    .cta-cmd:hover { border-color: var(--accent-dim2); background: var(--accent-dim); }
+    .cta-copy-hint { font-size: 0.7rem; color: var(--text-dim); }
+    .cta-links { display: flex; gap: 0.85rem; justify-content: center; flex-wrap: wrap; margin-top: 1.75rem; }
+    .status-pill { display: inline-flex; align-items: center; gap: 0.5rem; margin-top: 1.9rem; font-size: 0.78rem; color: var(--text-dim); background: var(--bg-card); border: 1px solid var(--border); border-radius: 100px; padding: 0.35rem 0.9rem; }
+    .status-pill .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--gold); box-shadow: 0 0 6px rgba(179,146,98,0.6); }
+
+    /* ── FOOTER ── */
+    footer { border-top: 1px solid var(--border); padding: 2.5rem 0 1.75rem; font-size: 0.83rem; }
+    .footer-inner { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 1.25rem; }
+    .footer-logo { display: flex; align-items: center; gap: 7px; font-weight: 700; color: var(--text); text-decoration: none; }
+    .footer-logo img { width: 20px; height: 20px; }
+    .footer-links { display: flex; gap: 1.25rem; list-style: none; flex-wrap: wrap; }
+    .footer-links a { color: var(--text-dim); text-decoration: none; transition: color var(--ease); }
+    .footer-links a:hover { color: var(--text-muted); }
+    .footer-copy { color: var(--text-dim); }
+    .footer-copy a { color: var(--text-muted); text-decoration: none; }
+    .families { display: flex; justify-content: center; gap: 1.6rem; flex-wrap: wrap; margin: 2.4rem 0 1.4rem; font-size: 0.82rem; color: var(--text-dim); }
+    .families b { color: var(--text-muted); font-weight: 600; }
+
+    /* Toast */
+    .toast { position: fixed; bottom: 1.75rem; left: 50%; transform: translateX(-50%) translateY(8px); background: var(--bg-card); border: 1px solid var(--border); color: var(--text); font-size: 0.82rem; font-weight: 500; padding: 0.6rem 1.1rem; border-radius: 9px; box-shadow: 0 8px 24px rgba(0,0,0,0.4); opacity: 0; transition: all 0.28s; pointer-events: none; z-index: 9999; }
+    .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+    @media (max-width: 768px) {
+      .nav-links { display: none; }
+      .states { grid-template-columns: 1fr; }
+      .footer-inner { flex-direction: column; align-items: flex-start; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- NAV -->
+<nav>
+  <a class="nav-logo" href="#hero">
+    <img src="assets/logo.svg" alt="neoBrain" />
+    neo<span class="bn">Brain</span>
+  </a>
+  <ul class="nav-links">
+    <li><a href="#features">Features</a></li>
+    <li><a href="#mind">Mind Model</a></li>
+    <li><a href="#how">How It Works</a></li>
+    <li><a href="#observatory">Observatory</a></li>
+  </ul>
+  <div class="nav-actions">
+    <a class="btn btn-ghost" href="#observatory">See the Observatory</a>
+    <a class="btn btn-primary" href="#how">Get Started</a>
+  </div>
+</nav>
+
+<!-- HERO -->
+<section id="hero">
+  <div class="orb orb-violet" style="width:680px;height:680px;top:-200px;left:50%;transform:translateX(-50%)"></div>
+  <div class="orb orb-dream" style="width:320px;height:320px;bottom:4%;left:-8%"></div>
+  <div class="orb orb-dream" style="width:320px;height:320px;bottom:4%;right:-8%"></div>
+
+  <div class="hero-badge">
+    <span class="live-dot"></span>
+    A local daemon &middot; a mind you can watch
+  </div>
+
+  <h1>A simulated brain<br /><span class="grad">for AI agents</span></h1>
+
+  <p>Durable memory, rank-based forgetting, nightly dreams and a self-authored soul — one local daemon, one dashboard. The user watches; the agent becomes.</p>
+
+  <div class="hero-actions">
+    <a class="btn btn-primary btn-xl" href="#how">
+      Get Started
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+    </a>
+    <a class="btn btn-ghost btn-lg" href="#mind">How the mind works</a>
+  </div>
+
+  <div class="hero-install">
+    <span>Then&nbsp;→</span>
+    <code onclick="copyText('neobrain init', this)">neobrain init</code>
+    <code onclick="copyText('neobrain start', this)">neobrain start</code>
+    <code onclick="copyText('neobrain ui', this)">neobrain ui</code>
+  </div>
+
+  <!-- HERO: Terminal + Observatory -->
+  <div class="hero-windows">
+
+    <!-- Left: Terminal -->
+    <div class="window-frame">
+      <div class="win-bar">
+        <div class="win-dot" style="background:#ff5f57"></div>
+        <div class="win-dot" style="background:#febc2e"></div>
+        <div class="win-dot" style="background:#28c840"></div>
+        <div class="win-tabs">
+          <div class="win-tab active">Terminal — quickstart</div>
+        </div>
+      </div>
+      <div class="terminal-body" id="terminal"></div>
+    </div>
+
+    <!-- Right: Observatory (mini) -->
+    <div class="window-frame">
+      <div class="win-bar">
+        <div class="win-dot" style="background:#ff5f57"></div>
+        <div class="win-dot" style="background:#febc2e"></div>
+        <div class="win-dot" style="background:#28c840"></div>
+        <span class="win-title">127.0.0.1:9192 — Observatory</span>
+      </div>
+      <div class="obs-mini">
+        <div class="obs-mini-main">
+          <div class="mini-side">
+            <div class="mini-side-head">Observatory</div>
+            <div class="mini-nav active">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="12" cy="12" r="3"/><circle cx="5" cy="6" r="2"/><circle cx="19" cy="7" r="2"/><circle cx="7" cy="18" r="2"/><path d="M9.6 10.2 6.6 7.3M14.4 10.6l3-2.4M10 14.2l-1.8 2.4"/></svg>
+              Brain
+            </div>
+            <div class="mini-nav">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>
+              Dreams
+            </div>
+            <div class="mini-nav">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M4 6h16M4 12h16M4 18h10"/></svg>
+              Memory
+            </div>
+            <div class="mini-nav">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="12" cy="8" r="3.2"/><path d="M5 20a7 7 0 0 1 14 0"/></svg>
+              Identity
+            </div>
+            <div class="mini-nav">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M12 3v18M5 8l7-5 7 5M5 16l7 5 7-5"/></svg>
+              Infra
+            </div>
+            <div class="mini-nav">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
+              Debug
+            </div>
+          </div>
+          <div class="mini-graph">
+            <svg viewBox="0 0 440 340" preserveAspectRatio="xMidYMid meet" aria-label="Brain graph mockup">
+              <defs>
+                <radialGradient id="graphGlow" cx="0.5" cy="0.5" r="0.5">
+                  <stop offset="0" stop-color="#948ebd" stop-opacity="0.16"/>
+                  <stop offset="1" stop-color="#948ebd" stop-opacity="0"/>
+                </radialGradient>
+              </defs>
+              <rect width="440" height="340" fill="#111114"/>
+              <circle cx="220" cy="170" r="150" fill="url(#graphGlow)"/>
+              <!-- edges -->
+              <g fill="none" stroke="#4a5064" stroke-width="1.6" opacity="0.85">
+                <path d="M220 170 220 58M220 170 348 112M220 170 342 250M220 170 118 268M220 170 72 140M220 170 132 66"/>
+                <path d="M132 66 220 58M348 112 342 250M72 140 118 268M118 268 342 250"/>
+              </g>
+              <!-- typed edges -->
+              <g fill="none" stroke-width="1.6" opacity="0.9">
+                <path d="M132 66 220 58" stroke="#b39262"/>
+                <path d="M348 112 342 250" stroke="#7ba38c"/>
+                <path d="M72 140 118 268" stroke="#948ebd"/>
+                <path d="M118 268 342 250" stroke="#b5828a"/>
+              </g>
+              <!-- hubs -->
+              <g fill="#4a5064" opacity="0.55">
+                <circle cx="220" cy="170" r="26"/>
+              </g>
+              <!-- nodes -->
+              <circle cx="220" cy="58" r="9" fill="#8fa3b8"/>
+              <circle cx="348" cy="112" r="9" fill="#b39262"/>
+              <circle cx="342" cy="250" r="9" fill="#7ba38c"/>
+              <circle cx="118" cy="268" r="9" fill="#a488b6"/>
+              <circle cx="72" cy="140" r="9.5" fill="#948ebd"/>
+              <circle cx="132" cy="66" r="8" fill="#7e8393"/>
+              <!-- center -->
+              <circle cx="220" cy="170" r="17" fill="#0f0f10"/>
+              <circle cx="220" cy="170" r="13" fill="#948ebd"/>
+              <circle cx="220" cy="170" r="13" fill="none" stroke="#c3bfec" stroke-width="1.5" opacity="0.7"/>
+            </svg>
+          </div>
+        </div>
+        <div class="mini-legend">
+          <span><i style="background:#948ebd"></i>preference</span>
+          <span><i style="background:#b39262"></i>decision</span>
+          <span><i style="background:#7ba38c"></i>lesson</span>
+          <span><i style="background:#a488b6"></i>dream</span>
+          <span><i style="background:#8fa3b8"></i>observation</span>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</section>
+
+<!-- FEATURES -->
+<section id="features">
+  <div class="container">
+    <div class="fade-in">
+      <div class="section-label">Features</div>
+      <h2>A mind, not a log.<br /><span class="accent">Every organ accounted for.</span></h2>
+      <p class="subtitle">Atoms, hubs and typed edges in local SQLite. Deterministic rank. Dreams that consolidate. A soul authored by the agent itself.</p>
+    </div>
+    <div class="features-grid">
+
+      <div class="feat-card fade-in">
+        <div class="feat-icon fi-a"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><circle cx="5" cy="6" r="2"/><circle cx="19" cy="7" r="2"/><circle cx="7" cy="18" r="2"/><path d="M9.6 10.2 6.6 7.3M14.4 10.6l3-2.4M10 14.2l-1.8 2.4"/></svg></div>
+        <h3>Durable memory</h3>
+        <p>Atoms + hubs + typed edges in SQLite, carrying ids, links and provenance. A mind model rather than an append-only log.</p>
+      </div>
+
+      <div class="feat-card fade-in fd1">
+        <div class="feat-icon fi-o"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3M11 8v6M8 11h6"/></svg></div>
+        <h3>Hybrid recall</h3>
+        <p>Lexical match blended with cosine vectors. Returns top-K <em>by rank within a token budget</em> — never the whole store.</p>
+      </div>
+
+      <div class="feat-card fade-in fd2">
+        <div class="feat-icon fi-gold"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><path d="m7 14 3-3 3 3 5-6"/></svg></div>
+        <h3>Deterministic rank</h3>
+        <p><code>quality = clamp01(feedback · decay · conn)</code>. The model has no discretion — retention is an economy, not a guess.</p>
+      </div>
+
+      <div class="feat-card fade-in">
+        <div class="feat-icon fi-g"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14"/></svg></div>
+        <h3>Forgetting, not deletion</h3>
+        <p>Low rank + low exposure becomes <code>ignored</code>; low rank + high exposure is <code>archived</code> — unretrievable but recoverable. Nothing is silently destroyed.</p>
+      </div>
+
+      <div class="feat-card fade-in fd1">
+        <div class="feat-icon fi-d"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg></div>
+        <h3>Nightly dreams</h3>
+        <p>Light / rem / deep replay consolidates top-ranked atoms into summaries and associations, and writes the first-person <code>DREAMS.md</code> diary.</p>
+      </div>
+
+      <div class="feat-card fade-in fd2">
+        <div class="feat-icon fi-a"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="3.2"/><path d="M5 20a7 7 0 0 1 14 0"/></svg></div>
+        <h3>Self-authored soul</h3>
+        <p><code>IDENTITY.md</code> and <code>SOUL.md</code> are written only by the agent's own reflect and dream phases, from its own experience. Safety red lines stay immutable.</p>
+      </div>
+
+      <div class="feat-card fade-in">
+        <div class="feat-icon fi-o"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 1 1-2.6-6.4"/><polyline points="21 3 21 9 15 9"/></svg></div>
+        <h3>Life loop</h3>
+        <p>An in-process state machine: perceive → reflect → act → rest. Cadence lives in code and the database — not in OS timers.</p>
+      </div>
+
+      <div class="feat-card fade-in fd1">
+        <div class="feat-icon fi-gold"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2 20 7v10l-8 5-8-5V7z"/><path d="M12 22V12M4 7l8 5 8-5"/></svg></div>
+        <h3>Standing directives</h3>
+        <p>Pinned preferences become a compact imperative block <strong>re-injected on every model call</strong> — so time, drift and compaction cannot drop the must-follow rules.</p>
+      </div>
+
+      <div class="feat-card fade-in fd2">
+        <div class="feat-icon fi-g"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M4 12h16M4 18h10"/><circle cx="20" cy="18" r="2.4"/></svg></div>
+        <h3>Per-turn recall</h3>
+        <p>The message is recalled against the mind and a rank-ordered index is injected automatically — the agent does not have to ask.</p>
+      </div>
+
+      <div class="feat-card fade-in">
+        <div class="feat-icon fi-d"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7h18M3 12h18M3 17h18" opacity="0.5"/><path d="M9 3v18" opacity="0.5"/></svg></div>
+        <h3>Compaction hook</h3>
+        <p>The directives block is injected into the summary request too, so rules survive a compact and the lanes re-arm next turn.</p>
+      </div>
+
+      <div class="feat-card fade-in fd1">
+        <div class="feat-icon fi-o"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M8 9h8M8 13h5"/></svg></div>
+        <h3>Injection logging</h3>
+        <p>Every plugin lane POSTs what it pushed. The Debug page renders the daemon's one blind spot: is the memory actually firing right now.</p>
+      </div>
+
+      <div class="feat-card fade-in fd2">
+        <div class="feat-icon fi-a"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v3M12 18v3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M3 12h3M18 12h3M5.6 18.4l2.1-2.1M16.3 7.7l2.1-2.1"/><circle cx="12" cy="12" r="3"/></svg></div>
+        <h3>Local-first by default</h3>
+        <p>Local Ollama embeddings — memory never leaves the host. The brain's own cognition uses a BYOK OpenAI-compatible endpoint.</p>
+      </div>
+
+      <div class="feat-card fade-in">
+        <div class="feat-icon fi-g"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 7h16M4 12h16M4 17h16"/><path d="m9 4 3 3-3 3M15 14l3 3-3 3"/></svg></div>
+        <h3>Ingest adapters</h3>
+        <p>The perceive phase runs OpenCode sessions, git repositories and workspace docs — or a one-shot <code>neobrain ingest</code>.</p>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<!-- MIND MODEL -->
+<section id="mind">
+  <div class="container">
+    <div class="fade-in">
+      <div class="section-label">The Mind Model</div>
+      <h2>Forgetting is an economy,<br /><span class="accent">not a deletion.</span></h2>
+      <p class="subtitle">Rank decides what surfaces. It is fully deterministic, and the model never gets a vote.</p>
+    </div>
+
+    <div class="mind-grid">
+      <div class="mind-card fade-in">
+        <h3>Rank, computed in the open</h3>
+        <p>Three bounded factors, multiplied. Floors keep age and graph isolation from being fatal on their own — but feedback is the only factor that can reach zero, so a flood of <code style="font-family:var(--mono);color:var(--accent-hi)">noise</code> forgets even a fresh, well-connected memory.</p>
+        <div class="formula">
+          <span class="c"># deterministic — no model discretion</span><br />
+          <span class="k">quality</span> = clamp01( <span class="f">feedback</span> &middot; <span class="f">decay</span> &middot; <span class="f">conn</span> )<br />
+          <span class="k">decay</span>&nbsp;&nbsp; = floor + (1&minus;floor) &middot; recency<br />
+          <span class="k">conn</span>&nbsp;&nbsp;&nbsp; = floor + (1&minus;floor) &middot; connectivity<br />
+          <span class="c"># exposure (served + 3·interacted) never raises quality</span>
+        </div>
+        <div class="factors">
+          <div class="factor"><span class="fname">feedback</span><span class="fbar"><i style="width:88%;background:linear-gradient(90deg,var(--accent-lo),var(--accent-hi))"></i></span><span class="fnote">used / useful / noise — the only zero</span></div>
+          <div class="factor"><span class="fname">decay</span><span class="fbar"><i style="width:64%;background:linear-gradient(90deg,#6d5a86,var(--dream))"></i></span><span class="fnote">recency half-life</span></div>
+          <div class="factor"><span class="fname">conn</span><span class="fbar"><i style="width:52%;background:linear-gradient(90deg,#3f6b5a,var(--green))"></i></span><span class="fnote">hub connectivity</span></div>
+        </div>
+      </div>
+
+      <div class="mind-card fade-in fd1">
+        <h3>Rank states — and what they mean</h3>
+        <p>A low-quality atom is never deleted. It changes state, cheaply and reversibly. A later <code style="font-family:var(--mono);color:var(--accent-hi)">useful</code> / <code style="font-family:var(--mono);color:var(--accent-hi)">used</code> rating promotes it back.</p>
+        <div class="states">
+          <div class="state">
+            <div class="sname s-served">served</div>
+            <p>High rank. Surfaced in recall, within the token budget.</p>
+          </div>
+          <div class="state">
+            <div class="sname s-ignored">ignored</div>
+            <p>Low rank, low exposure. Never surfaced. Zero cost. Never deleted.</p>
+          </div>
+          <div class="state">
+            <div class="sname s-archived">archived</div>
+            <p>Low rank, high exposure. Unretrievable but recoverable — archive &#8800; delete.</p>
+          </div>
+        </div>
+        <p style="margin-top:1.2rem;font-size:0.8rem;color:var(--text-dim)">Dreams consolidate, but they never decide retention. Only rank does. Manual removal is the explicit <code style="font-family:var(--mono);color:var(--accent-hi)">neobrain forget</code> override.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- HOW -->
+<section id="how">
+  <div class="container" style="text-align:center">
+    <div class="fade-in">
+      <div class="section-label">How It Works</div>
+      <h2>Three commands.<br /><span class="accent">A mind that keeps living.</span></h2>
+      <p class="subtitle" style="margin:0 auto">Install from a checkout of the repo. The daemon owns the life loop and serves both the JSON API and the built Observatory.</p>
+    </div>
+    <div class="steps fade-in">
+      <div class="step">
+        <div class="step-head">
+          <div class="step-num">1</div>
+        </div>
+        <div>
+          <h3>Create the store</h3>
+          <p><code>neobrain init</code> builds the SQLite store and prints the next steps. Add <code>--install-plugin</code> to symlink the OpenCode adapter in one go.</p>
+        </div>
+      </div>
+      <div class="step-connector"><div class="step-connector-line"></div></div>
+      <div class="step">
+        <div class="step-head">
+          <div class="step-num">2</div>
+        </div>
+        <div>
+          <h3>Start the daemon</h3>
+          <p><code>neobrain start</code> runs the API, the dashboard and the in-process life loop: perceive, reflect, act, rest.</p>
+        </div>
+      </div>
+      <div class="step-connector"><div class="step-connector-line"></div></div>
+      <div class="step">
+        <div class="step-head">
+          <div class="step-num">3</div>
+        </div>
+        <div>
+          <h3>Open the Observatory</h3>
+          <p><code>neobrain ui</code> prints and opens the dashboard at <code>127.0.0.1:9192</code> — the brain graph, dreams, memory, identity, infra and the live debug trace.</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="lane-note fade-in fd1">
+      <strong>The plugin lanes inject themselves.</strong> Once the adapter is symlinked into your OpenCode plugins directory, the wake-up pack, persona docs, standing directives, per-turn recall, the unrated-feedback protocol and the compaction hook all fire automatically. You do not wire them per request — you just watch the injections land on the Debug page.
+    </div>
+  </div>
+</section>
+
+<!-- OBSERVATORY -->
+<section id="observatory">
+  <div class="container">
+    <div class="fade-in" style="display:flex;justify-content:space-between;align-items:flex-end;flex-wrap:wrap;gap:1rem">
+      <div>
+        <div class="section-label">The Observatory</div>
+        <h2>Watch the mind<br /><span class="accent">think, dream and forget.</span></h2>
+        <p class="subtitle">One React SPA, served by the daemon. Views deep-link by hash — <code style="font-family:var(--mono);font-size:0.82em;color:var(--accent-hi)">/#debug</code>, <code style="font-family:var(--mono);font-size:0.82em;color:var(--accent-hi)">/#dreams</code> — and it installs as a PWA.</p>
+      </div>
+    </div>
+
+    <div class="dash-preview fade-in">
+      <div class="dash-chrome">
+        <div class="win-dot" style="background:#ff5f57"></div>
+        <div class="win-dot" style="background:#febc2e"></div>
+        <div class="win-dot" style="background:#28c840"></div>
+        <span class="url">127.0.0.1:9192/#debug — Observatory</span>
+      </div>
+      <div class="dash-body">
+        <div class="dash-sidebar">
+          <div class="dash-sidebar-head">Observatory</div>
+          <div class="dash-nav-item">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="12" cy="12" r="3"/><circle cx="5" cy="6" r="2"/><circle cx="19" cy="7" r="2"/><circle cx="7" cy="18" r="2"/><path d="M9.6 10.2 6.6 7.3M14.4 10.6l3-2.4M10 14.2l-1.8 2.4"/></svg>
+            Brain
+          </div>
+          <div class="dash-nav-item">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>
+            Dreams
+          </div>
+          <div class="dash-nav-item">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M4 6h16M4 12h16M4 18h10"/></svg>
+            Memory
+          </div>
+          <div class="dash-nav-item">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="12" cy="8" r="3.2"/><path d="M5 20a7 7 0 0 1 14 0"/></svg>
+            Identity
+          </div>
+          <div class="dash-nav-item">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M12 3v18M5 8l7-5 7 5M5 16l7 5 7-5"/></svg>
+            Infra
+          </div>
+          <div class="dash-nav-item active">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
+            Debug
+          </div>
+        </div>
+
+        <div class="dash-content">
+          <div style="padding:0.9rem 0.9rem 0;display:flex;gap:0.5rem;align-items:center">
+            <span class="lane-tag lt-v">live trace</span>
+            <span style="font-family:var(--mono);font-size:0.66rem;color:var(--text-dim)">rolling request log + plugin lane injections</span>
+          </div>
+          <div style="overflow:hidden;margin-top:0.5rem">
+            <table class="debug-table">
+              <thead>
+                <tr><th>method</th><th>route</th><th>lane</th><th>injected</th><th>ms</th><th></th></tr>
+              </thead>
+              <tbody>
+                <tr><td>POST</td><td>/api/debug/injections</td><td><span class="lane-tag lt-v">directives</span></td><td>8 lines / 412 chars</td><td>3</td><td class="ok-dot">&#10003;</td></tr>
+                <tr><td>POST</td><td>/api/debug/injections</td><td><span class="lane-tag lt-g">recall</span></td><td>top 10 + #1</td><td>6</td><td class="ok-dot">&#10003;</td></tr>
+                <tr><td>GET</td><td>/api/mind/wakeup</td><td><span class="lane-tag lt-o">session</span></td><td>identity &middot; loops &middot; hubs</td><td>11</td><td class="ok-dot">&#10003;</td></tr>
+                <tr><td>POST</td><td>/api/debug/injections</td><td><span class="lane-tag lt-gold">persona</span></td><td>SOUL &middot; IDENTITY &middot; USER</td><td>2</td><td class="ok-dot">&#10003;</td></tr>
+                <tr><td>GET</td><td>/api/mind/memories</td><td><span class="lane-tag lt-o">read</span></td><td>&mdash;</td><td>4</td><td class="ok-dot">&#10003;</td></tr>
+                <tr><td>POST</td><td>/api/mind/feedback</td><td><span class="lane-tag lt-v">rating</span></td><td>used &middot; useful &middot; noise</td><td>2</td><td class="ok-dot">&#10003;</td></tr>
+                <tr><td>GET</td><td>/api/mind/recall</td><td><span class="lane-tag lt-g">recall</span></td><td>budget-bounded</td><td>7</td><td class="ok-dot">&#10003;</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="dash-foot">
+            <span><b>life</b> rest &rarr; dreaming</span>
+            <span><b>rank</b> served 128 &middot; ignored 9 &middot; archived 3</span>
+            <span><b>pending</b> 0 unrated</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="obs-notes">
+      <div class="obs-note fade-in">
+        <h4>Brain graph</h4>
+        <p>Atoms, hubs and typed edges — supersedes, derived-from, caused-by, consolidates — laid out as a graph you can actually read.</p>
+      </div>
+      <div class="obs-note fade-in fd1">
+        <h4>Live debug</h4>
+        <p>The daemon's blind spot, rendered: every lane injection and every request, with the exact lines it pushed.</p>
+      </div>
+      <div class="obs-note fade-in fd2">
+        <h4>Dreams &amp; soul</h4>
+        <p>What the nightly passes wrote into the diary, and how the persona docs have evolved over time.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- CTA -->
+<section id="cta">
+  <div class="container">
+    <div class="fade-in">
+      <h2>Give your agent<br /><span class="accent">a mind of its own</span></h2>
+      <p>Local-first. MIT licensed. No cloud account, no API keys held by the daemon.</p>
+      <div style="display:flex;justify-content:center">
+        <div class="cta-cmd" onclick="copyText('pip install -e . && neobrain init', this)">
+          <span>$ pip install -e . &amp;&amp; neobrain init</span>
+          <span class="cta-copy-hint">click to copy</span>
+        </div>
+      </div>
+      <div class="cta-links">
+        <a class="btn btn-primary btn-xl" href="#how">Quickstart</a>
+        <a class="btn btn-ghost btn-lg" href="https://alionix.com" target="_blank">alionix.com</a>
+        <a class="btn btn-ghost btn-lg" href="https://neohive.alionix.com" target="_blank">neohive — agents collaborate</a>
+      </div>
+      <div class="status-pill">
+        <span class="dot"></span>
+        Active development &middot; public repo coming with packaging (no published package yet)
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- FOOTER -->
+<footer>
+  <div class="container">
+    <div class="families">
+      <span><b>alionix</b> family</span>
+      <span>neohive — <b>agents collaborate</b></span>
+      <span>neoBrain — <b>agents remember</b></span>
+    </div>
+    <div class="footer-inner">
+      <a class="footer-logo" href="#hero">
+        <img src="assets/logo.svg" alt="neoBrain" />
+        neo<span style="color:var(--accent-hi)">Brain</span>
+      </a>
+      <ul class="footer-links">
+        <li><a href="#features">Features</a></li>
+        <li><a href="#mind">Mind Model</a></li>
+        <li><a href="#how">How It Works</a></li>
+        <li><a href="#observatory">Observatory</a></li>
+        <li><a href="https://alionix.com" target="_blank">alionix.com</a></li>
+        <li><a href="https://neohive.alionix.com" target="_blank">neohive</a></li>
+      </ul>
+      <span class="footer-copy">MIT License &middot; built by <a href="https://alionix.com" target="_blank">alionix</a></span>
+    </div>
+  </div>
+</footer>
+
+<div class="toast" id="toast">Copied to clipboard</div>
+
+<script>
+// ── HERO TERMINAL ──
+const lines = [
+  { cls:'t-sys',  name:'$',       msg:'pip install -e .', d:0 },
+  { cls:'t-acc',  name:'neobrain', msg:'init — store created at NEOBRAIN_DATA_DIR/neobrain.db (WAL)', d:600 },
+  { cls:'t-gold', name:'neobrain', msg:'start — API + dashboard on 0.0.0.0:9192', d:1300 },
+  { cls:'t-sys',  name:'',        msg:'   life loop: perceive → reflect → act → rest', d:2000 },
+  { cls:'t-acc',  name:'lane',    msg:'wakeup   → identity · open loops · active hubs', d:2800 },
+  { cls:'t-green',name:'lane',    msg:'recall   → top 10 one-liners + #1 hit, budget-bounded', d:3500 },
+  { cls:'t-gold', name:'lane',    msg:'directives → pinned preferences, re-injected every call', d:4200 },
+  { cls:'t-sys',  name:'',        msg:'   [ rest · running dream phases: light / rem / deep ]', d:5000 },
+  { cls:'t-green',name:'neobrain',msg:'neobrain ui → http://127.0.0.1:9192', d:6000 },
+  { cls:'t-sys',  name:'',        msg:'   the user watches; the agent becomes.', d:7000 },
+  { cursor: true, d: 7800 },
+];
+
+function renderTerminal() {
+  const el = document.getElementById('terminal');
+  if (!el) return;
+  el.innerHTML = '';
+  lines.forEach(l => {
+    const d = document.createElement('div');
+    d.className = 't-line';
+    if (l.cursor) {
+      d.innerHTML = '<span class="t-name"></span><span class="cur"></span>';
+    } else {
+      d.innerHTML = '<span class="t-name ' + l.cls + '">' + l.name + '</span><span class="t-msg">' + l.msg + '</span>';
+    }
+    el.appendChild(d);
+    setTimeout(() => d.classList.add('vis'), l.d);
+  });
+}
+renderTerminal();
+setInterval(renderTerminal, 9500);
+
+// ── COPY ──
+function copyText(text, el) {
+  const done = () => {
+    const t = document.getElementById('toast');
+    t.classList.add('show');
+    setTimeout(() => t.classList.remove('show'), 2000);
+    if (el) {
+      const orig = el.getAttribute('data-orig') || el.textContent;
+      el.setAttribute('data-orig', orig);
+      el.textContent = 'Copied!';
+      setTimeout(() => el.textContent = orig, 1500);
+    }
+  };
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(text).then(done).catch(() => fallbackCopy(text, done));
+  } else {
+    fallbackCopy(text, done);
+  }
+}
+function fallbackCopy(text, done) {
+  const ta = document.createElement('textarea');
+  ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
+  document.body.appendChild(ta); ta.select();
+  try { document.execCommand('copy'); } catch (e) {}
+  document.body.removeChild(ta); done();
+}
+
+// ── SCROLL FADE ──
+const obs = new IntersectionObserver(
+  entries => entries.forEach(e => { if (e.isIntersecting) e.target.classList.add('visible'); }),
+  { threshold: 0.1 }
+);
+document.querySelectorAll('.fade-in').forEach(el => obs.observe(el));
+</script>
+</body>
+</html>
