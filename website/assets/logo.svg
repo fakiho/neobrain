@@ -1,0 +1,44 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128" role="img" aria-label="neoBrain graph mark">
+  <defs>
+    <linearGradient id="nb-accent" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#c3bfec"/>
+      <stop offset="1" stop-color="#7d77ab"/>
+    </linearGradient>
+    <radialGradient id="nb-glow" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#948ebd" stop-opacity="0.55"/>
+      <stop offset="1" stop-color="#948ebd" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+
+  <circle cx="64" cy="64" r="46" fill="url(#nb-glow)"/>
+
+  <!-- base edges: hub to atoms -->
+  <g fill="none" stroke="#4a5064" stroke-width="2.6" stroke-linecap="round" opacity="0.9">
+    <path d="M64 64 L64 19"/>
+    <path d="M64 64 L104 45"/>
+    <path d="M64 64 L93 97"/>
+    <path d="M64 64 L41 106"/>
+    <path d="M64 64 L20 60"/>
+    <path d="M64 64 L35 22"/>
+  </g>
+
+  <!-- typed edges around the ring: supersedes / derived-from / consolidates / caused-by -->
+  <g fill="none" stroke-width="2" stroke-linecap="round" opacity="0.85">
+    <path d="M35 22 L64 19" stroke="#b39262"/>
+    <path d="M104 45 L93 97" stroke="#7ba38c"/>
+    <path d="M20 60 L41 106" stroke="#948ebd"/>
+    <path d="M41 106 L93 97" stroke="#b5828a"/>
+  </g>
+
+  <!-- atoms -->
+  <circle cx="64" cy="19" r="6" fill="#8fa3b8"/>
+  <circle cx="104" cy="45" r="6" fill="#b39262"/>
+  <circle cx="93" cy="97" r="6" fill="#7ba38c"/>
+  <circle cx="41" cy="106" r="6" fill="#a488b6"/>
+  <circle cx="20" cy="60" r="6.5" fill="#948ebd"/>
+  <circle cx="35" cy="22" r="5.5" fill="#7e8393"/>
+
+  <!-- central hub -->
+  <circle cx="64" cy="64" r="11" fill="#0f0f10"/>
+  <circle cx="64" cy="64" r="9.5" fill="url(#nb-accent)"/>
+</svg>
