@@ -446,39 +446,74 @@
             <svg viewBox="0 0 440 340" preserveAspectRatio="xMidYMid meet" aria-label="Brain graph mockup">
               <defs>
                 <radialGradient id="graphGlow" cx="0.5" cy="0.5" r="0.5">
-                  <stop offset="0" stop-color="#948ebd" stop-opacity="0.16"/>
+                  <stop offset="0" stop-color="#948ebd" stop-opacity="0.14"/>
                   <stop offset="1" stop-color="#948ebd" stop-opacity="0"/>
                 </radialGradient>
+                <radialGradient id="hubGlow" cx="0.5" cy="0.5" r="0.5">
+                  <stop offset="0" stop-color="#948ebd" stop-opacity="0.18"/>
+                  <stop offset="1" stop-color="#948ebd" stop-opacity="0"/>
+                </radialGradient>
+                <linearGradient id="hubGrad" x1="0" y1="0" x2="1" y2="1">
+                  <stop offset="0" stop-color="#c3bfec"/>
+                  <stop offset="1" stop-color="#7d77ab"/>
+                </linearGradient>
               </defs>
-              <rect width="440" height="340" fill="#111114"/>
-              <circle cx="220" cy="170" r="150" fill="url(#graphGlow)"/>
-              <!-- edges -->
-              <g fill="none" stroke="#4a5064" stroke-width="1.6" opacity="0.85">
-                <path d="M220 170 220 58M220 170 348 112M220 170 342 250M220 170 118 268M220 170 72 140M220 170 132 66"/>
-                <path d="M132 66 220 58M348 112 342 250M72 140 118 268M118 268 342 250"/>
+              <rect width="440" height="340" fill="#101013"/>
+              <circle cx="206" cy="168" r="150" fill="url(#graphGlow)"/>
+
+              <!-- hub to atom edges, opacity graded by distance -->
+              <g fill="none" stroke="#4a5064" stroke-width="1" stroke-linecap="round">
+                <line x1="206" y1="168" x2="206" y2="48"  opacity="0.50"/>
+                <line x1="206" y1="168" x2="340" y2="102" opacity="0.44"/>
+                <line x1="206" y1="168" x2="366" y2="218" opacity="0.40"/>
+                <line x1="206" y1="168" x2="248" y2="292" opacity="0.50"/>
+                <line x1="206" y1="168" x2="88"  y2="248" opacity="0.46"/>
+                <line x1="206" y1="168" x2="70"  y2="120" opacity="0.46"/>
+                <line x1="206" y1="168" x2="322" y2="158" opacity="0.52"/>
+                <line x1="206" y1="168" x2="138" y2="148" opacity="0.60"/>
               </g>
-              <!-- typed edges -->
-              <g fill="none" stroke-width="1.6" opacity="0.9">
-                <path d="M132 66 220 58" stroke="#b39262"/>
-                <path d="M348 112 342 250" stroke="#7ba38c"/>
-                <path d="M72 140 118 268" stroke="#948ebd"/>
-                <path d="M118 268 342 250" stroke="#b5828a"/>
+
+              <!-- typed edges between atoms -->
+              <g fill="none" stroke-width="1" stroke-linecap="round" opacity="0.8">
+                <line x1="206" y1="48"  x2="340" y2="102" stroke="#b39262"/>
+                <line x1="340" y1="102" x2="366" y2="218" stroke="#7ba38c"/>
+                <line x1="88"  y1="248" x2="70"  y2="120" stroke="#948ebd"/>
+                <line x1="366" y1="218" x2="248" y2="292" stroke="#a488b6"/>
+                <line x1="70"  y1="120" x2="206" y2="48"  stroke="#7e8393"/>
+                <line x1="322" y1="158" x2="340" y2="102" stroke="#b39262"/>
               </g>
-              <!-- hubs -->
-              <g fill="#4a5064" opacity="0.55">
-                <circle cx="220" cy="170" r="26"/>
-              </g>
-              <!-- nodes -->
-              <circle cx="220" cy="58" r="9" fill="#8fa3b8"/>
-              <circle cx="348" cy="112" r="9" fill="#b39262"/>
-              <circle cx="342" cy="250" r="9" fill="#7ba38c"/>
-              <circle cx="118" cy="268" r="9" fill="#a488b6"/>
-              <circle cx="72" cy="140" r="9.5" fill="#948ebd"/>
-              <circle cx="132" cy="66" r="8" fill="#7e8393"/>
-              <!-- center -->
-              <circle cx="220" cy="170" r="17" fill="#0f0f10"/>
-              <circle cx="220" cy="170" r="13" fill="#948ebd"/>
-              <circle cx="220" cy="170" r="13" fill="none" stroke="#c3bfec" stroke-width="1.5" opacity="0.7"/>
+
+              <!-- hub -->
+              <circle cx="206" cy="168" r="30" fill="url(#hubGlow)"/>
+              <circle cx="206" cy="168" r="7" fill="#0f0f10"/>
+              <circle cx="206" cy="168" r="5.5" fill="url(#hubGrad)"/>
+              <circle cx="206" cy="168" r="5.5" fill="none" stroke="#c3bfec" stroke-width="0.9" opacity="0.7"/>
+
+              <!-- atoms: halo + core, varied radii -->
+              <circle cx="206" cy="48"  r="8.5" fill="none" stroke="#8fa3b8" stroke-width="0.9" opacity="0.22"/>
+              <circle cx="206" cy="48"  r="4.5" fill="#8fa3b8"/>
+
+              <circle cx="340" cy="102" r="8"   fill="none" stroke="#b39262" stroke-width="0.9" opacity="0.22"/>
+              <circle cx="340" cy="102" r="4"   fill="#b39262"/>
+
+              <circle cx="366" cy="218" r="8.5" fill="none" stroke="#7ba38c" stroke-width="0.9" opacity="0.22"/>
+              <circle cx="366" cy="218" r="4.5" fill="#7ba38c"/>
+
+              <circle cx="248" cy="292" r="7.5" fill="none" stroke="#a488b6" stroke-width="0.9" opacity="0.22"/>
+              <circle cx="248" cy="292" r="3.5" fill="#a488b6"/>
+
+              <circle cx="88"  cy="248" r="9.5" fill="none" stroke="#948ebd" stroke-width="0.9" opacity="0.26"/>
+              <circle cx="88"  cy="248" r="5.5" fill="#948ebd"/>
+              <circle cx="86.6" cy="246.6" r="1.4" fill="#c3bfec" opacity="0.85"/>
+
+              <circle cx="70"  cy="120" r="7.5" fill="none" stroke="#7e8393" stroke-width="0.9" opacity="0.22"/>
+              <circle cx="70"  cy="120" r="3.5" fill="#7e8393"/>
+
+              <circle cx="322" cy="158" r="6.8" fill="none" stroke="#b39262" stroke-width="0.9" opacity="0.22"/>
+              <circle cx="322" cy="158" r="2.8" fill="#b39262"/>
+
+              <circle cx="138" cy="148" r="6.8" fill="none" stroke="#948ebd" stroke-width="0.9" opacity="0.22"/>
+              <circle cx="138" cy="148" r="2.8" fill="#948ebd"/>
             </svg>
           </div>
         </div>
