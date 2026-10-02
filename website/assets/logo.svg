@@ -1,44 +1,50 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128" role="img" aria-label="neoBrain graph mark">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128" role="img" aria-label="neoBrain — a neuron passing memory across a synapse">
   <defs>
-    <linearGradient id="nb-accent" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#c3bfec"/>
-      <stop offset="1" stop-color="#7d77ab"/>
+    <linearGradient id="nb-soma" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#c3bfec"/>
+      <stop offset="100%" stop-color="#7d77ab"/>
     </linearGradient>
-    <radialGradient id="nb-glow" cx="0.5" cy="0.5" r="0.5">
-      <stop offset="0" stop-color="#948ebd" stop-opacity="0.55"/>
-      <stop offset="1" stop-color="#948ebd" stop-opacity="0"/>
+    <linearGradient id="nb-term" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#a488b6"/>
+      <stop offset="100%" stop-color="#7d77ab"/>
+    </linearGradient>
+    <radialGradient id="nb-glow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#948ebd" stop-opacity="0.28"/>
+      <stop offset="100%" stop-color="#948ebd" stop-opacity="0"/>
     </radialGradient>
   </defs>
 
-  <circle cx="64" cy="64" r="46" fill="url(#nb-glow)"/>
+  <!-- soft aura behind the neuron -->
+  <ellipse cx="62" cy="62" rx="52" ry="52" fill="url(#nb-glow)"/>
 
-  <!-- base edges: hub to atoms -->
-  <g fill="none" stroke="#4a5064" stroke-width="2.6" stroke-linecap="round" opacity="0.9">
-    <path d="M64 64 L64 19"/>
-    <path d="M64 64 L104 45"/>
-    <path d="M64 64 L93 97"/>
-    <path d="M64 64 L41 106"/>
-    <path d="M64 64 L20 60"/>
-    <path d="M64 64 L35 22"/>
+  <!-- dendrite tree (inputs), bold and short so it survives at small size -->
+  <g fill="none" stroke="#4a5064" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M 46 54 Q 30 42 18 36" stroke-width="7"/>
+    <path d="M 26 39 Q 20 33 12 34" stroke-width="5.5"/>
+    <path d="M 18 36 Q 13 30 9 24" stroke-width="5"/>
+    <path d="M 44 74 Q 26 82 16 88" stroke-width="7"/>
+    <path d="M 24 85 Q 14 92 8 90" stroke-width="5.5"/>
+    <path d="M 16 88 Q 12 98 10 104" stroke-width="5"/>
+    <!-- a small spine off the soma top -->
+    <path d="M 44 42 Q 34 32 30 24" stroke-width="6"/>
   </g>
 
-  <!-- typed edges around the ring: supersedes / derived-from / consolidates / caused-by -->
-  <g fill="none" stroke-width="2" stroke-linecap="round" opacity="0.85">
-    <path d="M35 22 L64 19" stroke="#b39262"/>
-    <path d="M104 45 L93 97" stroke="#7ba38c"/>
-    <path d="M20 60 L41 106" stroke="#948ebd"/>
-    <path d="M41 106 L93 97" stroke="#b5828a"/>
-  </g>
+  <!-- axon: bold long output arcing from the soma to the synapse -->
+  <path d="M 58 60 C 76 52, 92 52, 106 45" fill="none" stroke="url(#nb-soma)" stroke-width="10" stroke-linecap="round"/>
+  <!-- recall branch -->
+  <path d="M 74 58 C 86 64, 96 70, 108 74" fill="none" stroke="#948ebd" stroke-width="6" stroke-linecap="round" opacity="0.95"/>
 
-  <!-- atoms -->
-  <circle cx="64" cy="19" r="6" fill="#8fa3b8"/>
-  <circle cx="104" cy="45" r="6" fill="#b39262"/>
-  <circle cx="93" cy="97" r="6" fill="#7ba38c"/>
-  <circle cx="41" cy="106" r="6" fill="#a488b6"/>
-  <circle cx="20" cy="60" r="6.5" fill="#948ebd"/>
-  <circle cx="35" cy="22" r="5.5" fill="#7e8393"/>
+  <!-- cell body (soma) — the mind -->
+  <circle cx="48" cy="62" r="22" fill="url(#nb-soma)"/>
+  <circle cx="43" cy="57" r="8" fill="#f0eefd"/>
+  <circle cx="41" cy="55" r="3" fill="#948ebd"/>
 
-  <!-- central hub -->
-  <circle cx="64" cy="64" r="11" fill="#0f0f10"/>
-  <circle cx="64" cy="64" r="9.5" fill="url(#nb-accent)"/>
+  <!-- synaptic terminal bouton — the memory connection -->
+  <circle cx="108" cy="42" r="14" fill="url(#nb-term)"/>
+  <circle cx="104" cy="38" r="4.5" fill="#efe9fb"/>
+  <circle cx="108" cy="74" r="8.5" fill="#948ebd"/>
+  <circle cx="106" cy="72" r="2.6" fill="#efe9fb"/>
+
+  <!-- vesicle dot in transit along the axon -->
+  <circle cx="86" cy="50" r="5" fill="#c3bfec"/>
 </svg>

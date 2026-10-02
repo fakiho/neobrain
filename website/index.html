@@ -325,8 +325,8 @@
 
     .brand {
       display: inline-flex;
-      align-items: baseline;
-      gap: 7px;
+      align-items: center;
+      gap: 10px;
       text-decoration: none;
       font-weight: 700;
       font-size: 1.32rem;
@@ -334,7 +334,7 @@
       color: var(--text);
       padding-block: var(--sp-2);
     }
-    .brand img { height: 0.92em; width: auto; }
+    .brand img { width: 34px; height: 34px; display: block; flex-shrink: 0; }
     .brand .wm { background: linear-gradient(90deg, var(--accent-hi) 0%, #caa5f2 100%); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; color: transparent; }
 
     .nav-menu { display: flex; align-items: center; gap: var(--sp-1); margin-left: auto; }
@@ -909,6 +909,7 @@
     .footer-top { display: grid; grid-template-columns: 1.5fr 1fr 1fr; gap: var(--sp-8); padding-bottom: var(--sp-10); border-bottom: 1px solid var(--border); }
     .footer-brand { display: flex; flex-direction: column; gap: var(--sp-4); align-items: flex-start; }
     .site-footer .brand { font-size: 1.25rem; padding-block: 0; }
+    .site-footer .brand img { width: 32px; height: 32px; }
     .footer-tag { max-width: 34ch; color: var(--text-muted); line-height: 1.65; }
     .footer-col h3 { font-family: var(--mono); font-size: var(--fs-xs); font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; color: var(--text-dim); margin-bottom: var(--sp-4); }
     .footer-col ul { display: flex; flex-direction: column; gap: var(--sp-1); }
@@ -1033,7 +1034,7 @@
 <header class="site-header">
   <nav class="nav container" aria-label="Primary">
     <a class="brand" href="#hero" aria-label="neoBrain — home">
-      <img src="assets/logo.svg" alt="neoBrain" width="28" height="28" />
+      <img src="assets/logo.svg" alt="neoBrain" width="34" height="34" />
       <span class="wm" aria-hidden="true">neoBrain</span>
     </a>
 
@@ -1454,7 +1455,7 @@
     <div class="footer-top">
       <div class="footer-brand">
         <a class="brand" href="#hero" aria-label="neoBrain — back to top">
-          <img src="assets/logo.svg" alt="neoBrain" width="28" height="28" />
+          <img src="assets/logo.svg" alt="neoBrain" width="32" height="32" />
           <span class="wm" aria-hidden="true">neoBrain</span>
         </a>
         <p class="footer-tag">A local mind daemon for AI agents — durable memory, deterministic forgetting, nightly dreams and a self-authored soul.</p>
@@ -1815,20 +1816,72 @@
     }
     function buildLayout() {
       cx = W * 0.5; cy = H * 0.5;
-      var R = Math.min(W * 0.40, H * 0.44);
-      k = clamp(R / 150, 0.62, 1.15);
-      hub = { x: cx, y: cy, r: Math.max(4, 6 * k) };
+      var R = Math.min(W * 0.36, H * 0.38);
+      k = clamp(R / 140, 0.65, 1.15);
+      hub = { x: cx - 8 * k, y: cy + 4 * k, r: Math.max(4.5, 6.5 * k) };
+
+      var layoutConfig = [
+        { ang: -2.35, dist: 0.42, r: 4.8 },
+        { ang: -2.85, dist: 0.72, r: 4.0 },
+        { ang: -1.80, dist: 0.62, r: 4.4 },
+        { ang: -0.75, dist: 0.40, r: 4.6 },
+        { ang: -0.32, dist: 0.65, r: 4.2 },
+        { ang: -1.15, dist: 0.76, r: 4.5 },
+        { ang:  0.18, dist: 0.74, r: 3.8 },
+        { ang:  1.65, dist: 0.44, r: 4.4 },
+        { ang:  1.15, dist: 0.70, r: 4.2 },
+        { ang:  2.35, dist: 0.60, r: 4.0 }
+      ];
+
       atoms = [];
-      for (var i = 0; i < TYPES.length; i++) {
-        var ring = (i % 2 === 0) ? 1 : 0.72;
-        var ang = (i / TYPES.length) * Math.PI * 2 + (i % 3) * 0.22 - Math.PI / 2;
-        var rr = R * ring * (0.86 + ((i * 37) % 13) / 13 * 0.16);
-        atoms.push({ x: cx + Math.cos(ang) * rr, y: cy + Math.sin(ang) * rr * 0.92, r: (3.2 + ((i * 29) % 5) * 0.5) * k, type: TYPES[i] });
+      for (var i = 0; i < layoutConfig.length; i++) {
+        var cfg = layoutConfig[i];
+        var jAng = ((i * 19) % 7 - 3) * 0.02;
+        var jDist = ((i * 23) % 9 - 4) * 0.015;
+        var a = cfg.ang + jAng;
+        var d = R * (cfg.dist + jDist);
+        var ax = hub.x + Math.cos(a) * d;
+        var ay = hub.y + Math.sin(a) * d * 0.94;
+
+        var mx = (hub.x + ax) * 0.5, my = (hub.y + ay) * 0.5;
+        var vdx = ax - hub.x, vdy = ay - hub.y;
+        var vlen = Math.sqrt(vdx * vdx + vdy * vdy) || 1;
+        var nx = -vdy / vlen, ny = vdx / vlen;
+        var bendSign = (i % 2 === 0) ? 1 : -1;
+        var bendMag = vlen * (0.16 + ((i * 13) % 5) * 0.02) * bendSign;
+
+        atoms.push({
+          x: ax,
+          y: ay,
+          r: cfg.r * k,
+          type: TYPES[i],
+          cpx: mx + nx * bendMag,
+          cpy: my + ny * bendMag
+        });
       }
+
       typed = [];
-      [[0, 5], [1, 6], [2, 7], [3, 8], [4, 9], [0, 3], [1, 4]].forEach(function (p) {
-        if (atoms[p[0]] && atoms[p[1]]) typed.push({ a: atoms[p[0]], b: atoms[p[1]], type: atoms[p[1]].type });
-      });
+      var typedEdges = [
+        [0, 1], [1, 2], [2, 5], [3, 4], [4, 6], [6, 8], [7, 9], [9, 0], [3, 7]
+      ];
+      for (var e = 0; e < typedEdges.length; e++) {
+        var pair = typedEdges[e];
+        var atA = atoms[pair[0]], atB = atoms[pair[1]];
+        if (atA && atB) {
+          var emx = (atA.x + atB.x) * 0.5, emy = (atA.y + atB.y) * 0.5;
+          var edx = atB.x - atA.x, edy = atB.y - atA.y;
+          var elen = Math.sqrt(edx * edx + edy * edy) || 1;
+          var enx = -edy / elen, eny = edx / elen;
+          var ebend = elen * 0.15 * ((e % 2 === 0) ? 1 : -1);
+          typed.push({
+            a: atA,
+            b: atB,
+            type: atB.type,
+            cpx: emx + enx * ebend,
+            cpy: emy + eny * ebend
+          });
+        }
+      }
       buildDust();
     }
     function resize() {
@@ -1840,7 +1893,13 @@
       buildLayout();
       if (!master.running) renderStatic();
     }
-    function pathPoint(atom, t) { return { x: hub.x + (atom.x - hub.x) * t, y: hub.y + (atom.y - hub.y) * t }; }
+    function pathPoint(atom, t) {
+      var omt = 1 - t;
+      return {
+        x: omt * omt * hub.x + 2 * omt * t * atom.cpx + t * t * atom.x,
+        y: omt * omt * hub.y + 2 * omt * t * atom.cpy + t * t * atom.y
+      };
+    }
     function spawn() {
       var max = small ? 3 : 6;
       if (packets.length >= max) return;
@@ -1880,22 +1939,30 @@
     }
     function drawHub() {
       var breath = 0.5 + 0.5 * Math.sin(time * 0.55);
-      var g = ctx.createRadialGradient(cx, cy, 0, cx, cy, Math.max(60, W * 0.42));
+      var g = ctx.createRadialGradient(hub.x, hub.y, 0, hub.x, hub.y, Math.max(60, W * 0.40));
       g.addColorStop(0, 'rgba(148,142,189,' + (0.13 + 0.06 * breath).toFixed(3) + ')');
       g.addColorStop(0.55, 'rgba(148,142,189,0.045)');
       g.addColorStop(1, 'rgba(148,142,189,0)');
-      ctx.fillStyle = g; ctx.beginPath(); ctx.arc(cx, cy, Math.max(60, W * 0.42), 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = g; ctx.beginPath(); ctx.arc(hub.x, hub.y, Math.max(60, W * 0.40), 0, Math.PI * 2); ctx.fill();
     }
     function drawEdges() {
-      ctx.lineWidth = 1;
+      ctx.lineWidth = 1.1;
       ctx.strokeStyle = 'rgba(74,80,100,0.55)';
       for (var i = 0; i < atoms.length; i++) {
-        ctx.beginPath(); ctx.moveTo(hub.x, hub.y); ctx.lineTo(atoms[i].x, atoms[i].y); ctx.stroke();
+        var at = atoms[i];
+        ctx.beginPath();
+        ctx.moveTo(hub.x, hub.y);
+        ctx.quadraticCurveTo(at.cpx, at.cpy, at.x, at.y);
+        ctx.stroke();
       }
       ctx.lineWidth = 1;
       for (var j = 0; j < typed.length; j++) {
-        ctx.strokeStyle = hexA(COL[typed[j].type], 0.5);
-        ctx.beginPath(); ctx.moveTo(typed[j].a.x, typed[j].a.y); ctx.lineTo(typed[j].b.x, typed[j].b.y); ctx.stroke();
+        var te = typed[j];
+        ctx.strokeStyle = hexA(COL[te.type], 0.50);
+        ctx.beginPath();
+        ctx.moveTo(te.a.x, te.a.y);
+        ctx.quadraticCurveTo(te.cpx, te.cpy, te.b.x, te.b.y);
+        ctx.stroke();
       }
     }
     function drawAtoms() {
