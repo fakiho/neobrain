@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://neobrain.alionix.com/sitemap.xml
