@@ -5,10 +5,11 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <script>document.documentElement.classList.add('js');</script>
   <title>neoBrain — A local mind daemon for AI coding agents</title>
-  <meta name="description" content="neoBrain is a local daemon that gives AI coding agents in OpenCode durable memory: atoms, hubs and typed edges in SQLite, deterministic rank-based forgetting, nightly dreams and a self-authored soul — one dashboard, no cloud account." />
+  <meta name="description" content="neoBrain is a local memory daemon for AI coding agents in OpenCode — durable memory, deterministic forgetting, nightly dreams, no cloud account." />
+  <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1" />
   <meta name="theme-color" content="#0b0b0e" />
   <meta name="color-scheme" content="dark" />
-  <link rel="canonical" href="https://neobrain.alionix.com" />
+  <link rel="canonical" href="https://neobrain.alionix.com/" />
 
   <meta property="og:site_name" content="neoBrain" />
   <meta property="og:title" content="neoBrain — A local mind daemon for AI coding agents" />
@@ -16,7 +17,7 @@
   <meta property="og:image" content="https://neobrain.alionix.com/assets/og-image.png" />
   <meta property="og:image:width" content="1200" />
   <meta property="og:image:height" content="630" />
-  <meta property="og:url" content="https://neobrain.alionix.com" />
+  <meta property="og:url" content="https://neobrain.alionix.com/" />
   <meta property="og:type" content="website" />
   <meta name="twitter:card" content="summary_large_image" />
   <meta name="twitter:title" content="neoBrain — A local mind daemon for AI coding agents" />
@@ -28,19 +29,42 @@
     "@context": "https://schema.org",
     "@graph": [
       {
-        "@type": "WebSite",
+        "@type": "Organization",
+        "@id": "https://neobrain.alionix.com/#organization",
         "name": "neoBrain",
-        "url": "https://neobrain.alionix.com",
+        "url": "https://neobrain.alionix.com/",
+        "logo": "https://neobrain.alionix.com/assets/icon-512.png",
+        "sameAs": [
+          "https://github.com/fakiho/neobrain",
+          "https://alionix.com"
+        ]
+      },
+      {
+        "@type": "WebSite",
+        "@id": "https://neobrain.alionix.com/#website",
+        "name": "neoBrain",
+        "url": "https://neobrain.alionix.com/",
+        "inLanguage": "en",
+        "publisher": { "@id": "https://neobrain.alionix.com/#organization" },
         "description": "A local daemon that gives AI coding agents in OpenCode durable memory: atoms, hubs and typed edges in SQLite, deterministic rank-based forgetting, nightly dreams and a self-authored soul — one dashboard, no cloud account."
       },
       {
         "@type": "SoftwareApplication",
+        "@id": "https://neobrain.alionix.com/#software",
         "name": "neoBrain",
         "applicationCategory": "DeveloperApplication",
-        "operatingSystem": "Linux",
+        "operatingSystem": "Linux, macOS, Windows",
         "description": "A local, self-hosted daemon that gives AI coding agents in OpenCode durable memory: atoms, hubs and typed edges in SQLite, deterministic rank-based forgetting, nightly dreams and a self-authored soul — one dashboard, no cloud account.",
-        "url": "https://neobrain.alionix.com",
+        "url": "https://neobrain.alionix.com/",
         "image": "https://neobrain.alionix.com/assets/og-image.png",
+        "screenshot": "https://neobrain.alionix.com/assets/og-image.png",
+        "codeRepository": "https://github.com/fakiho/neobrain",
+        "license": "https://github.com/fakiho/neobrain/blob/main/LICENSE",
+        "softwareVersion": "0.1.0",
+        "datePublished": "2026-09-30",
+        "dateModified": "2026-10-03",
+        "publisher": { "@id": "https://neobrain.alionix.com/#organization" },
+        "sameAs": "https://github.com/fakiho/neobrain",
         "offers": {
           "@type": "Offer",
           "price": "0",
@@ -66,7 +90,7 @@
   <link rel="manifest" href="assets/manifest.webmanifest" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&amp;family=JetBrains+Mono:wght@400;500;600&amp;display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@500;600;700;800;900&amp;family=JetBrains+Mono:wght@400;500;600&amp;display=swap" rel="stylesheet" />
   <style>
     /* =====================================================================
        neoBrain — design system
@@ -990,6 +1014,9 @@
     .js .reveal.in { opacity: 1; transform: none; }
 
     .js .hero-inner .reveal.in { animation: heroIn var(--dur-4) var(--ease-out) var(--d, 0ms) both; }
+    /* Above-the-fold hero must not gate LCP behind the reveal animation */
+    .js .hero-inner .reveal { opacity: 1; transform: none; }
+    .js .hero-inner .reveal.in { animation: none; }
     @keyframes heroIn {
       from { opacity: 0; transform: translateY(22px); filter: blur(6px); }
       to   { opacity: 1; transform: none;             filter: blur(0); }
