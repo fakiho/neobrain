@@ -51,6 +51,14 @@ ACT_RECALL_LIMIT = 5
 
 _DAY_MS = 86_400_000
 
+# WAL maintenance cadence (ms). The daemon holds one long-lived read connection
+# (the life loop's own handle), which SQLite's auto-checkpoint can never
+# truncate past — so the WAL file grows unboundedly and slows every read/write.
+# PASSIVE keeps it bounded without blocking; TRUNCATE (quiet hours only, when
+# the store is idle) actually shrinks the file back to ~0.
+_WAL_CHECKPOINT_INTERVAL_MS = 10 * 60_000  # PASSIVE, every 10 min
+_WAL_TRUNCATE_INTERVAL_MS = 60 * 60_000  # TRUNCATE, hourly during quiet hours
+
 
 # --- probes (module level so tests can patch them) --------------------------
 
@@ -145,6 +153,8 @@ class LifeLoop:
         self.clock = clock or _default_clock
         self._runtime = runtime
         self._conn: Optional[sqlite3.Connection] = None
+        self._last_checkpoint_ms = 0
+        self._last_truncate_ms = 0
 
     # --- connection ---------------------------------------------------------
 
@@ -524,6 +534,26 @@ class LifeLoop:
 
     # --- the tick -----------------------------------------------------------
 
+    def _checkpoint_wal(self, conn: sqlite3.Connection, when: int, quiet: bool) -> None:
+        """Keep the WAL bounded so it never grows into a 100MB+ drag on reads.
+
+        PASSIVE on a 10-min throttle (cheap, non-blocking); TRUNCATE hourly
+        during quiet hours, when the store is idle and the file can actually
+        shrink. The daemon's long-lived read connection otherwise prevents
+        SQLite's auto-checkpoint from ever truncating the WAL.
+        """
+        if when - self._last_checkpoint_ms < _WAL_CHECKPOINT_INTERVAL_MS:
+            return
+        self._last_checkpoint_ms = when
+        try:
+            if quiet and when - self._last_truncate_ms >= _WAL_TRUNCATE_INTERVAL_MS:
+                conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+                self._last_truncate_ms = when
+            else:
+                conn.execute("PRAGMA wal_checkpoint(PASSIVE)")
+        except sqlite3.Error as exc:  # noqa: BLE001 - maintenance must not break the loop
+            print(f"[life] wal checkpoint failed: {exc}", flush=True)
+
     def tick(self, now: Optional[datetime] = None) -> dict[str, Any]:
         """Run every phase that is due. Returns {"ran": [...], "quiet": bool}."""
         now = now or self.clock()
@@ -545,6 +575,8 @@ class LifeLoop:
             if self._due(conn, "act", when):
                 self._act(conn, when)
                 ran.append("act")
+
+        self._checkpoint_wal(conn, when, quiet)
 
         return {"ran": ran, "quiet": quiet, "ts": when}
 
