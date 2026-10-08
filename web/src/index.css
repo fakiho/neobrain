@@ -1131,6 +1131,15 @@ input.tslider::-moz-range-thumb { width: 14px; height: 14px; background: #c8cbe0
 .dbg-table tr:last-child td { border-bottom: 0; }
 .dbg-summary { color: var(--text-dim); max-width: 420px; overflow-wrap: anywhere; }
 .dbg-note { margin: 8px 0 0; font-size: 11.5px; font-family: var(--mono); }
+.dbg-btn { font: inherit; font-size: 10.5px; letter-spacing: 0.6px; text-transform: uppercase; color: var(--text-muted); background: transparent; border: 1px solid var(--border); border-radius: 999px; padding: 3px 10px; cursor: pointer; }
+.dbg-btn:hover { color: var(--text); border-color: var(--border-strong); }
+.dbg-card h5 .dbg-btn { margin-left: auto; }
+.dbg-logs { max-height: 420px; overflow: auto; font-family: var(--mono); font-size: 11.5px; line-height: 1.5; color: var(--text-dim); }
+.dbg-log-line { white-space: pre-wrap; overflow-wrap: anywhere; padding: 0 2px; }
+.dbg-log-line.lvl-info { color: #8fb3ff; }
+.dbg-log-line.lvl-warn { color: #e8c66b; background: rgba(232, 198, 107, 0.06); }
+.dbg-log-line.lvl-error { color: #e08585; background: rgba(224, 133, 133, 0.09); }
+.dbg-log-line.lvl-debug { color: var(--text-muted); }
 .dbg-lane { font-size: 9.5px; letter-spacing: 1px; text-transform: uppercase; border: 1px solid var(--border); border-radius: 999px; padding: 1px 7px; color: var(--text-muted); }
 .dbg-lane-plugin { color: #8fb3ff; border-color: rgba(143, 179, 255, 0.4); }
 .dbg-lane-dashboard { color: #7fd18a; border-color: rgba(127, 209, 138, 0.35); }

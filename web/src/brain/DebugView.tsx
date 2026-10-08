@@ -74,6 +74,26 @@ const inMins = (ts?: number | null) => {
 }
 const shortSid = (sid?: string | null) => (sid ? sid.replace(/^ses_/, '').slice(0, 10) : '')
 const clock = (ts?: number | null) => (ts ? new Date(ts).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '—')
+// Severity of a journal line, for coloring: INFO / WARNING / ERROR (uvicorn and
+// Python logging both emit the level word before the message).
+const logLevel = (line: string) => {
+  const m = line.match(/\b(DEBUG|TRACE|INFO|WARNING|WARN|ERROR|CRITICAL|FATAL)\b/)
+  switch (m?.[1]) {
+    case 'ERROR':
+    case 'CRITICAL':
+    case 'FATAL':
+      return 'lvl-error'
+    case 'WARNING':
+    case 'WARN':
+      return 'lvl-warn'
+    case 'INFO':
+      return 'lvl-info'
+    case undefined:
+      return ''
+    default:
+      return 'lvl-debug'
+  }
+}
 const fmtUptime = (s?: number | null) => {
   if (s == null) return '—'
   const d = Math.floor(s / 86400)
@@ -119,6 +139,30 @@ export function DebugView() {
   const [reqs, setReqs] = useState<Req[]>([])
   const [injs, setInjs] = useState<Inj[]>([])
   const [err, setErr] = useState(false)
+  // Daemon journal is pulled on demand only — never in the 5s poll.
+  const [logs, setLogs] = useState<string[] | null>(null)
+  const [logsOpen, setLogsOpen] = useState(false)
+  const [logsErr, setLogsErr] = useState<string | null>(null)
+
+  const loadLogs = () => {
+    setLogs(null)
+    setLogsErr(null)
+    fetch('/api/debug/logs?lines=300')
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error('x'))))
+      .then((d) => {
+        setLogs(d.lines ?? [])
+        setLogsErr(d.error ?? null)
+      })
+      .catch(() => setLogsErr('fetch failed'))
+  }
+  const toggleLogs = () => {
+    if (logsOpen) {
+      setLogsOpen(false)
+      return
+    }
+    setLogsOpen(true)
+    loadLogs()
+  }
 
   useEffect(() => {
     let alive = true
@@ -170,7 +214,26 @@ export function DebugView() {
           </p>
         </div>
         <span className={`flag${err ? '' : ' on'}`}>{err ? 'daemon unreachable' : 'live · 5s'}</span>
+        <button className="dbg-btn" onClick={toggleLogs}>{logsOpen ? 'hide logs' : 'daemon logs'}</button>
       </header>
+
+      {logsOpen && (
+        <section className="dbg-card">
+          <h5>
+            Daemon logs — journal tail ({logs?.length ?? 0} lines)
+            <button className="dbg-btn" onClick={loadLogs}>refresh</button>
+          </h5>
+          {logsErr && <p className="muted">journal unavailable: {logsErr}</p>}
+          <div className="dbg-logs">
+            {logs
+              ? logs.map((l, i) => (
+                  <div key={i} className={`dbg-log-line ${logLevel(l)}`}>{l}</div>
+                ))
+              : <div className="dbg-log-line">loading…</div>}
+            {logs && logs.length === 0 && <div className="dbg-log-line">(no lines)</div>}
+          </div>
+        </section>
+      )}
 
       {!ov && <div className="muted" style={{ padding: 20 }}>loading…</div>}
 
