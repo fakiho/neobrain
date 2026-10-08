@@ -22,9 +22,9 @@ def _insert_atom(conn: sqlite3.Connection, atom_id: str) -> None:
     )
 
 
-def test_v1_to_v3_backfills_rank_rows(tmp_path):
+def test_v1_to_v4_backfills_rank_rows(tmp_path):
     conn = _connect(tmp_path / "v1.db")
-    conn.executescript(schema.SCHEMA)          # current (v3) schema...
+    conn.executescript(schema.SCHEMA)          # current (v4) schema...
     conn.execute("DROP TABLE m_rank")          # ...rewound to a v1 store
     conn.execute("PRAGMA user_version = 1")
     _insert_atom(conn, "a1")
@@ -32,8 +32,8 @@ def test_v1_to_v3_backfills_rank_rows(tmp_path):
     conn.commit()
     assert schema.user_version(conn) == 1
 
-    assert schema.migrate(conn, now=123) == 3
-    assert schema.user_version(conn) == 3
+    assert schema.migrate(conn, now=123) == 4
+    assert schema.user_version(conn) == 4
 
     rows = list(conn.execute(
         "SELECT atom_id,quality,served,interacted,last_served,state,state_since,updated "
@@ -47,7 +47,7 @@ def test_v1_to_v3_backfills_rank_rows(tmp_path):
         assert row["updated"] == 123
     # existing data intact; second migrate is a no-op
     assert conn.execute("SELECT COUNT(*) FROM m_atoms").fetchone()[0] == 2
-    assert schema.migrate(conn, now=999) == 3
+    assert schema.migrate(conn, now=999) == 4
     assert conn.execute("SELECT COUNT(*) FROM m_rank").fetchone()[0] == 2
     conn.close()
 
@@ -70,14 +70,14 @@ def test_migrate_preserves_existing_rank_state(tmp_path):
     conn.close()
 
 
-def test_fresh_init_is_v3(tmp_path, monkeypatch):
+def test_fresh_init_is_v4(tmp_path, monkeypatch):
     from neobrain import config
 
     monkeypatch.setattr(config, "DATA_DIR", tmp_path)
     conn = db.connect(tmp_path / "fresh.db")
     db.init_db(conn)
-    assert schema.user_version(conn) == 3
-    assert schema.USER_VERSION == 3
+    assert schema.user_version(conn) == 4
+    assert schema.USER_VERSION == 4
     assert conn.execute(
         "SELECT 1 FROM sqlite_master WHERE type='table' AND name='m_rank'").fetchone() is not None
     conn.close()
@@ -95,7 +95,7 @@ def test_v3_rebuild_realigns_fts_rowids(tmp_path):
     conn.execute("INSERT INTO events_fts(rowid,event_id,title,detail) VALUES(500,'ghost','stale','stale')")
     conn.commit()
 
-    assert schema.migrate(conn) == 3
+    assert schema.migrate(conn) == 4
 
     rows = list(conn.execute("SELECT rowid, event_id FROM events_fts"))
     assert len(rows) == 1 and rows[0]["event_id"] == "a"     # stale row gone
@@ -138,4 +138,53 @@ def test_rank_row_cascades_with_atom_delete(tmp_path):
     conn.commit()
     conn.execute("DELETE FROM m_atoms WHERE id='a1'")  # would raise without ON DELETE CASCADE
     assert conn.execute("SELECT COUNT(*) FROM m_rank WHERE atom_id='a1'").fetchone()[0] == 0
+    conn.close()
+
+
+def test_v4_adds_provenance_columns_to_pre_v4_store(tmp_path):
+    """A store built before v4 gains both columns via ALTER, not just the schema."""
+    conn = _connect(tmp_path / "pre4.db")
+    conn.executescript(
+        "CREATE TABLE m_atoms (id TEXT PRIMARY KEY, label TEXT NOT NULL, type TEXT NOT NULL, "
+        "created INTEGER NOT NULL, text TEXT, source TEXT, tags TEXT, weight REAL, hub TEXT, hash TEXT);"
+        "CREATE TABLE m_feedback (id INTEGER PRIMARY KEY AUTOINCREMENT, ts INTEGER NOT NULL, "
+        "atom_id TEXT NOT NULL, signal TEXT NOT NULL, source TEXT, session_id TEXT);"
+    )
+    conn.execute("PRAGMA user_version = 3")
+    conn.commit()
+    assert "session_id" not in {r[1] for r in conn.execute("PRAGMA table_info(m_atoms)")}
+
+    assert schema.migrate(conn) == 4
+    assert "session_id" in {r[1] for r in conn.execute("PRAGMA table_info(m_atoms)")}
+    assert "origin_session_id" in {r[1] for r in conn.execute("PRAGMA table_info(m_feedback)")}
+    conn.close()
+
+
+def test_v4_backfills_origin_session_from_source(tmp_path):
+    """Legacy atoms gain m_atoms.session_id from a `ses_` id in source; pseudo-sessions don't."""
+    conn = _connect(tmp_path / "v4.db")
+    conn.executescript(schema.SCHEMA)          # current schema, then rewind the stamp
+    conn.execute("PRAGMA user_version = 3")
+    for aid, src in (
+        ("a1", "session ses_abc123XYZ"),
+        ("a2", "session:ses_def456"),
+        ("a3", "session:embedding-switch"),
+        ("a4", None),
+    ):
+        conn.execute(
+            "INSERT INTO m_atoms(id,label,type,created,text,source,tags,weight,hub,hash) "
+            "VALUES(?,?,?,?,?,?,?,?,?,?)",
+            (aid, aid, "observation", 1, "t", src, "agent", 0.5, "agent", "h" + aid),
+        )
+    conn.commit()
+
+    assert schema.migrate(conn) == 4
+    got = dict(conn.execute("SELECT id, session_id FROM m_atoms"))
+    assert got["a1"] == "ses_abc123XYZ"
+    assert got["a2"] == "ses_def456"
+    assert got["a3"] is None      # pseudo-session, not a real id
+    assert got["a4"] is None
+    # idempotent: re-running the migration changes nothing
+    schema.migrate(conn)
+    assert dict(conn.execute("SELECT id, session_id FROM m_atoms")) == got
     conn.close()

@@ -33,11 +33,10 @@ Typecheck: `cd adapters/opencode/neoBrain-memory && npx tsc --noEmit` (config in
 | Variable | Default | Meaning |
 |---|---|---|
 | `NEOBRAIN_API` | `http://127.0.0.1:9192` | Base URL of the neoBrain daemon (mind API) |
-| `NEOBRAIN_RATING_GRACE_SECONDS` | `120` | How long a served memory may stay unrated before mind calls get blocked |
-| `NEOBRAIN_RATING_TIMEOUT_SECONDS` | `600` | After this, an unrated memory auto-clears (exposure with no verdict) |
 
-## Unrated-feedback protocol (SPEC §5)
+## In-turn rating (SPEC §5)
 
-- Every recall/search result surfaced to the model registers its atom ids as `pending` in an in-process map (id → first-served timestamp); `memory_rate` clears an entry immediately, valid verdict first, POST outcome irrelevant.
-- While a pending atom is older than the grace window, the next mind call (`memory_open`, `memory_search`, or the per-turn recall injection) returns an explicit BLOCKING notice listing the pending ids instead of results — nothing is silently dropped; the model rates with `memory_rate(id, "useful" \| "noise")` and retries. `memory_rate` itself is never gated.
-- Pending atoms older than the timeout are swept automatically (lazily, on each mind call — no background timer) and count as exposure with no verdict: no POST, since the mind API has no exposure endpoint yet (S4/S6 may add one).
+- The recall block asks the agent to rate, with `memory_rate(id, "useful" \| "noise")`, **only the memories it actually used**, as it finishes its reply. Unused entries are left unrated.
+- Rating is in-session and by the agent that used the memory: there is no cross-session state and no blocking gate. The former "unrated protocol" (a global pending ledger that blocked mind calls until rated) was removed — it forced a session to rate atoms another session had surfaced, and drove ratings to a near-constant `useful`.
+- Objective usage is still automatic: `memory_open(id)` posts a `used` signal on success.
+- Ratings are recorded against the rater's session *and* the memory's origin session (`m_atoms.session_id`, `m_feedback.origin_session_id`), so provenance is preserved on both ends.

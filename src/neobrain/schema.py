@@ -11,6 +11,7 @@ lazily from any module) is idempotent.
 """
 from __future__ import annotations
 
+import re
 import sqlite3
 
 from .models import now_ms
@@ -20,8 +21,16 @@ from .models import now_ms
 # SPEC §4.2/§4.3) as an *additive* migration. v3 rebuilds ``events_fts`` so its
 # rowids match ``events.rowid`` — the index is now addressed by rowid, because
 # deleting by the UNINDEXED ``event_id`` column scanned the whole index and
-# made a full ingest quadratic (see ``db.upsert_events``).
-USER_VERSION = 3
+# made a full ingest quadratic (see ``db.upsert_events``). v4 links a memory to
+# the session it was saved from: ``m_atoms.session_id`` (origin) and
+# ``m_feedback.origin_session_id`` (so a rating records both the rater and the
+# memory's home session).
+USER_VERSION = 4
+
+#: Origin session ids embedded in legacy ``m_atoms.source`` strings
+#: ("session ses_…", "session:ses_…", …). Only real ``ses_`` ids are matched;
+#: free-text pseudo-sessions like "session:embedding-switch" are left alone.
+_SESSION_RE = re.compile(r"ses_[A-Za-z0-9]+")
 
 SCHEMA = """
 -- Timeline store schema
@@ -121,7 +130,8 @@ CREATE TABLE IF NOT EXISTS ingest_runs (
 
 CREATE TABLE IF NOT EXISTS m_atoms (
   id TEXT PRIMARY KEY, label TEXT NOT NULL, type TEXT NOT NULL, created INTEGER NOT NULL,
-  text TEXT, source TEXT, tags TEXT, weight REAL DEFAULT 0.5, hub TEXT, hash TEXT
+  text TEXT, source TEXT, tags TEXT, weight REAL DEFAULT 0.5, hub TEXT, hash TEXT,
+  session_id TEXT
 );
 CREATE TABLE IF NOT EXISTS m_hubs (id TEXT PRIMARY KEY, label TEXT NOT NULL, created INTEGER);
 CREATE TABLE IF NOT EXISTS m_edges (
@@ -137,7 +147,7 @@ CREATE TABLE IF NOT EXISTS m_ops (
 );
 CREATE TABLE IF NOT EXISTS m_feedback (
   id INTEGER PRIMARY KEY AUTOINCREMENT, ts INTEGER NOT NULL, atom_id TEXT NOT NULL,
-  signal TEXT NOT NULL, source TEXT, session_id TEXT
+  signal TEXT NOT NULL, source TEXT, session_id TEXT, origin_session_id TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_m_feedback_atom ON m_feedback(atom_id);
 
@@ -209,16 +219,22 @@ def migrate(conn: sqlite3.Connection, now: int | None = None) -> int:
     v1 -> v2 applies the rank DDL and backfills one ``m_rank`` row per existing
     atom (quality 0.5, ``active``, zero counters). v2 -> v3 rebuilds the FTS
     index so its rowids match ``events.rowid`` (fixing the quadratic ingest).
+    v3 -> v4 adds the session-provenance columns (``m_atoms.session_id``,
+    ``m_feedback.origin_session_id``) and backfills the origin session from any
+    ``ses_`` id embedded in ``m_atoms.source``.
     A fresh/unmigrated store is completed with the full schema first.
     Idempotent: once stamped, later calls are a no-op. Returns the version.
     """
-    version = user_version(conn)
-    if version >= USER_VERSION:
-        return version
     if not conn.execute(
         "SELECT 1 FROM sqlite_master WHERE type='table' AND name='m_atoms'"
     ).fetchone():
         conn.executescript(SCHEMA)  # no floor table yet: build it first
+    # Column additions are idempotent and run before the version gate, so a
+    # store already stamped at an older version still gains the new columns.
+    _ensure_columns(conn)
+    version = user_version(conn)
+    if version >= USER_VERSION:
+        return version
     conn.executescript(RANK_DDL)
     if version < 2:
         ts = now if now is not None else now_ms()
@@ -230,9 +246,40 @@ def migrate(conn: sqlite3.Connection, now: int | None = None) -> int:
         )
     if version < 3:
         conn.executescript(FTS_REBUILD)
+    if version < 4:
+        _backfill_origin_sessions(conn)
     conn.execute(f"PRAGMA user_version = {USER_VERSION}")
     conn.commit()
     return USER_VERSION
+
+
+def _columns(conn: sqlite3.Connection, table: str) -> set[str]:
+    """The column names currently present on ``table``."""
+    return {r[1] for r in conn.execute(f"PRAGMA table_info({table})")}
+
+
+def _ensure_columns(conn: sqlite3.Connection) -> None:
+    """Add the v4 provenance columns to a pre-v4 store (no-op once present)."""
+    if "session_id" not in _columns(conn, "m_atoms"):
+        conn.execute("ALTER TABLE m_atoms ADD COLUMN session_id TEXT")
+    if "origin_session_id" not in _columns(conn, "m_feedback"):
+        conn.execute("ALTER TABLE m_feedback ADD COLUMN origin_session_id TEXT")
+
+
+def _backfill_origin_sessions(conn: sqlite3.Connection) -> None:
+    """Recover ``m_atoms.session_id`` from legacy ``source`` text, once.
+
+    Only atoms still missing a session are touched, and only when ``source``
+    contains a real ``ses_`` id — so a re-run is a no-op and pseudo-sessions
+    ("session:embedding-switch") are never mistaken for one.
+    """
+    rows = conn.execute(
+        "SELECT id, source FROM m_atoms WHERE session_id IS NULL AND source IS NOT NULL"
+    ).fetchall()
+    for atom_id, source in rows:
+        m = _SESSION_RE.search(source or "")
+        if m:
+            conn.execute("UPDATE m_atoms SET session_id=? WHERE id=?", (m.group(0), atom_id))
 
 
 def user_version(conn: sqlite3.Connection) -> int:
