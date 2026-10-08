@@ -16,6 +16,17 @@ interface Memory {
   tags: string[]
   weight: number
   origin: string
+  // provenance + rank (m_atoms.session_id / m_rank / m_feedback)
+  session_id: string | null
+  quality: number
+  state: string
+  served: number
+  interacted: number
+  last_served: number | null
+  used: number
+  useful: number
+  noise: number
+  ranked: boolean
 }
 
 // how each memory got into the mind (matches mind._origin)
@@ -63,6 +74,18 @@ function dayLabel(ms: number): string {
 const fmtDay = (ms: number) =>
   new Date(ms).toLocaleDateString(undefined, { month: 'short', day: '2-digit' })
 
+// "last used" — when the memory was last served to an agent (m_rank.last_served).
+const sinceLabel = (ms?: number | null): string => {
+  if (!ms) return 'never'
+  const s = Math.max(0, Math.round((Date.now() - ms) / 1000))
+  if (s < 60) return 'just now'
+  const m = Math.round(s / 60)
+  if (m < 60) return `${m}m ago`
+  const h = Math.round(m / 60)
+  if (h < 48) return `${h}h ago`
+  return `${Math.round(h / 24)}d ago`
+}
+
 function MemoryCard({ m, onOpen }: { m: Memory; onOpen: (id: string) => void }) {
   const [expanded, setExpanded] = useState(false)
   const [overflowing, setOverflowing] = useState(false)
@@ -106,6 +129,21 @@ function MemoryCard({ m, onOpen }: { m: Memory; onOpen: (id: string) => void }) 
         </>
       )}
       <div className="mc-foot">
+        {/* rank: state + quality, or an explicit "unranked" when no signal exists */}
+        <span
+          className={'mc-rank' + (m.ranked ? '' : ' unranked') + (m.state !== 'active' ? ' ' + m.state : '')}
+          title={`quality ${m.quality.toFixed(2)} · served ${m.served} · interacted ${m.interacted} · useful ${m.useful} / noise ${m.noise}`}
+        >
+          {m.ranked ? `${m.state} · ${m.quality.toFixed(2)}` : 'unranked'}
+        </span>
+        <span className="mc-used mono" title={m.last_served ? new Date(m.last_served).toLocaleString() : 'never served'}>
+          used {sinceLabel(m.last_served)}
+        </span>
+        {m.session_id && (
+          <span className="mc-sid mono" title={`saved from ${m.session_id}`}>
+            from {m.session_id.replace(/^ses_/, '').slice(0, 10)}
+          </span>
+        )}
         {m.source && <span className="mc-src mono">{m.source}</span>}
         {m.tags.map((t) => <span className="obs-tag" key={t}>#{t}</span>)}
         <div style={{ flex: 1 }} />

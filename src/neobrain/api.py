@@ -8,6 +8,7 @@ from __future__ import annotations
 import json
 import os
 import sqlite3
+import subprocess
 import threading
 import time
 from collections import deque
@@ -615,6 +616,27 @@ def debug_requests(limit: int = Query(200, le=500)) -> dict:
     return {"requests": list(_TRACE)[-limit:], "buffer": len(_TRACE), "maxlen": _TRACE.maxlen}
 
 
+@app.get("/api/debug/logs")
+def debug_logs(lines: int = Query(300, ge=1, le=2000)) -> dict:
+    """Tail of this daemon's journal — fetched on demand, never polled.
+
+    The daemon's stdout/stderr go to the systemd journal; this is a read-only
+    window for the Debug tab. Best-effort: a missing journalctl or a denied
+    journal comes back as an ``error`` string with an empty list, not a 500.
+    """
+    unit = "neobrain.service"
+    try:
+        proc = subprocess.run(
+            ["journalctl", "--user", "-u", unit, "-n", str(lines), "--no-pager", "-o", "short-iso"],
+            capture_output=True, text=True, timeout=5,
+        )
+    except Exception as exc:  # noqa: BLE001 - logs are a convenience, never fatal
+        return {"unit": unit, "lines": [], "count": 0, "error": f"{type(exc).__name__}: {exc}"}
+    rows = [ln for ln in (proc.stdout or "").splitlines() if ln.strip()]
+    err = (proc.stderr or "").strip() if proc.returncode != 0 else None
+    return {"unit": unit, "lines": rows, "count": len(rows), "error": err}
+
+
 # Client-side lane pushes: the OpenCode plugin reports every injection it makes
 # into the system prompt (wakeup / persona / directives / recall / gate notice).
 # The daemon cannot observe these otherwise — they are its one blind spot — so
@@ -652,6 +674,42 @@ def debug_injections(limit: int = Query(200, le=500)) -> dict:
     return {"injections": list(_INJECTIONS)[-limit:], "buffer": len(_INJECTIONS), "maxlen": _INJECTIONS.maxlen}
 
 
+def _process_start_ms() -> Optional[int]:
+    """This process's start time (epoch ms) from /proc, or None off-Linux."""
+    try:
+        with open("/proc/self/stat", "rb") as fh:
+            stat = fh.read().decode("ascii", "replace")
+        fields = stat[stat.rfind(")") + 2:].split()  # drop "pid (comm) "
+        ticks = int(fields[19])  # stat field 22 = starttime (fields[0] is field 3)
+        with open("/proc/uptime") as fh:
+            uptime_s = float(fh.read().split()[0])
+        return int((time.time() - uptime_s + ticks / os.sysconf("SC_CLK_TCK")) * 1000)
+    except Exception:  # noqa: BLE001 - status is best-effort
+        return None
+
+
+def _daemon_status() -> dict:
+    """How this daemon runs: pid/uptime and whether systemd supervises it.
+
+    systemd sets ``INVOCATION_ID`` for a unit's process, so its presence is the
+    reliable "supervised" signal — an orphan started outside systemd has it
+    unset and therefore no ``Restart=`` protection.
+    """
+    started = _process_start_ms()
+    invocation = os.environ.get("INVOCATION_ID")
+    return {
+        "pid": os.getpid(),
+        "started_at": started,
+        "uptime_s": int(time.time() - started / 1000) if started else None,
+        "supervised": bool(invocation),
+        "manager": "systemd --user" if invocation else "none (orphan — no restart on crash)",
+        "service": "neobrain.service",
+        "bind": config.settings.bind,
+        "api": config.settings.api,
+        "life_enabled": _life_enabled(),
+    }
+
+
 @app.get("/api/debug/overview")
 def debug_overview() -> dict:
     conn = _conn()
@@ -667,6 +725,12 @@ def debug_overview() -> dict:
         "events": one("SELECT COUNT(*) FROM events"),
         "ops_today": one(f"SELECT COUNT(*) FROM m_ops WHERE ts >= {day_start}"),
         "feedback_24h": one(f"SELECT COUNT(*) FROM m_feedback WHERE ts >= {now_ms_ - 86_400_000}"),
+        # Atoms with no quality signal at all: their rank sits at the 0.5 prior,
+        # so the Observatory flags them as unranked rather than scored.
+        "unranked": one(
+            "SELECT COUNT(*) FROM m_atoms a WHERE NOT EXISTS "
+            "(SELECT 1 FROM m_feedback f WHERE f.atom_id = a.id)"
+        ),
     }
     rank_states = [dict(r) for r in conn.execute("SELECT state, COUNT(*) AS n FROM m_rank GROUP BY state ORDER BY n DESC")]
     atom_types = [dict(r) for r in conn.execute("SELECT type, COUNT(*) AS n FROM m_atoms GROUP BY type ORDER BY n DESC")]
@@ -677,7 +741,9 @@ def debug_overview() -> dict:
         dict(r) for r in conn.execute("SELECT ts, op, atom_id, label, query, session_id FROM m_ops ORDER BY id DESC LIMIT 40")
     ]
     feedback = [
-        dict(r) for r in conn.execute("SELECT ts, atom_id, signal, source, session_id FROM m_feedback ORDER BY id DESC LIMIT 20")
+        dict(r) for r in conn.execute(
+            "SELECT ts, atom_id, signal, source, session_id, origin_session_id "
+            "FROM m_feedback ORDER BY id DESC LIMIT 20")
     ]
     ingest = [
         dict(r)
@@ -758,6 +824,7 @@ def debug_overview() -> dict:
     conn.close()
     return {
         "now": now_ms_,
+        "daemon": _daemon_status(),
         "counts": counts,
         "rank_states": rank_states,
         "atom_types": atom_types,

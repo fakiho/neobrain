@@ -27,12 +27,23 @@ type Inj = {
 
 type Overview = {
   now: number
+  daemon: {
+    pid: number
+    started_at: number | null
+    uptime_s: number | null
+    supervised: boolean
+    manager: string
+    service: string
+    bind: string
+    api: string
+    life_enabled: boolean
+  }
   counts: Record<string, number>
   rank_states: { state: string; n: number }[]
   atom_types: { type: string; n: number }[]
   ops_today: { op: string; n: number }[]
   recent_ops: { ts: number; op: string; atom_id: string | null; label: string | null; query: string | null; session_id: string | null }[]
-  feedback: { ts: number; atom_id: string; signal: string; source: string; session_id: string | null }[]
+  feedback: { ts: number; atom_id: string; signal: string; source: string; session_id: string | null; origin_session_id: string | null }[]
   ingest: { started_at: number; finished_at: number | null; source: string; added: number; updated: number; errors: number; note: string | null }[]
   phases: { phase: string; every_minutes: number; last: { ts: number; summary: string; next_due: number } | null }[]
   quiet_now: boolean
@@ -63,6 +74,35 @@ const inMins = (ts?: number | null) => {
 }
 const shortSid = (sid?: string | null) => (sid ? sid.replace(/^ses_/, '').slice(0, 10) : '')
 const clock = (ts?: number | null) => (ts ? new Date(ts).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '—')
+// Severity of a journal line, for coloring: INFO / WARNING / ERROR (uvicorn and
+// Python logging both emit the level word before the message).
+const logLevel = (line: string) => {
+  const m = line.match(/\b(DEBUG|TRACE|INFO|WARNING|WARN|ERROR|CRITICAL|FATAL)\b/)
+  switch (m?.[1]) {
+    case 'ERROR':
+    case 'CRITICAL':
+    case 'FATAL':
+      return 'lvl-error'
+    case 'WARNING':
+    case 'WARN':
+      return 'lvl-warn'
+    case 'INFO':
+      return 'lvl-info'
+    case undefined:
+      return ''
+    default:
+      return 'lvl-debug'
+  }
+}
+const fmtUptime = (s?: number | null) => {
+  if (s == null) return '—'
+  const d = Math.floor(s / 86400)
+  const h = Math.floor((s % 86400) / 3600)
+  const m = Math.floor((s % 3600) / 60)
+  if (d) return `${d}d ${h}h`
+  if (h) return `${h}h ${m}m`
+  return `${m}m`
+}
 
 const OP_COLOR: Record<string, string> = {
   store: '#7fd18a',
@@ -99,6 +139,30 @@ export function DebugView() {
   const [reqs, setReqs] = useState<Req[]>([])
   const [injs, setInjs] = useState<Inj[]>([])
   const [err, setErr] = useState(false)
+  // Daemon journal is pulled on demand only — never in the 5s poll.
+  const [logs, setLogs] = useState<string[] | null>(null)
+  const [logsOpen, setLogsOpen] = useState(false)
+  const [logsErr, setLogsErr] = useState<string | null>(null)
+
+  const loadLogs = () => {
+    setLogs(null)
+    setLogsErr(null)
+    fetch('/api/debug/logs?lines=300')
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error('x'))))
+      .then((d) => {
+        setLogs(d.lines ?? [])
+        setLogsErr(d.error ?? null)
+      })
+      .catch(() => setLogsErr('fetch failed'))
+  }
+  const toggleLogs = () => {
+    if (logsOpen) {
+      setLogsOpen(false)
+      return
+    }
+    setLogsOpen(true)
+    loadLogs()
+  }
 
   useEffect(() => {
     let alive = true
@@ -150,7 +214,26 @@ export function DebugView() {
           </p>
         </div>
         <span className={`flag${err ? '' : ' on'}`}>{err ? 'daemon unreachable' : 'live · 5s'}</span>
+        <button className="dbg-btn" onClick={toggleLogs}>{logsOpen ? 'hide logs' : 'daemon logs'}</button>
       </header>
+
+      {logsOpen && (
+        <section className="dbg-card">
+          <h5>
+            Daemon logs — journal tail ({logs?.length ?? 0} lines)
+            <button className="dbg-btn" onClick={loadLogs}>refresh</button>
+          </h5>
+          {logsErr && <p className="muted">journal unavailable: {logsErr}</p>}
+          <div className="dbg-logs">
+            {logs
+              ? logs.map((l, i) => (
+                  <div key={i} className={`dbg-log-line ${logLevel(l)}`}>{l}</div>
+                ))
+              : <div className="dbg-log-line">loading…</div>}
+            {logs && logs.length === 0 && <div className="dbg-log-line">(no lines)</div>}
+          </div>
+        </section>
+      )}
 
       {!ov && <div className="muted" style={{ padding: 20 }}>loading…</div>}
 
@@ -163,8 +246,30 @@ export function DebugView() {
             {stat('links', ov.counts.edges)}
             {stat('mind ops today', ov.counts.ops_today)}
             {stat('feedback 24h', ov.counts.feedback_24h)}
+            {stat('unranked', ov.counts.unranked)}
             {stat('atoms by state', ov.rank_states.map((r) => `${r.state} ${r.n}`).join(' · ') || '—')}
           </div>
+
+          {/* ---- daemon status ---- */}
+          <section className="dbg-card">
+            <h5>
+              Daemon — the process serving this page
+              {ov.daemon.supervised
+                ? <span className="flag on">supervised · {ov.daemon.manager}</span>
+                : <span className="flag">not supervised — orphan, no restart on crash</span>}
+            </h5>
+            <div className="dbg-stats">
+              {stat('pid', ov.daemon.pid)}
+              {stat('uptime', fmtUptime(ov.daemon.uptime_s))}
+              {stat('started', ov.daemon.started_at ? clock(ov.daemon.started_at) : '—')}
+              {stat('bind', ov.daemon.bind)}
+              {stat('life loop', ov.daemon.life_enabled ? 'on' : 'off')}
+            </div>
+            <p className="muted dbg-note">
+              unit <span className="mono">{ov.daemon.service}</span> · supervised means systemd owns this pid, so
+              {' '}<span className="mono">Restart=</span> brings it back after a crash. An orphan keeps serving but is never restarted.
+            </p>
+          </section>
 
           {/* ---- life loop ---- */}
           <section className="dbg-card">
@@ -285,7 +390,7 @@ export function DebugView() {
               <div className="dbg-scroll">
                 <table className="dbg-table">
                   <thead>
-                    <tr><th>when</th><th>atom</th><th>verdict</th><th>source</th></tr>
+                    <tr><th>when</th><th>atom</th><th>verdict</th><th>source</th><th>rater → origin</th></tr>
                   </thead>
                   <tbody>
                     {ov.feedback.map((f, i) => (
@@ -294,9 +399,10 @@ export function DebugView() {
                         <td className="mono">{f.atom_id}</td>
                         <td style={{ color: f.signal === 'useful' ? '#7fd18a' : f.signal === 'noise' ? '#e08585' : 'var(--text)' }}>{f.signal}</td>
                         <td className="mono">{f.source}</td>
+                        <td className="mono">{shortSid(f.session_id) || '—'}{f.origin_session_id ? ` → ${shortSid(f.origin_session_id)}` : ''}</td>
                       </tr>
                     ))}
-                    {ov.feedback.length === 0 && <tr><td colSpan={4} className="muted">no verdicts yet</td></tr>}
+                    {ov.feedback.length === 0 && <tr><td colSpan={5} className="muted">no verdicts yet</td></tr>}
                   </tbody>
                 </table>
               </div>
