@@ -45,13 +45,14 @@ PHASES = ("light", "rem", "deep")
 
 # PORT-NOTE: dream.sh selected these model tiers per phase (light=cheap,
 # rem/deep=strong). Mapped onto settings.llm_model_cheap / llm_model_strong.
-MODEL_BY_PHASE = {"light": "cheap", "rem": "strong", "deep": "strong"}
-TEMPERATURE_BY_PHASE = {"light": 0.2, "rem": 0.9, "deep": 0.3}
+MODEL_BY_PHASE = {"light": "cheap", "rem": "strong", "deep": "strong", "reflect": "strong"}
+TEMPERATURE_BY_PHASE = {"light": 0.2, "rem": 0.9, "deep": 0.3, "reflect": 0.7}
 # rem/deep budgets are generous because the strong tier is a reasoning model:
 # it spends tokens on hidden reasoning before answering, and the first
 # in-process night (2026-10-01) returned empty content (finish_reason=length)
-# at the old 900/1400 budgets.
-MAX_TOKENS_BY_PHASE = {"light": 1200, "rem": 4000, "deep": 8000}
+# at the old 900/1400 budgets. reflect echoes the whole IDENTITY.md + SOUL.md
+# back as JSON, so it needs headroom too (the old flat 2000 starved it).
+MAX_TOKENS_BY_PHASE = {"light": 1200, "rem": 4000, "deep": 8000, "reflect": 4000}
 
 _DIARY_START = "<!-- openclaw:dreaming:diary:start -->"
 _DIARY_END = "<!-- openclaw:dreaming:diary:end -->"
@@ -392,7 +393,7 @@ _TOOL_MARK = "<｜DSML｜"
 # model"): the other tier answers when the phase's own tier fails. rem/deep
 # fall back to the cheap flash tier — a non-reasoning model that always emits
 # content, the antidote to the empty-content failure; light falls back to strong.
-FALLBACK_TIER_BY_PHASE = {"light": "strong", "rem": "cheap", "deep": "cheap"}
+FALLBACK_TIER_BY_PHASE = {"light": "strong", "rem": "cheap", "deep": "cheap", "reflect": "cheap"}
 
 
 def _try_chat_fallback(
@@ -452,6 +453,120 @@ def _recent_dreams(path: Path) -> str:
         if inside:
             lines.append(line)
     return "\n".join(lines)[-1800:]
+
+
+# --- reflect evidence + context-window compaction ---------------------------
+# The reflect prompt asks the model to read DREAMS.md and memory/dreaming/rem
+# for "recent character", but the runner (not the model) does the reading, so
+# the runner must inline that evidence — and keep the prompt bounded as the
+# diary grows. Compaction here is a read-only projection of the prompt: every
+# entry keeps its id line (the diary date marker / the rem file stem) and only
+# the body is dropped, so no referenceable id is lost or altered and the stored
+# atoms are never touched.
+
+
+def _diary_entries(path: Path) -> list[tuple[str, str]]:
+    """Split the DREAMS.md diary into ``(id, body)`` entries, oldest first.
+
+    ``id`` is the ``*<Month> <day>, <year> at <time>*`` marker line so a
+    compacted entry still carries the identity a reflection can cite.
+    """
+    try:
+        text = path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return []
+    start = text.find(_DIARY_START)
+    end = text.find(_DIARY_END)
+    if start != -1:
+        block = text[start + len(_DIARY_START): end if end != -1 else len(text)]
+    else:
+        block = text
+    entries: list[tuple[str, str]] = []
+    for chunk in block.split("\n---\n"):
+        lines = chunk.strip("\n").splitlines()
+        if not any(line.strip() for line in lines):
+            continue
+        id_line, body_start = "", 0
+        for i, line in enumerate(lines):
+            s = line.strip()
+            if s.startswith("*") and s.endswith("*") and " at " in s:
+                id_line, body_start = s, i + 1
+                break
+        if not id_line:
+            id_line, body_start = (lines[0].strip() if lines else "(untitled entry)"), 1
+        entries.append((id_line, "\n".join(lines[body_start:]).strip()))
+    return entries
+
+
+def _rem_entries(root: Path, limit: int = 14) -> list[tuple[str, str]]:
+    """Recent REM notes as ``(id, body)``, oldest first; id = the note's date."""
+    try:
+        files = sorted((root / "rem").glob("*.md"))[-limit:]
+    except OSError:
+        return []
+    entries: list[tuple[str, str]] = []
+    for path in files:
+        try:
+            body = path.read_text(encoding="utf-8", errors="replace").strip()
+        except OSError:
+            continue
+        entries.append((f"### rem {path.stem}", body))
+    return entries
+
+
+def _compact_mark(dropped: int) -> str:
+    if dropped > 0:
+        return f"[… {dropped} chars compacted; id kept]"
+    return "[… body compacted; id kept]"
+
+
+def _compact_entries(entries: list[tuple[str, str]], budget: int) -> str:
+    """Render ``(id, body)`` entries newest-first within ``budget`` chars.
+
+    Every entry keeps its id line; bodies are kept whole newest-first and the
+    overflow is replaced by a marker. Read-only: nothing stored is modified.
+    """
+    kept: list[str] = []
+    remaining = budget
+    for id_line, body in reversed(entries):  # newest first
+        block = f"{id_line}\n{body}"
+        if remaining >= len(block):
+            kept.append(block)
+            remaining -= len(block)
+        elif remaining > len(id_line) + 1:
+            head = body[: remaining - len(id_line) - 1].rstrip()
+            kept.append(f"{id_line}\n{head}\n{_compact_mark(len(body) - len(head))}")
+            remaining = 0
+        else:
+            kept.append(f"{id_line}\n{_compact_mark(len(body))}")
+            remaining = 0
+    return "\n\n".join(kept)
+
+
+def _reflect_context(identity: Path, soul: Path, user: Path) -> str:
+    """The inlined reflect context: persona files (whole) + compacted evidence.
+
+    The persona files are the edit targets and are never compacted; only the
+    DREAMS/rem evidence is bounded, so the prompt fits the window while keeping
+    every id it might reference.
+    """
+    persona: list[str] = []
+    for label, path in (("IDENTITY.md", identity), ("SOUL.md", soul), ("USER.md", user)):
+        try:
+            content = path.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            content = "(missing)"
+        persona.append(f"### {label}\n{content}")
+    budget = int(getattr(config.settings, "reflect_context_chars", 12000))
+    entries = _diary_entries(dreams_path()) + _rem_entries(_dream_root())
+    evidence = _compact_entries(entries, budget) or "(no dream diary yet)"
+    return (
+        "--- current files (inlined by the runner) ---\n"
+        + "\n\n".join(persona)
+        + "\n\n--- recent character: DREAMS.md + memory/dreaming/rem "
+          "(inlined by the runner; newest whole, older bodies compacted, ids kept) ---\n"
+        + evidence
+    )
 
 
 def _strip_leading(text: str) -> str:
@@ -810,20 +925,19 @@ def _reflect(conn: sqlite3.Connection, runtime: Any, *, now: Optional[datetime] 
     identity = persona / "IDENTITY.md"
     soul = persona / "SOUL.md"
 
-    # PORT-NOTE: the reference let the agent read IDENTITY.md / SOUL.md / USER.md
-    # with tools; the runner inlines the current persona files into the prompt.
-    # The old target directory was /home/sparo (= WORKSPACE when configured).
-    sections: list[str] = []
-    for label, path in (("IDENTITY.md", identity), ("SOUL.md", soul), ("USER.md", persona / "USER.md")):
-        try:
-            content = path.read_text(encoding="utf-8", errors="replace")
-        except OSError:
-            content = "(missing)"
-        sections.append(f"### {label}\n{content}")
-    context = "--- current files (inlined by the runner) ---\n" + "\n\n".join(sections)
+    # PORT-NOTE: the reference let the agent read IDENTITY.md / SOUL.md /
+    # USER.md and DREAMS.md / memory/dreaming/rem with tools; the runner inlines
+    # them instead (persona whole, dream evidence compacted to the window). The
+    # old target directory was /home/sparo (= WORKSPACE when configured).
+    context = _reflect_context(identity, soul, persona / "USER.md")
     prompt = REFLECT_PROMPT.replace("$DATE", date) + "\n" + context + "\n" + REFLECT_MACHINE_CONTRACT
 
-    text, err = _try_chat(runtime, prompt, model="strong", temperature=0.7, max_tokens=2000, json_mode=True)
+    # Route through the LiteLLM tiers with fallback (strong → cheap), like the
+    # dream phases: the strong tier is a reasoning model that can return empty
+    # content, and an empty answer must never be mistaken for "no changes".
+    text, err, used = _try_chat_fallback(runtime, prompt, phase="reflect", json_mode=True)
+    if not err and not (text or "").strip():
+        err = "empty answer from both tiers"
     written: list[str] = []
     changes: list[dict] = []
     if text:
@@ -872,12 +986,13 @@ def _reflect(conn: sqlite3.Connection, runtime: Any, *, now: Optional[datetime] 
         severity = "info"
         summary = "soul reflection: no changes"
     _emit(conn, "life: soul-reflect", when, summary=summary, severity=severity,
-          extra={"date": date, "files": written, "changes": len(changes), "stored": stored})
+          extra={"date": date, "files": written, "changes": len(changes), "stored": stored, "model": used})
     return {
         "status": "ok" if not err else "error",
         "date": date,
         "files": written,
         "changes": len(changes),
         "stored": stored,
+        "model": used,
         "error": err,
     }

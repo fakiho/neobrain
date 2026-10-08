@@ -9,11 +9,12 @@
 //      inject a compact ordered index (best hit expanded); escalated on intent.
 //   3. Tools: memory_open(id) / memory_search(query) / memory_rate(id, verdict).
 //
-// Unrated-feedback protocol (SPEC §5, new in this port): every recall/search
-// result surfaced to the model registers its atom ids as `pending`. While a
-// pending atom stays unrated past the grace window, the next mind call gets a
-// BLOCKING notice instead of results; past the timeout it auto-clears as
-// exposure with no verdict. Deterministic — no model discretion involved.
+// Rating is in-turn and in-session: the recall block asks the agent to rate,
+// via memory_rate, only the atoms it actually used, as it finishes its reply.
+// Nothing is gated or blocked, and no cross-session state is kept — a session
+// can only ever rate what it surfaced and used itself. (The former blocking
+// "unrated protocol" was removed: it forced a session to rate atoms another
+// session had surfaced, and drove ratings to a near-constant "useful".)
 //
 // PORT-NOTE: mechanical port of ~/.opencode/plugins/timeline-memory/index.ts
 // (timeline → neoBrain rebrand). The source had no imports and no types —
@@ -64,15 +65,6 @@ type PluginContext = {
 // default was already http://127.0.0.1:9192, so the default value is unchanged.
 const API = process.env.NEOBRAIN_API ?? "http://127.0.0.1:9192"
 
-// PORT-NOTE (SPEC §5, new): protocol tuning, env-overridable.
-const GRACE_MS = ratingMs(process.env.NEOBRAIN_RATING_GRACE_SECONDS, 120)
-const TIMEOUT_MS = ratingMs(process.env.NEOBRAIN_RATING_TIMEOUT_SECONDS, 600)
-
-function ratingMs(raw: string | undefined, fallbackSeconds: number): number {
-  const n = Number(raw)
-  return Number.isFinite(n) && n > 0 ? n * 1000 : fallbackSeconds * 1000
-}
-
 // Curated types auto-inject on ordinary turns (OpenClaw restricts auto-injection
 // to its curated tier too); observations/dreams/events only surface on intent.
 const CURATED = new Set(["preference", "lesson", "decision"])
@@ -103,10 +95,6 @@ const DIRECTIVES_N = Number(process.env.NEOBRAIN_DIRECTIVES_N ?? 8)
 const DIRECTIVES_CHARS = Number(process.env.NEOBRAIN_DIRECTIVES_CHARS ?? 1000)
 const DIRECTIVE_LINE = 180
 
-// PORT-NOTE (SPEC §5, new): the unrated ledger shared by all lanes and tools —
-// atom id → Date.now() when first served without a verdict.
-type Unrated = Map<string, number>
-
 // Debug trace (test phase): default ON so every lane shows what it actually
 // did. NEOBRAIN_DEBUG=0 silences. Output lands in the OpenCode server log
 // (journalctl -u opencode.service), every line prefixed [neobrain-memory].
@@ -115,59 +103,6 @@ const dbg = (msg: string) => {
   if (DEBUG) console.error(`[neobrain-memory] ${new Date().toISOString().slice(11, 23)} ${msg}`)
 }
 const sidShort = (sid?: string) => (sid ? sid.slice(0, 16) : "nosid")
-
-// PORT-NOTE (SPEC §5, new): register a surfaced atom as pending. The first
-// timestamp wins — re-serving an already-pending atom does not reset the clock.
-function markPending(ledger: Unrated, atomId: string) {
-  if (!ledger.has(atomId)) {
-    ledger.set(atomId, Date.now())
-    dbg(`pending + ${atomId} (${ledger.size} awaiting verdict)`)
-  }
-}
-
-// PORT-NOTE (SPEC §5, new): auto-fallback — pending atoms older than the
-// timeout clear as "exposure with no verdict". Nothing is POSTed: the mind API
-// has no exposure endpoint (checked the timeline app/api.py routes); if S4/S6
-// adds one, only this function changes. Swept lazily on every protocol check —
-// no background timer, matching the source's timer-free style.
-function sweepExpired(ledger: Unrated) {
-  const now = Date.now()
-  for (const [id, since] of ledger)
-    if (now - since >= TIMEOUT_MS) {
-      ledger.delete(id)
-      dbg(`expired, no verdict: ${id} (exposure without rating — not counted as a quality signal)`)
-    }
-}
-
-// PORT-NOTE (SPEC §5, new): pending ids past the grace window — these block.
-function overdue(ledger: Unrated): [string, number][] {
-  const now = Date.now()
-  const blocked: [string, number][] = []
-  for (const [id, since] of ledger) if (now - since >= GRACE_MS) blocked.push([id, now - since])
-  return blocked
-}
-
-// PORT-NOTE (SPEC §5, new): the deterministic blocking notice. Results are
-// withheld — the query is never silently dropped — and memory_rate is never
-// gated (it clears entries, so rating always unblocks).
-function blockNotice(entries: [string, number][]): string {
-  const list = entries.map(([id, ageMs]) => `- ${id} (unrated for ${Math.round(ageMs / 1000)}s)`).join("\n")
-  return [
-    `[memory protocol — BLOCKED] ${entries.length} served ${entries.length === 1 ? "memory is" : "memories are"} unrated for over ${Math.round(GRACE_MS / 1000)}s:`,
-    list,
-    `Rate each with memory_rate(id, "useful" | "noise") to unblock; unrated memories auto-clear as exposure-without-verdict after ${Math.round(TIMEOUT_MS / 1000)}s.`,
-    "This call was withheld — nothing was fetched. Retry after rating.",
-  ].join("\n")
-}
-
-// PORT-NOTE (SPEC §5, new): the deterministic gate every mind call runs first
-// (after input validation, before any fetch). Returns the notice, or null.
-function gate(ledger: Unrated): string | null {
-  sweepExpired(ledger)
-  const entries = overdue(ledger)
-  if (entries.length) dbg(`GATE blocked (${entries.length} overdue): ${entries.map(([id]) => id).join(", ")}`)
-  return entries.length ? blockNotice(entries) : null
-}
 
 function oneLine(s: unknown): string {
   return String(s ?? "").replace(/\s+/g, " ").trim()
@@ -219,7 +154,7 @@ function renderRecall(atoms: RecallAtom[], query: string, escalated: boolean) {
   const top = atoms[0]
   const topHead = `Top hit [${top.id}] ${oneLine(top.type)} · ${oneLine(top.hub)} — ${oneLine(top.label).slice(0, IDX_LABEL)}`
   const topText = oneLine(top.text)
-  const hint = `If a memory above helped, call memory_rate(id, "useful"); if it misled you, "noise".`
+  const hint = `Before you finish, rate only the memories you actually used: memory_rate(id, "useful") if one helped, "noise" if it misled you. Leave the rest unrated.`
   const footer = `showing ${entries.length} of ${atoms.length} — open one with memory_open(id), or memory_search(query) for more.`
 
   // Reserve the fixed lines, give the remaining budget to the #1 hit's text.
@@ -234,8 +169,7 @@ type DirectiveAtom = { id?: string; label?: string; text?: string; type?: string
 
 // Standing directives: a compact imperative block of the pinned must-follow
 // rules. Unlike the recall index this carries no atom ids the model is asked to
-// rate — it is a push-only lane (same contract as the wake-up pack), so it never
-// registers pending and never trips the unrated gate.
+// rate — it is a push-only lane (same contract as the wake-up pack).
 function renderDirectives(pack: { pinned?: boolean; atoms?: DirectiveAtom[] } | null) {
   const atoms = (pack?.atoms ?? []).filter((a) => oneLine(a.text))
   if (!atoms.length) return null
@@ -323,8 +257,7 @@ function formatAtom(a: RecallAtom & { source?: string; tags?: string[]; weight?:
 
 // Read-only pull tools. Best effort: a registration failure must never break the
 // push lanes, so the caller wraps this in try/catch.
-// PORT-NOTE: now receives the shared unrated ledger (SPEC §5 protocol state).
-async function registerTools(ctx: PluginContext, ledger: Unrated) {
+async function registerTools(ctx: PluginContext) {
   // non-null: the caller guards on ctx.tool?.transform before invoking this
   await ctx.tool!.transform((editor) => {
     editor.namespace({ name: "memory", description: "neoBrain durable memory (read-only)" })
@@ -344,18 +277,11 @@ async function registerTools(ctx: PluginContext, ledger: Unrated) {
       execute: async (input, context) => {
         const id = String(input?.id ?? "").trim()
         if (!id) return { content: "memory_open: missing id" }
-        // PORT-NOTE (SPEC §5, new): mind calls are gated while overdue unrated
-        // memories exist — the notice replaces the result.
-        const blocked = gate(ledger)
-        if (blocked) return { content: blocked }
         try {
           const res = await fetch(`${API}/api/mind/atom/${encodeURIComponent(id)}`, { signal: context?.signal })
           if (!res.ok) return { content: `memory_open: no atom "${id}" (HTTP ${res.status})` }
           const text = formatAtom(await res.json())
           reportFeedback(id, "used", context?.sessionID) // objective usage signal
-          // PORT-NOTE (SPEC §5, new): an opened atom was surfaced, so it also
-          // awaits a verdict (on top of the automatic "used" signal).
-          markPending(ledger, id)
           return { content: text }
         } catch (err: any) {
           return { content: `memory_open: ${id} — ${err?.message ?? err}` }
@@ -386,11 +312,6 @@ async function registerTools(ctx: PluginContext, ledger: Unrated) {
         const verdict = String(input?.verdict ?? "").trim().toLowerCase()
         if (!id || (verdict !== "useful" && verdict !== "noise"))
           return { content: `memory_rate: needs an id and a verdict of "useful" or "noise"` }
-        // PORT-NOTE (SPEC §5, new): a valid verdict clears the pending entry
-        // immediately — before the POST and regardless of its outcome — so a
-        // daemon outage can never wedge the protocol shut. memory_rate itself
-        // is never gated.
-        ledger.delete(id)
         try {
           const res = await fetch(`${API}/api/mind/feedback`, {
             method: "POST",
@@ -427,10 +348,6 @@ async function registerTools(ctx: PluginContext, ledger: Unrated) {
         const q = String(input?.query ?? "").trim()
         if (!q) return { content: "memory_search: missing query" }
         const limit = Math.min(25, Math.max(1, Number(input?.limit) || 10))
-        // PORT-NOTE (SPEC §5, new): mind calls are gated while overdue unrated
-        // memories exist — the notice replaces the result.
-        const blocked = gate(ledger)
-        if (blocked) return { content: blocked }
         try {
           const res = await fetch(
             `${API}/api/mind/recall?q=${encodeURIComponent(q)}&limit=${limit}`,
@@ -440,8 +357,6 @@ async function registerTools(ctx: PluginContext, ledger: Unrated) {
           const data = await res.json()
           const atoms: any[] = Array.isArray(data?.atoms) ? data.atoms : []
           if (!atoms.length) return { content: `memory_search: no matches for "${q}"` }
-          // PORT-NOTE (SPEC §5, new): these hits are surfaced → register pending.
-          for (const a of atoms) if (a?.id) markPending(ledger, String(a.id))
           const lines = atoms.map(
             (a, i) => `${i + 1}. [${a.id}] ${oneLine(a.type)} · ${oneLine(a.hub)} — ${oneLine(a.label)}`,
           )
@@ -509,7 +424,6 @@ export default {
     dbg(`plugin loaded — api=${API}${DEBUG ? "" : " (debug off via NEOBRAIN_DEBUG=0)"}`)
     const woken = new Set<string>()
     const pending = new Map<string, string>() // sessionID -> the user's text for the current turn
-    const unrated: Unrated = new Map() // PORT-NOTE (SPEC §5): atom id -> first served unrated
     const personaDone = new Set<string>() // sessionID -> persona docs already injected
     const directivesText = new Map<string, string | null>() // sessionID -> rendered standing directives
     const directivesDone = new Set<string>() // sessionID -> directive block already injected (EVERY_TURN=0 only)
@@ -620,18 +534,6 @@ export default {
       if (!query) return
       pending.delete(sid)
 
-      // PORT-NOTE (SPEC §5, new): a new recall request is a mind call — under
-      // the unrated protocol it injects the blocking notice instead of results.
-      // The turn's query is consumed (not re-queued); the model can retry via
-      // memory_search or the next turn after rating.
-      const blocked = gate(unrated)
-      if (blocked) {
-        dbg(`${sidShort(sid)} recall BLOCKED by unrated protocol (${unrated.size} pending) — notice injected, query "${oneLine(query).slice(0, 60)}" dropped`)
-        sys.push({ type: "text", text: blocked })
-        reportInjection("notice", "context", blocked.length, sid, "unrated-gate")
-        return
-      }
-
       const escalated = INTENT.test(query)
       const want = tokens(query)
       try {
@@ -653,11 +555,8 @@ export default {
         })
         const text = renderRecall(atoms, query, escalated)
         if (text) {
-          // PORT-NOTE (SPEC §5, new): only the rendered index entries are
-          // surfaced → only those register as pending.
-          for (const a of atoms.slice(0, IDX_N)) if (a?.id) markPending(unrated, String(a.id))
           sys.push({ type: "text", text })
-          dbg(`${sidShort(sid)} recall "${oneLine(query).slice(0, 60)}" escalated=${escalated} → ${Math.min(atoms.length, IDX_N)} hits injected (${unrated.size} pending total)`)
+          dbg(`${sidShort(sid)} recall "${oneLine(query).slice(0, 60)}" escalated=${escalated} → ${Math.min(atoms.length, IDX_N)} hits injected`)
           reportInjection("recall", "context", text.length, sid, escalated ? "deep" : undefined)
         } else {
           dbg(`${sidShort(sid)} recall "${oneLine(query).slice(0, 60)}" escalated=${escalated} → 0 hits after gates, nothing injected`)
@@ -687,7 +586,7 @@ export default {
 
     // 3) read-only pull tools (memory_open / memory_search)
     try {
-      if (ctx.tool?.transform) await registerTools(ctx, unrated)
+      if (ctx.tool?.transform) await registerTools(ctx)
     } catch (err: any) {
       console.error("[neobrain-memory] tool registration failed:", err?.message ?? err)
     }

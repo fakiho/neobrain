@@ -100,6 +100,11 @@ class Settings(BaseSettings):
     # Empty -> WORKSPACE/DREAMS.md when a workspace is set, else DATA_DIR/DREAMS.md.
     dreams_file: str = ""
     reflect_weekdays: str = "0,2,5"  # 0=Mon … 6=Sun; soul-reflect days (Mon/Wed/Sat, user set 2026-09-30)
+    # Char budget for the evidence the reflect pass inlines (DREAMS.md + the
+    # recent memory/dreaming/rem notes). Newest entries stay whole; older ones
+    # keep their id line and have only their body compacted, so the prompt
+    # cannot blow the context window without dropping a referenceable id.
+    reflect_context_chars: int = 12000
 
     # --- daemon bind (API + dashboard) ---
     bind: str = "0.0.0.0:9192"
