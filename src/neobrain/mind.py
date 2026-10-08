@@ -825,6 +825,41 @@ def feedback(conn: sqlite3.Connection, atom_id: str, signal: str, *,
             "recorded": recorded}
 
 
+def rating_volume(conn: sqlite3.Connection, *, days: int = 7,
+                  at_ms: int | None = None) -> dict:
+    """A rating-volume snapshot over the last ``days`` (the rating-watch metric).
+
+    Counts the subjective verdicts (``useful``/``noise``), the objective ``used``
+    nudges, and the distinct sessions that rated, plus how many atoms still carry
+    no subjective verdict at all ("unranked"). Read-only; safe under the
+    single-writer daemon.
+    """
+    _ensure_schema(conn)
+    at = at_ms if at_ms is not None else now_ms()
+    since = at - max(1, days) * 86_400_000
+    row = conn.execute(
+        "SELECT "
+        "SUM(CASE WHEN signal='useful' THEN 1 ELSE 0 END), "
+        "SUM(CASE WHEN signal='noise' THEN 1 ELSE 0 END), "
+        "SUM(CASE WHEN signal='used' THEN 1 ELSE 0 END), "
+        "COUNT(DISTINCT CASE WHEN signal IN ('useful','noise') THEN session_id END) "
+        "FROM m_feedback WHERE ts >= ?",
+        (since,),
+    ).fetchone()
+    useful, noise, used, raters = (int(v or 0) for v in row)
+    unranked = conn.execute(
+        "SELECT COUNT(*) FROM m_atoms a WHERE NOT EXISTS ("
+        "SELECT 1 FROM m_feedback f WHERE f.atom_id = a.id "
+        "AND f.signal IN ('useful','noise'))"
+    ).fetchone()[0]
+    atoms = conn.execute("SELECT COUNT(*) FROM m_atoms").fetchone()[0]
+    return {
+        "days": max(1, days), "since_ms": since, "at_ms": at,
+        "useful": useful, "noise": noise, "used": used, "raters": raters,
+        "rated": useful + noise, "unranked": int(unranked), "atoms": int(atoms),
+    }
+
+
 def _feedback_counts(conn: sqlite3.Connection) -> dict[str, tuple[int, int, int]]:
     """atom_id -> (used, useful, noise) counts, from the feedback log."""
     counts: dict[str, list[int]] = {}
