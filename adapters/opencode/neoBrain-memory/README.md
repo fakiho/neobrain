@@ -1,7 +1,7 @@
 # neoBrain-memory (OpenCode adapter)
 
 Thin OpenCode plugin: session wakeup injection, per-turn recall lane, the
-`memory_open` / `memory_search` / `memory_rate` tools, and the persona lane —
+`memory_store` / `memory_open` / `memory_search` / `memory_rate` tools, and the persona lane —
 injects `SOUL.md` / `IDENTITY.md` / `USER.md` into the system prompt once per
 session (OpenClaw bootstrap parity; caps 20k chars/file, 60k total, USER.md 4k).
 `USER.md` is compacted before the cap applies — the header/format explainer,
@@ -40,3 +40,8 @@ Typecheck: `cd adapters/opencode/neoBrain-memory && npx tsc --noEmit` (config in
 - Rating is in-session and by the agent that used the memory: there is no cross-session state and no blocking gate. The former "unrated protocol" (a global pending ledger that blocked mind calls until rated) was removed — it forced a session to rate atoms another session had surfaced, and drove ratings to a near-constant `useful`.
 - Objective usage is still automatic: `memory_open(id)` posts a `used` signal on success.
 - Ratings are recorded against the rater's session *and* the memory's origin session (`m_atoms.session_id`, `m_feedback.origin_session_id`), so provenance is preserved on both ends.
+
+## Store with origin session
+
+- `memory_store(text, type?, hubs?, source?, label?, dedupe?)` POSTs `/api/mind/remember` with `session` = the live OpenCode sessionID, so the atom's `m_atoms.session_id` records **which session it came from**.
+- Prefer this over the CLI for agent saves: a `neobrain remember` from the shell lands as `session_id="cli"` unless `--session <ses_id>` is passed (the origin link was previously near-empty for exactly this reason).
