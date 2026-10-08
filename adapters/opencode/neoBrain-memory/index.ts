@@ -456,10 +456,13 @@ async function registerTools(ctx: PluginContext, ledger: Unrated) {
 
 // Persona docs injected once per session (caps per OpenClaw's bootstrap:
 // 20k chars/file, 60k total, USER.md 4k).
+// Workspace root for the persona docs; default to $HOME so the plugin is
+// portable (no hardcoded personal path).
+const WORKSPACE = process.env.OPENCODE_WORKSPACE ?? process.env.HOME ?? "."
 const PERSONA_FILES = [
-  { name: "SOUL.md", path: `${process.env.OPENCODE_WORKSPACE ?? "/home/sparo"}/SOUL.md`, cap: 20000 },
-  { name: "IDENTITY.md", path: `${process.env.OPENCODE_WORKSPACE ?? "/home/sparo"}/IDENTITY.md`, cap: 20000 },
-  { name: "USER.md", path: `${process.env.OPENCODE_WORKSPACE ?? "/home/sparo"}/USER.md`, cap: 4000 },
+  { name: "SOUL.md", path: `${WORKSPACE}/SOUL.md`, cap: 20000 },
+  { name: "IDENTITY.md", path: `${WORKSPACE}/IDENTITY.md`, cap: 20000 },
+  { name: "USER.md", path: `${WORKSPACE}/USER.md`, cap: 4000 },
 ]
 const PERSONA_TOTAL_CAP = 60000
 

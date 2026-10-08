@@ -19,7 +19,7 @@ memory would be injected twice.
 
 ```bash
 # requires the neoBrain daemon running
-ln -s /home/sparo/neobrain/adapters/opencode/neoBrain-memory ~/.opencode/plugins/neobrain-memory
+ln -s /path/to/neobrain/adapters/opencode/neoBrain-memory ~/.opencode/plugins/neobrain-memory
 ```
 
 Typecheck: `cd adapters/opencode/neoBrain-memory && npx tsc --noEmit` (config in `tsconfig.json`).
