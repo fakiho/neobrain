@@ -8,6 +8,7 @@ from __future__ import annotations
 import json
 import os
 import sqlite3
+import subprocess
 import threading
 import time
 from collections import deque
@@ -613,6 +614,27 @@ def mind_reader(group: str) -> dict:
 @app.get("/api/debug/requests")
 def debug_requests(limit: int = Query(200, le=500)) -> dict:
     return {"requests": list(_TRACE)[-limit:], "buffer": len(_TRACE), "maxlen": _TRACE.maxlen}
+
+
+@app.get("/api/debug/logs")
+def debug_logs(lines: int = Query(300, ge=1, le=2000)) -> dict:
+    """Tail of this daemon's journal — fetched on demand, never polled.
+
+    The daemon's stdout/stderr go to the systemd journal; this is a read-only
+    window for the Debug tab. Best-effort: a missing journalctl or a denied
+    journal comes back as an ``error`` string with an empty list, not a 500.
+    """
+    unit = "neobrain.service"
+    try:
+        proc = subprocess.run(
+            ["journalctl", "--user", "-u", unit, "-n", str(lines), "--no-pager", "-o", "short-iso"],
+            capture_output=True, text=True, timeout=5,
+        )
+    except Exception as exc:  # noqa: BLE001 - logs are a convenience, never fatal
+        return {"unit": unit, "lines": [], "count": 0, "error": f"{type(exc).__name__}: {exc}"}
+    rows = [ln for ln in (proc.stdout or "").splitlines() if ln.strip()]
+    err = (proc.stderr or "").strip() if proc.returncode != 0 else None
+    return {"unit": unit, "lines": rows, "count": len(rows), "error": err}
 
 
 # Client-side lane pushes: the OpenCode plugin reports every injection it makes

@@ -86,6 +86,16 @@ def test_life_loop_disabled_runs_no_phase(client):
     assert client.get("/api/events", params={"source": "life"}).json()["count"] == 0
 
 
+def test_debug_logs_endpoint_is_on_demand_and_safe(client):
+    # Fetched only when the Debug tab asks; best-effort even without journalctl.
+    r = client.get("/api/debug/logs", params={"lines": 50})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["unit"] == "neobrain.service"
+    assert isinstance(body["lines"], list)
+    assert client.get("/api/debug/logs", params={"lines": 99999}).status_code == 422
+
+
 def test_lifespan_starts_and_stops_loop_when_enabled(tmp_path, monkeypatch):
     """The daemon owns the loop: it starts on boot and is joined+closed on exit.
 
