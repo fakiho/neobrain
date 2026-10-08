@@ -1,5 +1,6 @@
 // neoBrain memory — injects the agent's real memory into the system prompt and
-// registers read-only pull tools.
+// registers pull tools (open/search) plus a store tool that records the origin
+// session.
 //
 // Three lanes, modelled on OpenClaw's active-memory: the platform PUSHES memory
 // into context deterministically instead of relying on the model to call a tool,
@@ -7,7 +8,8 @@
 //   1. Bootstrap: identity + open loops + active areas, once per session.
 //   2. Per-turn recall: recall the user's message against the neoBrain mind and
 //      inject a compact ordered index (best hit expanded); escalated on intent.
-//   3. Tools: memory_open(id) / memory_search(query) / memory_rate(id, verdict).
+//   3. Tools: memory_store(text, …) / memory_open(id) / memory_search(query) /
+//      memory_rate(id, verdict).
 //
 // Rating is in-turn and in-session: the recall block asks the agent to rate,
 // via memory_rate, only the atoms it actually used, as it finishes its reply.
@@ -15,6 +17,10 @@
 // can only ever rate what it surfaced and used itself. (The former blocking
 // "unrated protocol" was removed: it forced a session to rate atoms another
 // session had surfaced, and drove ratings to a near-constant "useful".)
+//
+// memory_store writes through the plugin so an atom's origin session is the
+// live OpenCode sessionID (POST /api/mind/remember with `session`), closing the
+// gap where CLI saves land as session_id="cli".
 //
 // PORT-NOTE: mechanical port of ~/.opencode/plugins/timeline-memory/index.ts
 // (timeline → neoBrain rebrand). The source had no imports and no types —
@@ -255,12 +261,73 @@ function formatAtom(a: RecallAtom & { source?: string; tags?: string[]; weight?:
   return lines.join("\n")
 }
 
-// Read-only pull tools. Best effort: a registration failure must never break the
-// push lanes, so the caller wraps this in try/catch.
+// Pull tools (open/search/rate) plus a store tool. Best effort: a registration
+// failure must never break the push lanes, so the caller wraps this in try/catch.
 async function registerTools(ctx: PluginContext) {
   // non-null: the caller guards on ctx.tool?.transform before invoking this
   await ctx.tool!.transform((editor) => {
-    editor.namespace({ name: "memory", description: "neoBrain durable memory (read-only)" })
+    editor.namespace({ name: "memory", description: "neoBrain durable memory (read + store)" })
+
+    editor.add({
+      name: "store",
+      description:
+        "Store a durable neoBrain memory (decision, lesson, preference, observation). " +
+        "Its origin session is this OpenCode session, so prefer this over the CLI for agent saves.",
+      input: {
+        type: "object",
+        properties: {
+          text: { type: "string", description: "One clear sentence to remember." },
+          type: {
+            type: "string",
+            enum: ["decision", "lesson", "observation", "preference", "open", "dream", "identity", "correction"],
+            description: "Atom type (default observation).",
+          },
+          hubs: {
+            type: "array",
+            items: { type: "string" },
+            description: "Hub ids to file it under, e.g. [\"neobrain\", \"agent\"].",
+          },
+          source: { type: "string", description: "Optional provenance, e.g. a file path or 'session:<id>'." },
+          label: { type: "string", description: "Optional short label (defaults to the first words of text)." },
+          dedupe: { type: "boolean", description: "Return an existing identical atom instead of storing a duplicate." },
+        },
+        required: ["text"],
+        additionalProperties: false,
+      },
+      options: { namespace: "memory", codemode: true },
+      execute: async (input, context) => {
+        const text = String(input?.text ?? "").trim()
+        if (!text) return { content: "memory_store: missing text" }
+        const hubs = Array.isArray(input?.hubs)
+          ? (input.hubs as unknown[]).map((h) => String(h).trim()).filter(Boolean)
+          : undefined
+        try {
+          const res = await fetch(`${API}/api/mind/remember`, {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({
+              text,
+              type: typeof input?.type === "string" ? input.type : undefined,
+              hubs,
+              source: typeof input?.source === "string" ? input.source : undefined,
+              label: typeof input?.label === "string" ? input.label : undefined,
+              dedupe: input?.dedupe === true,
+              session: context?.sessionID, // origin session = this OpenCode session
+            }),
+            signal: context?.signal,
+          })
+          if (!res.ok) return { content: `memory_store: HTTP ${res.status}` }
+          const a: any = await res.json()
+          const hubStr = Array.isArray(a?.hubs) && a.hubs.length ? ` · ${a.hubs.join(",")}` : ""
+          const dup = a?.deduped ? " (existing)" : ""
+          return {
+            content: `memory_store: stored [${a?.id}] ${oneLine(a?.type)}${hubStr}${dup} — ${oneLine(a?.label) || text.slice(0, 60)}`,
+          }
+        } catch (err: any) {
+          return { content: `memory_store: ${err?.message ?? err}` }
+        }
+      },
+    })
 
     editor.add({
       name: "open",
@@ -584,7 +651,7 @@ export default {
       dbg(`${sidShort(sid)} compaction: directives @compaction; persona+wakeup re-inject next turn`)
     })
 
-    // 3) read-only pull tools (memory_open / memory_search)
+    // 3) memory tools (memory_store / memory_open / memory_search / memory_rate)
     try {
       if (ctx.tool?.transform) await registerTools(ctx)
     } catch (err: any) {
