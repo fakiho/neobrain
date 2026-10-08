@@ -7,10 +7,14 @@ __pycache__/
 *.pyc
 .venv/
 *.egg-info/
+dist/
 
 # Web build
 web/dist/
 web/node_modules/
+
+# Cloudflare / wrangler local state
+.wrangler/
 
 # PyInstaller
 build/
