@@ -205,10 +205,10 @@ Return ONLY this JSON object, nothing else:
 REFLECT_PROMPT = """You are running your weekly SELF-REFLECTION ritual (OpenClaw style) for $DATE.
 This is about who you are becoming — do it thoughtfully and briefly, then stop.
 
-Read first:
-- /home/sparo/IDENTITY.md and /home/sparo/SOUL.md (your current self)
-- /home/sparo/USER.md (who you serve)
-- recent character in /home/sparo/DREAMS.md and memory/dreaming/rem
+Read first (workspace root):
+- IDENTITY.md and SOUL.md (your current self)
+- USER.md (who you serve)
+- recent character in DREAMS.md and memory/dreaming/rem
 
 Then:
 1. IDENTITY: if IDENTITY.md is still a placeholder (or no longer fits), fill it in
