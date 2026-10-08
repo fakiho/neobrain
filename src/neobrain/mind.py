@@ -596,30 +596,45 @@ def memories(conn: sqlite3.Connection, *, q: str | None = None,
     where: list[str] = []
     params: list = []
     if types:
-        where.append("type IN (%s)" % ",".join("?" * len(types)))
+        where.append("a.type IN (%s)" % ",".join("?" * len(types)))
         params.extend(types)
     if hubs:
-        where.append("hub IN (%s)" % ",".join("?" * len(hubs)))
+        where.append("a.hub IN (%s)" % ",".join("?" * len(hubs)))
         params.extend(hubs)
     if q and q.strip():
         like = f"%{q.strip()}%"
-        where.append("(label LIKE ? OR text LIKE ? OR tags LIKE ? OR hub LIKE ? OR source LIKE ?)")
+        where.append("(a.label LIKE ? OR a.text LIKE ? OR a.tags LIKE ? OR a.hub LIKE ? OR a.source LIKE ?)")
         params.extend([like] * 5)
     wsql = (" WHERE " + " AND ".join(where)) if where else ""
-    total = conn.execute("SELECT COUNT(*) FROM m_atoms" + wsql, params).fetchone()[0]
+    total = conn.execute("SELECT COUNT(*) FROM m_atoms a" + wsql, params).fetchone()[0]
     rows = conn.execute(
-        "SELECT id,label,type,created,text,source,tags,weight,hub FROM m_atoms" + wsql
-        + " ORDER BY created DESC LIMIT ? OFFSET ?",
+        "SELECT a.id,a.label,a.type,a.created,a.text,a.source,a.tags,a.weight,a.hub,a.session_id,"
+        " r.quality,r.state,r.served,r.interacted,r.last_served,"
+        " (SELECT COUNT(*) FROM m_feedback f WHERE f.atom_id=a.id AND f.signal='used') AS used,"
+        " (SELECT COUNT(*) FROM m_feedback f WHERE f.atom_id=a.id AND f.signal='useful') AS useful,"
+        " (SELECT COUNT(*) FROM m_feedback f WHERE f.atom_id=a.id AND f.signal='noise') AS noise "
+        "FROM m_atoms a LEFT JOIN m_rank r ON r.atom_id=a.id" + wsql
+        + " ORDER BY a.created DESC LIMIT ? OFFSET ?",
         params + [limit, offset],
     ).fetchall()
-    items = [
-        {
+    items = []
+    for r in rows:
+        used, useful, noise = r[15] or 0, r[16] or 0, r[17] or 0
+        items.append({
             "id": r[0], "label": r[1], "type": r[2], "created": r[3], "text": r[4],
             "source": r[5], "tags": [t for t in (r[6] or "").split(",") if t],
             "weight": r[7], "hub": r[8], "origin": _origin(r[0], r[2]),
-        }
-        for r in rows
-    ]
+            # Provenance: the session the memory was saved from (may be NULL).
+            "session_id": r[9],
+            # Rank: quality/state and exposure, straight from m_rank. `ranked`
+            # is False while the atom has no feedback signal at all — the UI
+            # shows those as "unranked" (quality still sits at the 0.5 prior).
+            "quality": r[10] if r[10] is not None else 0.5,
+            "state": r[11] or "active",
+            "served": r[12] or 0, "interacted": r[13] or 0, "last_served": r[14],
+            "used": used, "useful": useful, "noise": noise,
+            "ranked": (used + useful + noise) > 0,
+        })
     counts = {r[0]: r[1] for r in conn.execute("SELECT type, COUNT(*) FROM m_atoms GROUP BY type")}
     return {"items": items, "total": total, "counts": counts}
 
@@ -705,10 +720,10 @@ def remember(conn: sqlite3.Connection, text: str, *, atype: str = "observation",
     lbl = (label or " ".join(text.split()[:8]))[:90]
     aid = "m_" + content_hash(f"{now}:{text}")[:12]
     conn.execute(
-        """INSERT OR REPLACE INTO m_atoms(id,label,type,created,text,source,tags,weight,hub,hash)
-           VALUES(?,?,?,?,?,?,?,?,?,?)""",
+        """INSERT OR REPLACE INTO m_atoms(id,label,type,created,text,source,tags,weight,hub,hash,session_id)
+           VALUES(?,?,?,?,?,?,?,?,?,?,?)""",
         (aid, lbl, atype, now, text, source, ",".join(hubs),
-         weight if weight is not None else _weight(atype), primary, content_hash(text)))
+         weight if weight is not None else _weight(atype), primary, content_hash(text), session_id))
     for h in hubs:
         _ensure_hub(conn, h)
         conn.execute("INSERT OR IGNORE INTO m_edges(source,target,type) VALUES(?,?,?)", (aid, h, "about"))
@@ -771,12 +786,18 @@ def feedback(conn: sqlite3.Connection, atom_id: str, signal: str, *,
     _ensure_schema(conn)
     if signal not in FEEDBACK_SIGNALS:
         raise ValueError(f"unknown feedback signal: {signal}")
+    # The memory's home session (where it was saved from), recorded alongside
+    # the rating session so a verdict keeps both ends of the provenance chain.
+    # Best-effort: an unknown atom simply leaves it NULL.
+    row = conn.execute("SELECT session_id FROM m_atoms WHERE id=?", (atom_id,)).fetchone()
+    origin_session_id = row[0] if row else None
     recorded = False
     for attempt in range(5):
         try:
             conn.execute(
-                "INSERT INTO m_feedback(ts,atom_id,signal,source,session_id) VALUES(?,?,?,?,?)",
-                (now_ms(), atom_id, signal, source, session_id),
+                "INSERT INTO m_feedback(ts,atom_id,signal,source,session_id,origin_session_id) "
+                "VALUES(?,?,?,?,?,?)",
+                (now_ms(), atom_id, signal, source, session_id, origin_session_id),
             )
             _commit(conn)
             recorded = True
@@ -799,7 +820,9 @@ def feedback(conn: sqlite3.Connection, atom_id: str, signal: str, *,
             rank.on_feedback(conn, atom_id, signal)
         except sqlite3.Error:
             pass
-    return {"atom_id": atom_id, "signal": signal, "source": source, "recorded": recorded}
+    return {"atom_id": atom_id, "signal": signal, "source": source,
+            "session_id": session_id, "origin_session_id": origin_session_id,
+            "recorded": recorded}
 
 
 def _feedback_counts(conn: sqlite3.Connection) -> dict[str, tuple[int, int, int]]:
