@@ -90,11 +90,16 @@ projections of the preference/gene state (buildable, inspectable, diffable).
 | Rules injected at session start | deterministic | session bootstrap injection |
 | Awareness deep into long sessions | deterministic | compaction re-inject + on-change delta push |
 | Recall happens | deterministic | results injected into context — not the agent's decision |
-| Feedback given | protocol | served atoms marked `unrated`; next mind call blocked until rated; **auto-fallback**: pending clears after timeout, counting as exposure with no verdict |
-| Store via mind tool | protocol + ergonomics | single mind tool as path of least resistance; ingest captures the session regardless |
+| Feedback given | protocol (voluntary, in-turn) | the recall block asks the agent to rate only the memories it actually used (`memory_rate`); nothing is tracked or blocked; `memory_open` posts an automatic `used` signal |
+| Store via mind tool | protocol + ergonomics | single mind tool as path of least resistance; the store tool records the origin session, and ingest captures the session regardless |
 
 Honest limit: pure tool-choice compliance can never be 100 % with an LLM in
 the loop — the system is designed so the critical parts do not depend on it.
+
+> **Amendment (2026-10-08):** the blocking unrated protocol was removed. It
+> forced a session to rate atoms another session had surfaced, and drove
+> ratings to a near-constant `useful` — polluting the rank signal. Rating is
+> now voluntary and in-turn, alongside the automatic `used`-on-open signal.
 
 ## 6. Life loop
 
@@ -114,7 +119,8 @@ act/dream.
 
 Thin plugin `adapters/opencode/neoBrain-memory` (port of
 `~/.opencode/plugins/timeline-memory/index.ts`): session wakeup injection,
-per-turn recall lane, `memory_open/search/rate` tools, unrated protocol (§5).
+per-turn recall lane, the `memory_store` / `memory_open` / `memory_search` /
+`memory_rate` tools (§5).
 No logic beyond protocol. Other CLIs later (pi/omp/hermes noted; designated
 fork path: pi family — m_bf4b1d06e38e).
 
@@ -178,7 +184,7 @@ commands; no sudo in any phase.
 | S0 | Repo + SPEC + skeleton | done at freeze |
 | S1 | Core mind port: `mind.py`, `embeddings.py`, `db.py`, `config.py`, authoritative schema | done (validated) |
 | S2 | Observatory web port (drop dead code) | done (build clean, tsc clean) |
-| S3 | opencode plugin port + unrated protocol | done (tsc clean + mocked-fetch smoke) |
+| S3 | opencode plugin port + unrated protocol (protocol later removed 2026-10-08, §5) | done (tsc clean + mocked-fetch smoke) |
 | S4 | `rank.py` + exposure counters + eviction/archive job | done (calibrated in review) |
 | S5 | Life loop + native LLM runtime (`life.py`, `runtime.py`) | done (validated) |
 | S6 | `api.py` + `cli.py` + `ingest/` wiring; **hardening: booting a brand-new empty mind must be announced (dashboard-visible event), never silent** (found in real-data validation: a wrong data-dir path silently auto-creates an empty DB) | done 2026-09-30 (106 tests; daemon smoke: concurrent writes, loop phases, clean shutdown) |
