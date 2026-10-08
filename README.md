@@ -126,20 +126,21 @@ same mind for **pull**:
   imperative block and **re-injected on every model call**, so time, context
   drift and compaction cannot drop the must-follow rules (weak models keep
   obeying). Kept tiny on purpose (8 lines / 1000 chars, tunable); sits in the
-  cacheable system prefix; push-only, so it never trips the rating gate.
+  cacheable system prefix; push-only, so it is never rated.
 - **Per-turn recall** — the user's message is recalled against the mind and a
   compact rank-ordered index is injected (top 10 one-liners + the #1 hit's
   text). Curated types (preference/lesson/decision) auto-inject on ordinary
   turns; memory-intent phrasing escalates to deep recall.
-- **Unrated-feedback protocol** — every surfaced atom registers as pending;
-  past a grace window (120s) the next mind call gets an explicit blocking
-  notice instead of results; past the timeout (600s) it auto-clears as
-  exposure with no verdict. Deterministic — the critical path never depends
-  on model choice.
+- **In-turn rating** — the recall block asks the agent to rate, in-turn, only
+  the memories it actually used, via `memory_rate(id, useful | noise)`; unused
+  entries stay unrated, with no blocking gate and no cross-session state (the
+  former global "unrated protocol" was removed 2026-10-08 — SPEC §5).
+  `memory_open(id)` still posts an automatic `used` signal.
 - **Compaction hook** — the directives block is also injected into the
   summary request, so rules survive a compact; once-per-session gates reset
   so persona + wake-up re-inject next turn.
-- **Pull tools** — `memory_open(id)`, `memory_search(query)`,
+- **Pull tools** — `memory_store(text, type?, hubs?, source?, label?, dedupe?)`
+  (records the origin session), `memory_open(id)`, `memory_search(query)`,
   `memory_rate(id, useful | noise)`.
 - **Injection logging** — every lane POSTs what it pushed to
   `/api/debug/injections`; the Debug page renders the daemon's one blind spot.
@@ -205,8 +206,9 @@ Read-mostly JSON; groups worth knowing (full schema at `/api/schema`):
   `recall`, `wakeup`, `directives`, `pin`, `remember`, `feedback`,
   `consolidate`, `dreams`, `reader`, `import`.
 - `/api/debug/*` — `requests` (rolling trace of every `/api` call),
-  `injections` (plugin lane pushes, GET/POST), `overview` (rank states,
-  mind ops, feedback, ingest runs, life phases, self/soul trace, config).
+  `injections` (plugin lane pushes, GET/POST), `logs` (on-demand journal tail),
+  `overview` (rank states, mind ops, feedback, ingest runs, life phases,
+  daemon status, self/soul trace, config).
 - Plus `/api/health`, `/api/stats`, `/api/events`, `/api/sessions`,
   `/api/search`, `/api/docs`, `/api/ingest/run`.
 
