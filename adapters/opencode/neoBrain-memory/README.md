@@ -13,11 +13,12 @@ directory — same pattern as the old timeline plugin. No-op when the daemon is 
 
 ## Install
 
-Not installed yet — cutover is a later sprint. The live timeline plugin stays in
-place until then; never run both at once (memory would be injected twice).
+Installed and live since 2026-09-30: `~/.opencode/plugins/neobrain-memory`
+symlinks to this directory. Caution: never run two memory plugins at once —
+memory would be injected twice.
 
 ```bash
-# requires the neoBrain daemon running (S6; `neobrain init` will automate this)
+# requires the neoBrain daemon running
 ln -s /home/sparo/neobrain/adapters/opencode/neoBrain-memory ~/.opencode/plugins/neobrain-memory
 ```
 
