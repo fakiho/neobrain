@@ -459,12 +459,49 @@ async function registerTools(ctx: PluginContext, ledger: Unrated) {
 // Workspace root for the persona docs; default to $HOME so the plugin is
 // portable (no hardcoded personal path).
 const WORKSPACE = process.env.OPENCODE_WORKSPACE ?? process.env.HOME ?? "."
-const PERSONA_FILES = [
+type PersonaFile = { name: string; path: string; cap: number; compact?: boolean }
+const PERSONA_FILES: PersonaFile[] = [
   { name: "SOUL.md", path: `${WORKSPACE}/SOUL.md`, cap: 20000 },
   { name: "IDENTITY.md", path: `${WORKSPACE}/IDENTITY.md`, cap: 20000 },
-  { name: "USER.md", path: `${WORKSPACE}/USER.md`, cap: 4000 },
+  { name: "USER.md", path: `${WORKSPACE}/USER.md`, cap: 4000, compact: true },
 ]
 const PERSONA_TOTAL_CAP = 60000
+
+// USER.md is a directive ledger that only grows: it carries a format explainer,
+// dated metadata comments, superseded entries, inline pin markers and a footer —
+// none of which the model needs. The raw file already exceeds the 4k cap, so its
+// tail (real, active rules) was being silently truncated. Compact to just the
+// active directive bullets before the cap applies — deterministic, no model, and
+// no loss of an active rule however much boilerplate the file accumulates.
+function compactUserDoc(text: string): string {
+  const out: string[] = []
+  let started = false
+  let active = true
+  let fence = false
+  for (const raw of text.split("\n")) {
+    // The format explainer shows a sample entry inside a fenced code block; its
+    // metadata line must not be mistaken for the first real directive.
+    if (/^\s*```/.test(raw)) {
+      fence = !fence
+      continue
+    }
+    if (fence) continue
+    const line = raw.replace(/<!--\s*pin\s*-->/gi, "").trimEnd()
+    const meta = line.match(/^<!--\s*observed:.*status:\s*(\w+).*-->\s*$/i)
+    if (meta) {
+      started = true
+      active = meta[1].toLowerCase() === "active"
+      continue
+    }
+    if (!started) continue // drop the header/format explainer before the first entry
+    const t = line.trim()
+    if (!t || t.startsWith("#")) continue
+    if (/^-\s*\[[^\]]+\]\([^)]*\)\s*$/.test(t)) continue // link-only bullet (Related footer)
+    if (!active) continue // superseded entry
+    out.push(t)
+  }
+  return out.join("\n")
+}
 
 export default {
   id: "neobrain-memory", // PORT-NOTE: rebranded plugin id (was "timeline-memory"); loading pattern unchanged.
@@ -554,6 +591,8 @@ export default {
           } catch {
             continue // missing/unreadable → skip, never break the session
           }
+          if (!text) continue
+          if (f.compact) text = compactUserDoc(text)
           if (!text) continue
           const room = PERSONA_TOTAL_CAP - total
           if (room <= 0) break
