@@ -541,8 +541,8 @@ class LifeLoop:
         stalled = snap["rated"] == 0
         summary = (
             f"rating watch: {snap['useful']} useful / {snap['noise']} noise / "
-            f"{snap['used']} used in {window}d; {snap['raters']} rater(s); "
-            f"{snap['unranked']}/{snap['atoms']} unranked"
+            f"{snap['used']} used / {snap['unused']} unused in {window}d; "
+            f"{snap['raters']} rater(s); {snap['unranked']}/{snap['atoms']} unranked"
         )
         if stalled:
             summary += f" — STALLED (no ratings in {window}d)"
