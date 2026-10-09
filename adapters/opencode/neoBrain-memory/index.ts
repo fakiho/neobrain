@@ -206,14 +206,23 @@ async function fetchDirectives(): Promise<string | null> {
 
 // Lane injection report, fire-and-forget: the daemon cannot see what the plugin
 // pushes into the system prompt (its one blind spot), so every injection is
-// POSTed to the debug ring for the Observatory's Injections panel. A debug
-// failure must never affect a lane — same contract as reportFeedback.
-function reportInjection(lane: string, stage: string, chars: number, sessionId?: string, note?: string) {
+// POSTed to the debug ring for the Observatory's Injections panel. The recall
+// lane also carries the atom ids it pushed, so the daemon knows what the model
+// was shown this turn. A debug failure must never affect a lane — same contract
+// as reportFeedback.
+function reportInjection(
+  lane: string,
+  stage: string,
+  chars: number,
+  sessionId?: string,
+  note?: string,
+  ids?: string[],
+) {
   try {
     void fetch(`${API}/api/debug/injections`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ session: sessionId, lane, stage, chars, note }),
+      body: JSON.stringify({ session: sessionId, lane, stage, chars, note, ids }),
     })
       .then((r) => {
         if (!r.ok) dbg(`injection report FAILED ${lane}: HTTP ${r.status}`)
@@ -623,8 +632,9 @@ export default {
         const text = renderRecall(atoms, query, escalated)
         if (text) {
           sys.push({ type: "text", text })
+          const pushed = atoms.slice(0, IDX_N).map((a) => a.id).filter((id): id is string => !!id)
           dbg(`${sidShort(sid)} recall "${oneLine(query).slice(0, 60)}" escalated=${escalated} → ${Math.min(atoms.length, IDX_N)} hits injected`)
-          reportInjection("recall", "context", text.length, sid, escalated ? "deep" : undefined)
+          reportInjection("recall", "context", text.length, sid, escalated ? "deep" : undefined, pushed)
         } else {
           dbg(`${sidShort(sid)} recall "${oneLine(query).slice(0, 60)}" escalated=${escalated} → 0 hits after gates, nothing injected`)
         }
