@@ -782,6 +782,38 @@ def debug_overview() -> dict:
         phases.append({"phase": name, "every_minutes": interval, "last": last})
     last_dream = conn.execute("SELECT ts, label FROM m_ops WHERE op='dream' ORDER BY id DESC LIMIT 1").fetchone()
 
+    # Rating watch: the bounded observation of memory-feedback volume. The life
+    # loop records a daily snapshot; surface the latest one plus a live read, so
+    # the numbers are visible even before the first snapshot lands.
+    watch_row = conn.execute(
+        "SELECT ts, severity, detail FROM events WHERE actor='agent:neobrain' AND category='life' "
+        "AND title='life: rating-watch' ORDER BY ts DESC LIMIT 1"
+    ).fetchone()
+    watch_last = None
+    if watch_row:
+        wdetail: dict[str, Any] = {}
+        try:
+            wdetail = json.loads(watch_row["detail"] or "{}")
+        except Exception:
+            pass
+        watch_last = {
+            "ts": watch_row["ts"],
+            "severity": watch_row["severity"] or "info",
+            "summary": wdetail.get("summary") or "",
+            "next_due": wdetail.get("next_due"),
+            "snapshot": wdetail.get("snapshot") or {},
+        }
+    watch_days = int(getattr(s, "rating_watch_days", 7) or 7)
+    rating_watch = {
+        "enabled": str(getattr(s, "rating_watch_enabled", "0")).strip().lower()
+        not in ("", "0", "false", "no", "off"),
+        "days": watch_days,
+        "hour": int(getattr(s, "rating_watch_hour", 9) or 9),
+        "until": str(getattr(s, "rating_watch_until", "") or ""),
+        "current": mind.rating_volume(conn, days=watch_days),
+        "last": watch_last,
+    }
+
     # Self / Soul trace: what the agent did to itself. Every ingest versions the
     # persona docs (IDENTITY/SOUL/USER/AGENTS) and the mind stores the agent's
     # preference rules — the MRI view of self-maintenance.
@@ -833,6 +865,7 @@ def debug_overview() -> dict:
         "feedback": feedback,
         "ingest": ingest,
         "phases": phases,
+        "rating_watch": rating_watch,
         "quiet_now": quiet_now,
         "last_dream": dict(last_dream) if last_dream else None,
         "self_trace": {"docs": self_docs, "doc_counts": self_doc_counts, "preferences": prefs},
