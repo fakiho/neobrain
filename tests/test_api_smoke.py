@@ -147,3 +147,25 @@ def test_lifespan_starts_and_stops_loop_when_enabled(tmp_path, monkeypatch):
 
     assert "tick" in seen  # the loop ran inside the daemon
     assert seen[-1] == "close"  # and its own handle was closed on shutdown
+
+
+def test_injection_ring_records_pushed_ids(client):
+    """The recall lane reports the atom ids it pushed; the ring keeps them, and
+    lanes that carry no rateable ids leave the field None."""
+    from neobrain import api
+
+    api._INJECTIONS.clear()
+    try:
+        client.post(
+            "/api/debug/injections",
+            json={"session": "ses_1", "lane": "recall", "stage": "context", "chars": 42, "ids": ["m_a", "m_b"]},
+        )
+        client.post("/api/debug/injections", json={"session": "ses_1", "lane": "persona", "chars": 10})
+
+        rows = client.get("/api/debug/injections").json()["injections"]
+        by_lane = {x["lane"]: x for x in rows}
+        assert by_lane["recall"]["ids"] == ["m_a", "m_b"]
+        assert by_lane["persona"]["ids"] is None
+    finally:
+        # The ring is a module-level deque shared across tests: leave it as found.
+        api._INJECTIONS.clear()
