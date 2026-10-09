@@ -106,6 +106,18 @@ class Settings(BaseSettings):
     # cannot blow the context window without dropping a referenceable id.
     reflect_context_chars: int = 12000
 
+    # --- rating watch (bounded observation of memory-rating volume) ---
+    # Rides the existing in-process life loop — no OS timer. Once a day at
+    # ``rating_watch_hour`` the loop records a rating-volume snapshot and, if
+    # agent ratings have stalled at zero, pings the local notifier. Temporary
+    # by design: set ``rating_watch_until`` to an end date and it stops after it.
+    rating_watch_enabled: str = "0"   # "1" enables the daily snapshot
+    rating_watch_days: int = 7        # look-back window for the snapshot
+    rating_watch_hour: int = 9        # local hour to run (a waking hour, so a stall alert is not a 2am ping)
+    rating_watch_until: str = ""      # ISO date (local); empty = no end; the watch stops after this day
+    notify_url: str = "http://127.0.0.1:8788/notify"  # local notifyd; empty disables the ping
+    notify_secret: str = ""           # Bearer secret; empty -> read HTTP_SECRET from ~/.config/notify/config
+
     # --- daemon bind (API + dashboard) ---
     bind: str = "0.0.0.0:9192"
 

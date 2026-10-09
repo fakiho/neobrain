@@ -18,12 +18,16 @@ one). During rest, if the local hour equals ``life_dream_hour`` the loop invokes
 ``reflect_weekdays`` the same rest window also invokes ``neobrain.dreams.reflect``
 once for the day (the old system ran reflect Sundays 04:00). ``perceive`` also
 runs the ingest adapters via ``ingest.runner.run_all`` when a workspace or
-OpenCode DB is configured.
+OpenCode DB is configured. Once a day at ``rating_watch_hour`` the loop also
+records a **rating-volume snapshot** (``mind.rating_volume``) and pings the
+local notifier when agent ratings have stalled — a bounded observation of the
+memory-feedback loop, still with no OS timer.
 """
 from __future__ import annotations
 
 import importlib.util
 import json
+import os
 import socket
 import sqlite3
 import tempfile
@@ -61,6 +65,55 @@ _WAL_TRUNCATE_INTERVAL_MS = 60 * 60_000  # TRUNCATE, hourly during quiet hours
 
 
 # --- probes (module level so tests can patch them) --------------------------
+
+
+def _flag_enabled(value: Any) -> bool:
+    """Truthy for the "1"/"true"/"yes"/"on" convention (mirrors api._life_enabled)."""
+    return str(value).strip().lower() not in ("", "0", "false", "no", "off")
+
+
+def _notify_secret() -> str:
+    """Bearer secret for the local notifier (never logged).
+
+    Prefers the ``NEOBRAIN_NOTIFY_SECRET`` setting; otherwise reads
+    ``HTTP_SECRET`` from the notifier's own config (``NOTIFY_CONFIG`` or
+    ``~/.config/notify/config``) so the secret is not duplicated into our env.
+    """
+    secret = (config.settings.notify_secret or "").strip()
+    if secret:
+        return secret
+    override = os.environ.get("NOTIFY_CONFIG")
+    cfg = Path(override) if override else Path.home() / ".config" / "notify" / "config"
+    try:
+        for line in cfg.read_text(encoding="utf-8", errors="replace").splitlines():
+            line = line.strip()
+            if line.startswith("HTTP_SECRET="):
+                return line.split("=", 1)[1].strip()
+    except OSError:
+        pass
+    return ""
+
+
+def _notify(title: str, text: str) -> bool:
+    """POST to the local notifyd (best-effort). True on a 2xx response.
+
+    The life loop must never crash on a failed notification; an unset
+    ``notify_url`` (or unreachable daemon) simply means no ping.
+    """
+    url = (config.settings.notify_url or "").strip()
+    if not url:
+        return False
+    headers = {"content-type": "application/json"}
+    secret = _notify_secret()
+    if secret:
+        headers["authorization"] = f"Bearer {secret}"
+    body = json.dumps({"title": title, "text": text}).encode("utf-8")
+    try:
+        req = urllib.request.Request(url, data=body, headers=headers, method="POST")
+        with urllib.request.urlopen(req, timeout=5) as resp:  # noqa: S310 - local notifier
+            return 200 <= int(getattr(resp, "status", 0)) < 300
+    except (urllib.error.URLError, OSError, ValueError):
+        return False
 
 
 def _probe_http(url: str, timeout: float, label: str) -> tuple[bool, str]:
@@ -453,6 +506,64 @@ class LifeLoop:
             return False
         return datetime.fromtimestamp(int(row[0]) / 1000).date() == now.date()
 
+    # --- rating watch (bounded observation; SPEC §5 feedback) ----------------
+
+    def _watch_ran_today(self, conn: sqlite3.Connection, now: datetime) -> bool:
+        row = conn.execute(
+            "SELECT MAX(ts) FROM events WHERE source=? AND title=?",
+            (SOURCE, "life: rating-watch"),
+        ).fetchone()
+        if not row or row[0] is None:
+            return False
+        return datetime.fromtimestamp(int(row[0]) / 1000).date() == now.date()
+
+    def _rating_watch(self, conn: sqlite3.Connection, now: datetime,
+                      when: int) -> Optional[dict[str, Any]]:
+        """Record a rating-volume snapshot; ping the notifier if ratings stalled.
+
+        Returns the snapshot when it ran, else ``None`` (disabled, past
+        ``rating_watch_until``, or already run today). Rides the life loop — no
+        OS timer. A stall (zero subjective ratings in the window) is the signal
+        the in-turn self-rating loop is not firing.
+        """
+        s = config.settings
+        if not _flag_enabled(s.rating_watch_enabled):
+            return None
+        until = (s.rating_watch_until or "").strip()
+        if until:
+            try:
+                if now.date() > datetime.fromisoformat(until).date():
+                    return None
+            except ValueError:
+                pass  # an unparseable end date just means "no end"
+        snap = mind.rating_volume(conn, days=s.rating_watch_days, at_ms=when)
+        window = snap["days"]
+        stalled = snap["rated"] == 0
+        summary = (
+            f"rating watch: {snap['useful']} useful / {snap['noise']} noise / "
+            f"{snap['used']} used in {window}d; {snap['raters']} rater(s); "
+            f"{snap['unranked']}/{snap['atoms']} unranked"
+        )
+        if stalled:
+            summary += f" — STALLED (no ratings in {window}d)"
+        self._emit(
+            conn,
+            "rating-watch",
+            when_ms=when,
+            next_due_ms=when + _DAY_MS,
+            summary=summary,
+            severity="warning" if stalled else "info",
+            extra={"snapshot": snap},
+        )
+        if stalled:
+            _notify(
+                "neoBrain rating watch",
+                f"No agent memory ratings in the last {window}d "
+                f"({snap['unranked']}/{snap['atoms']} atoms unranked). "
+                "In-turn self-rating may not be firing.",
+            )
+        return snap
+
     def _rest(self, conn: sqlite3.Connection, now: datetime, when: int) -> list[str]:
         if now.hour != config.settings.life_dream_hour:
             return []
@@ -575,6 +686,15 @@ class LifeLoop:
             if self._due(conn, "act", when):
                 self._act(conn, when)
                 ran.append("act")
+
+        # Rating watch: one snapshot a day, at a waking hour (so a stall alert
+        # is not a 2am ping). Rides this loop — no OS timer.
+        if (
+            now.hour == config.settings.rating_watch_hour
+            and not self._watch_ran_today(conn, now)
+            and self._rating_watch(conn, now, when) is not None
+        ):
+            ran.append("rating-watch")
 
         self._checkpoint_wal(conn, when, quiet)
 
