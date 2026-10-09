@@ -66,6 +66,7 @@ type Overview = {
       useful: number
       noise: number
       used: number
+      unused: number
       raters: number
       rated: number
       unranked: number
@@ -792,6 +793,7 @@ export function DebugView() {
                     {stat('useful', ov.rating_watch.current.useful)}
                     {stat('noise', ov.rating_watch.current.noise)}
                     {stat('used', ov.rating_watch.current.used)}
+                    {stat('unused', ov.rating_watch.current.unused)}
                     {stat('raters', ov.rating_watch.current.raters)}
                     {stat('unranked', `${ov.rating_watch.current.unranked}/${ov.rating_watch.current.atoms}`)}
                   </div>

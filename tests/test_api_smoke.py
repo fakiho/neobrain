@@ -71,6 +71,16 @@ def test_feedback_endpoint_records_and_rejects(client):
     assert bad.status_code == 400
 
 
+def test_unused_signal_is_recorded_and_counted(client):
+    """The plugin's inferred `unused` is a valid signal and shows in the volume."""
+    atom = client.post("/api/mind/remember", json={"text": "pushed but never used"}).json()
+    r = client.post("/api/mind/feedback", json={"atom_id": atom["id"], "signal": "unused"})
+    assert r.status_code == 200
+    assert r.json()["recorded"] is True
+    vol = client.get("/api/debug/overview").json()["rating_watch"]["current"]
+    assert vol["unused"] >= 1
+
+
 def test_mind_views_smoke(client):
     client.post("/api/mind/remember", json={"text": "graph node one", "hubs": ["agent"]})
     assert client.get("/api/mind/stats").json()["atoms"] >= 1

@@ -772,10 +772,12 @@ def forget(conn: sqlite3.Connection, atom_id: str, session_id: str | None = None
 #
 # Usage (`used`) is objective: the plugin records it when memory_open(id)
 # succeeds. Rating (`useful` / `noise`) is subjective: the agent calls
-# memory_rate(id, verdict). Both feed a *small* capped multiplier in recall
-# ranking, so relevance still dominates (see _feedback_multiplier).
+# memory_rate(id, verdict). `unused` is inferred by the plugin: a memory the
+# recall lane pushed but the agent neither opened nor rated this turn — a weak
+# attention signal, not a verdict. All feed a *small* capped multiplier in
+# recall ranking, so relevance still dominates (see _feedback_multiplier).
 
-FEEDBACK_SIGNALS = ("used", "useful", "noise")
+FEEDBACK_SIGNALS = ("used", "useful", "noise", "unused")
 
 
 def feedback(conn: sqlite3.Connection, atom_id: str, signal: str, *,
@@ -815,11 +817,15 @@ def feedback(conn: sqlite3.Connection, atom_id: str, signal: str, *,
         # PORT-NOTE: S4 — keep the deterministic rank store in step with the
         # feedback log: count the interaction, promote an ignored/archived atom
         # that just proved value (useful/used), and refresh its quality.
+        # `unused` is skipped: it is high-volume and soft (the recall multiplier
+        # reads it directly), and a per-atom rank recompute is a full-graph scan
+        # that a per-turn inferred signal must not trigger.
         # Best-effort — rank bookkeeping must never turn a ping into an error.
-        try:
-            rank.on_feedback(conn, atom_id, signal)
-        except sqlite3.Error:
-            pass
+        if signal != "unused":
+            try:
+                rank.on_feedback(conn, atom_id, signal)
+            except sqlite3.Error:
+                pass
     return {"atom_id": atom_id, "signal": signal, "source": source,
             "session_id": session_id, "origin_session_id": origin_session_id,
             "recorded": recorded}
@@ -830,9 +836,9 @@ def rating_volume(conn: sqlite3.Connection, *, days: int = 7,
     """A rating-volume snapshot over the last ``days`` (the rating-watch metric).
 
     Counts the subjective verdicts (``useful``/``noise``), the objective ``used``
-    nudges, and the distinct sessions that rated, plus how many atoms still carry
-    no subjective verdict at all ("unranked"). Read-only; safe under the
-    single-writer daemon.
+    nudges, the inferred ``unused`` signals, and the distinct sessions that
+    rated, plus how many atoms still carry no subjective verdict at all
+    ("unranked"). Read-only; safe under the single-writer daemon.
     """
     _ensure_schema(conn)
     at = at_ms if at_ms is not None else now_ms()
@@ -842,11 +848,12 @@ def rating_volume(conn: sqlite3.Connection, *, days: int = 7,
         "SUM(CASE WHEN signal='useful' THEN 1 ELSE 0 END), "
         "SUM(CASE WHEN signal='noise' THEN 1 ELSE 0 END), "
         "SUM(CASE WHEN signal='used' THEN 1 ELSE 0 END), "
+        "SUM(CASE WHEN signal='unused' THEN 1 ELSE 0 END), "
         "COUNT(DISTINCT CASE WHEN signal IN ('useful','noise') THEN session_id END) "
         "FROM m_feedback WHERE ts >= ?",
         (since,),
     ).fetchone()
-    useful, noise, used, raters = (int(v or 0) for v in row)
+    useful, noise, used, unused, raters = (int(v or 0) for v in row)
     unranked = conn.execute(
         "SELECT COUNT(*) FROM m_atoms a WHERE NOT EXISTS ("
         "SELECT 1 FROM m_feedback f WHERE f.atom_id = a.id "
@@ -855,26 +862,29 @@ def rating_volume(conn: sqlite3.Connection, *, days: int = 7,
     atoms = conn.execute("SELECT COUNT(*) FROM m_atoms").fetchone()[0]
     return {
         "days": max(1, days), "since_ms": since, "at_ms": at,
-        "useful": useful, "noise": noise, "used": used, "raters": raters,
-        "rated": useful + noise, "unranked": int(unranked), "atoms": int(atoms),
+        "useful": useful, "noise": noise, "used": used, "unused": unused,
+        "raters": raters, "rated": useful + noise,
+        "unranked": int(unranked), "atoms": int(atoms),
     }
 
 
-def _feedback_counts(conn: sqlite3.Connection) -> dict[str, tuple[int, int, int]]:
-    """atom_id -> (used, useful, noise) counts, from the feedback log."""
+def _feedback_counts(conn: sqlite3.Connection) -> dict[str, tuple[int, int, int, int]]:
+    """atom_id -> (used, useful, noise, unused) counts, from the feedback log."""
     counts: dict[str, list[int]] = {}
     for aid, sig, n in conn.execute(
         "SELECT atom_id, signal, COUNT(*) FROM m_feedback GROUP BY atom_id, signal"
     ):
         if not aid:
             continue
-        c = counts.setdefault(aid, [0, 0, 0])
+        c = counts.setdefault(aid, [0, 0, 0, 0])
         if sig == "used":
             c[0] = n
         elif sig == "useful":
             c[1] = n
         elif sig == "noise":
             c[2] = n
+        elif sig == "unused":
+            c[3] = n
     return {k: tuple(v) for k, v in counts.items()}
 
 
@@ -918,23 +928,30 @@ _TF_K1 = 1.2
 
 # Feedback is a *small* capped multiplier: relevance must still dominate. The
 # net rating (useful - noise) supplies the sign and most of the budget; a tiny
-# positive nudge comes from how often the atom was actually opened (`used`).
+# positive nudge comes from how often the atom was actually opened (`used`), and
+# a tiny negative drag from how often it was pushed but never used (`unused`).
 _FEEDBACK_CAP = 0.10        # max ±10% on the final score
 _FEEDBACK_NET_SCALE = 3.0   # net ±3 saturates the rating budget
 _FEEDBACK_USE_SCALE = 5.0   # 5 opens saturates the usage nudge
 _FEEDBACK_USE_SHARE = 0.2   # usage is at most 20% of the feedback budget
+_FEEDBACK_IDLE_SCALE = 5.0  # 5 unused serves saturate the idle drag
+_FEEDBACK_IDLE_SHARE = 0.1  # the idle drag is at most 10% of the budget (half the usage nudge)
 
 
-def _feedback_multiplier(used: int = 0, useful: int = 0, noise: int = 0) -> float:
+def _feedback_multiplier(used: int = 0, useful: int = 0, noise: int = 0,
+                         unused: int = 0) -> float:
     """Deterministic score multiplier in [1 - CAP, 1 + CAP].
 
-    `net = useful - noise` drives the direction (tanh-saturated), and a small
-    non-negative nudge rewards memories that are actually opened. Everything is
-    bounded, so no amount of feedback can override a real relevance gap.
+    `net = useful - noise` drives the direction (tanh-saturated); a small
+    non-negative nudge rewards memories that are actually opened, and a small
+    non-negative drag punishes ones the recall lane keeps pushing but the agent
+    never uses. Everything is bounded, so no amount of feedback can override a
+    real relevance gap, and one `useful` outweighs any pile of `unused`.
     """
     net = math.tanh((useful - noise) / _FEEDBACK_NET_SCALE)
     use = _FEEDBACK_USE_SHARE * math.tanh(used / _FEEDBACK_USE_SCALE)
-    adj = max(-1.0, min(1.0, net + use))
+    idle = _FEEDBACK_IDLE_SHARE * math.tanh(unused / _FEEDBACK_IDLE_SCALE)
+    adj = max(-1.0, min(1.0, net + use - idle))
     return 1.0 + _FEEDBACK_CAP * adj
 
 
@@ -948,8 +965,9 @@ def _score_atoms(atoms: list[dict], query: str,
 
     Returns `(score, atom)` best-first. Each atom needs `label`, `text`,
     `tags`, `hub`, `created` and `weight` keys; `tags` may be a CSV string.
-    `feedback` maps an atom id to `(used, useful, noise)` counts and applies
-    the small capped multiplier from `_feedback_multiplier` (default: none).
+    `feedback` maps an atom id to `(used, useful, noise, unused)` counts and
+    applies the small capped multiplier from `_feedback_multiplier` (default:
+    none).
 
     When `query_vec` and `vectors` (atom id -> L2-normalised vector) are given,
     ranking is **hybrid**::
