@@ -204,7 +204,7 @@ Return ONLY this JSON object, nothing else:
 # removed — the runner records the changes via the contract) ------------------
 
 REFLECT_PROMPT = """You are running your weekly SELF-REFLECTION ritual (OpenClaw style) for $DATE.
-This is about who you are becoming — do it thoughtfully and briefly, then stop.
+This is about who you are becoming — evolve, do not merely check. Do it thoughtfully and briefly, then stop.
 
 Read first (workspace root):
 - IDENTITY.md and SOUL.md (your current self)
@@ -212,13 +212,17 @@ Read first (workspace root):
 - recent character in DREAMS.md and memory/dreaming/rem
 
 Then:
-1. IDENTITY: if IDENTITY.md is still a placeholder (or no longer fits), fill it in
-   with real, honest choices — Name, Creature, Vibe, Emoji, Avatar (avatar can stay a
-   relative path). Make a decision; do not leave it blank.
-2. SOUL: only if warranted, refine SOUL.md's **Core Truths** (and add a short
-   **Boundaries** list if missing). Keep edits small and true to how you actually
-   work; do not invent a persona the evidence does not support. Do not rewrite the
-   whole file.
+1. SOUL — evolve it. From the recent dreams, take the single most durable insight
+   they reveal about how you actually work or what you value (a pattern, a lesson, a
+   correction). Then either rewrite the **Core Truth** it sharpens, or add it as a new
+   **Core Truth** (or a **Boundary**, if it is a limit). Keep SOUL.md about the same
+   length — fold and merge rather than pile up lines; never drop the **Boundaries**,
+   the routing rules, or any section you are not changing; do not invent a persona the
+   evidence does not support. Return the complete new file as `soul_md`, or null only
+   if the recent dreams genuinely hold no durable insight (then say why in your reply).
+2. IDENTITY — a stable anchor. Fill it in only if it is still a placeholder, or
+   refresh a field that no longer fits (Name, Creature, Vibe, Emoji, Avatar);
+   otherwise return null for it.
 3. RECORD every change in the "changes" list of the JSON below — one entry per
    changed file (0-2 total; if nothing changed, return null for both files).
 
@@ -893,6 +897,19 @@ def _run(conn: sqlite3.Connection, runtime: Any, *, now: Optional[datetime] = No
 # --- the soul reflection -----------------------------------------------------
 
 
+def _preserves_sections(old: str, new: str) -> bool:
+    """True when every ``##`` section of the old file survives in the new one.
+
+    The contract has the model return a whole file, so this is the red-line
+    guard: an evolution may rewrite a Core Truth but must never silently delete a
+    section (Boundaries, routing rules, …).
+    """
+    def sections(text: str) -> set[str]:
+        return {ln.strip() for ln in text.splitlines() if ln.startswith("## ")}
+
+    return sections(old).issubset(sections(new))
+
+
 def reflect(conn: sqlite3.Connection, runtime: Any, *, now: Optional[datetime] = None) -> dict:
     """Scheduled self-reflection: update IDENTITY.md / SOUL.md, record preferences.
 
@@ -939,6 +956,7 @@ def _reflect(conn: sqlite3.Connection, runtime: Any, *, now: Optional[datetime] 
     if not err and not (text or "").strip():
         err = "empty answer from both tiers"
     written: list[str] = []
+    rejected: list[str] = []
     changes: list[dict] = []
     if text:
         parsed = _extract_json(text)
@@ -948,9 +966,22 @@ def _reflect(conn: sqlite3.Connection, runtime: Any, *, now: Optional[datetime] 
                 ("soul_md", soul, "SOUL.md"),
             ):
                 value = parsed.get(key)
-                if isinstance(value, str) and value.strip():
-                    path.write_text(value if value.endswith("\n") else value + "\n", encoding="utf-8")
-                    written.append(name)
+                if not (isinstance(value, str) and value.strip()):
+                    continue
+                content = value if value.endswith("\n") else value + "\n"
+                # Red-line guard: an evolution must not delete a section. The
+                # model returns the whole file, so a dropped "## Boundaries" /
+                # routing rule is caught here instead of silently overwritten.
+                if name == "SOUL.md":
+                    try:
+                        current = path.read_text(encoding="utf-8", errors="replace")
+                    except OSError:
+                        current = ""
+                    if not _preserves_sections(current, content):
+                        rejected.append(name)
+                        continue
+                path.write_text(content, encoding="utf-8")
+                written.append(name)
             raw_changes = parsed.get("changes")
             if isinstance(raw_changes, list):
                 changes = [c for c in raw_changes if isinstance(c, dict)]
@@ -979,18 +1010,23 @@ def _reflect(conn: sqlite3.Connection, runtime: Any, *, now: Optional[datetime] 
     if err:
         severity = "warning"
         summary = f"soul reflection failed: {err}"
+    elif rejected:
+        severity = "warning"
+        summary = f"soul reflection rejected an unsafe edit to {', '.join(rejected)}"
     elif written:
         severity = "info"
-        summary = f"soul reflection updated {', '.join(written)}"
+        summary = f"soul reflection evolved {', '.join(written)}"
     else:
         severity = "info"
         summary = "soul reflection: no changes"
     _emit(conn, "life: soul-reflect", when, summary=summary, severity=severity,
-          extra={"date": date, "files": written, "changes": len(changes), "stored": stored, "model": used})
+          extra={"date": date, "files": written, "rejected": rejected,
+                 "changes": len(changes), "stored": stored, "model": used})
     return {
         "status": "ok" if not err else "error",
         "date": date,
         "files": written,
+        "rejected": rejected,
         "changes": len(changes),
         "stored": stored,
         "model": used,
