@@ -455,7 +455,7 @@ const PERSONA_TOTAL_CAP = 60000
 // tail (real, active rules) was being silently truncated. Compact to just the
 // active directive bullets before the cap applies — deterministic, no model, and
 // no loss of an active rule however much boilerplate the file accumulates.
-function compactUserDoc(text: string): string {
+export function compactUserDoc(text: string): string {
   const out: string[] = []
   let started = false
   let active = true
