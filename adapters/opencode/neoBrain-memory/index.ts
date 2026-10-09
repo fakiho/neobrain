@@ -272,7 +272,9 @@ function formatAtom(a: RecallAtom & { source?: string; tags?: string[]; weight?:
 
 // Pull tools (open/search/rate) plus a store tool. Best effort: a registration
 // failure must never break the push lanes, so the caller wraps this in try/catch.
-async function registerTools(ctx: PluginContext) {
+// `markUsed` records the atoms a turn actually touched, so the caller can infer
+// `unused` for the rest of what the recall lane pushed.
+async function registerTools(ctx: PluginContext, markUsed: (sid: string | undefined, id: string) => void) {
   // non-null: the caller guards on ctx.tool?.transform before invoking this
   await ctx.tool!.transform((editor) => {
     editor.namespace({ name: "memory", description: "neoBrain durable memory (read + store)" })
@@ -358,6 +360,7 @@ async function registerTools(ctx: PluginContext) {
           if (!res.ok) return { content: `memory_open: no atom "${id}" (HTTP ${res.status})` }
           const text = formatAtom(await res.json())
           reportFeedback(id, "used", context?.sessionID) // objective usage signal
+          markUsed(context?.sessionID, id) // opened: not `unused` at the turn boundary
           return { content: text }
         } catch (err: any) {
           return { content: `memory_open: ${id} — ${err?.message ?? err}` }
@@ -400,6 +403,7 @@ async function registerTools(ctx: PluginContext) {
             }),
           })
           if (!res.ok) return { content: `memory_rate: HTTP ${res.status}` }
+          markUsed(context?.sessionID, id) // rated: not `unused` at the turn boundary
           return { content: `memory_rate: recorded "${verdict}" for [${id}]` }
         } catch (err: any) {
           return { content: `memory_rate: ${err?.message ?? err}` }
@@ -504,6 +508,29 @@ export default {
     const directivesText = new Map<string, string | null>() // sessionID -> rendered standing directives
     const directivesDone = new Set<string>() // sessionID -> directive block already injected (EVERY_TURN=0 only)
     const postCompact = new Set<string>() // sessionID -> compaction ran, next context call re-injects
+    const pushedTurn = new Map<string, string[]>() // sessionID -> atom ids the recall lane pushed last turn
+    const usedTurn = new Map<string, Set<string>>() // sessionID -> those ids since opened or rated
+
+    // Inferred feedback: the next user message ends the previous turn, so any
+    // memory the recall lane pushed but the agent neither opened nor rated earns
+    // the weak `unused` signal — the negative we infer when no rating came. The
+    // daemon weights it far below `noise`, so it only nudges ranking.
+    const finalizeUnused = (sid: string) => {
+      const pushed = pushedTurn.get(sid)
+      const used = usedTurn.get(sid)
+      pushedTurn.delete(sid)
+      usedTurn.delete(sid)
+      if (!pushed?.length) return
+      const unused = used ? pushed.filter((id) => !used.has(id)) : pushed
+      for (const id of unused) reportFeedback(id, "unused", sid)
+      if (unused.length) dbg(`${sidShort(sid)} unused: ${unused.length}/${pushed.length} pushed atoms not opened or rated`)
+    }
+    const markUsed = (sid: string | undefined, id: string) => {
+      if (!sid) return
+      let s = usedTurn.get(sid)
+      if (!s) usedTurn.set(sid, (s = new Set()))
+      s.add(id)
+    }
 
     // Push the standing-directives block, logging the stage it landed in:
     //   @context    — a normal agent-loop call (the reply itself)
@@ -533,7 +560,9 @@ export default {
     await ctx.session.hook("prompt", (event) => {
       const sid = event?.sessionID
       const text = oneLine(event?.prompt?.text)
-      if (sid && text) pending.set(sid, text)
+      if (!sid || !text) return
+      finalizeUnused(sid) // the previous turn is over: infer `unused` before the next recall
+      pending.set(sid, text)
     })
 
     await ctx.session.hook("context", async (event) => {
@@ -633,6 +662,7 @@ export default {
         if (text) {
           sys.push({ type: "text", text })
           const pushed = atoms.slice(0, IDX_N).map((a) => a.id).filter((id): id is string => !!id)
+          pushedTurn.set(sid, pushed)
           dbg(`${sidShort(sid)} recall "${oneLine(query).slice(0, 60)}" escalated=${escalated} → ${Math.min(atoms.length, IDX_N)} hits injected`)
           reportInjection("recall", "context", text.length, sid, escalated ? "deep" : undefined, pushed)
         } else {
@@ -663,7 +693,7 @@ export default {
 
     // 3) memory tools (memory_store / memory_open / memory_search / memory_rate)
     try {
-      if (ctx.tool?.transform) await registerTools(ctx)
+      if (ctx.tool?.transform) await registerTools(ctx, markUsed)
     } catch (err: any) {
       console.error("[neobrain-memory] tool registration failed:", err?.message ?? err)
     }
