@@ -62,9 +62,15 @@ type HookEvent = {
   prompt?: { text?: string }
   system?: { type: "text"; text: string }[]
 }
+// The server event stream (ctx.event); we only read session-lifecycle events.
+type StreamEvent = {
+  type?: string
+  data?: { sessionID?: string; finish?: string; status?: { type?: string } }
+}
 type PluginContext = {
   session: { hook: (name: string, fn: (event: HookEvent) => void | Promise<void>) => Promise<void> }
   tool?: { transform: (fn: (editor: ToolEditor) => void) => Promise<void> }
+  event?: { subscribe: (opts?: { signal?: AbortSignal }) => AsyncIterable<StreamEvent> }
 }
 
 // PORT-NOTE: env var renamed TIMELINE_API → NEOBRAIN_API; the old hardcoded
@@ -561,7 +567,7 @@ export default {
       const sid = event?.sessionID
       const text = oneLine(event?.prompt?.text)
       if (!sid || !text) return
-      finalizeUnused(sid) // the previous turn is over: infer `unused` before the next recall
+      finalizeUnused(sid) // safety net: if the idle event was missed, finalize before the next recall
       pending.set(sid, text)
     })
 
@@ -691,11 +697,42 @@ export default {
       dbg(`${sidShort(sid)} compaction: directives @compaction; persona+wakeup re-inject next turn`)
     })
 
+    // Completion boundary. There is no turn-end *hook*, but the context exposes
+    // the server event stream. A turn ends when its final step ends without a
+    // pending tool call (`session.step.ended` with finish != "tool-calls"); the
+    // `session.idle`/`session.status` events are handled too in case they fire.
+    // Finalize there, because a one-shot session (a subagent) and a session's
+    // last turn never see a next `prompt` — the prompt-hook finalize above is
+    // only a safety net. `finalizeUnused` is idempotent (it clears the pushed
+    // set), so the boundaries can never double-report.
+    const events = ctx.event
+    const ac = new AbortController()
+    if (events) {
+      void (async () => {
+        try {
+          for await (const ev of events.subscribe({ signal: ac.signal })) {
+            const data = ev?.data
+            const sid = data?.sessionID
+            if (!sid) continue
+            const done =
+              (ev.type === "session.step.ended" && data?.finish !== "tool-calls") ||
+              ev.type === "session.idle" ||
+              (ev.type === "session.status" && data?.status?.type === "idle")
+            if (done) finalizeUnused(sid)
+          }
+        } catch (err: any) {
+          if (!ac.signal.aborted) console.error("[neobrain-memory] event stream ended:", err?.message ?? err)
+        }
+      })()
+    }
+
     // 3) memory tools (memory_store / memory_open / memory_search / memory_rate)
     try {
       if (ctx.tool?.transform) await registerTools(ctx, markUsed)
     } catch (err: any) {
       console.error("[neobrain-memory] tool registration failed:", err?.message ?? err)
     }
+
+    return () => ac.abort()
   },
 }
