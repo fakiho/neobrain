@@ -12,7 +12,7 @@ SUNDAY = datetime(2026, 10, 4, 4, 0)   # weekday 6
 WEDNESDAY = datetime(2026, 9, 30, 4, 0)  # weekday 2
 
 IDENTITY_NEW = "# Identity\n\n- Name: TestBot\n- Creature: little daemon\n"
-SOUL_NEW = "# Soul\n\n## Core Truths\n\n- Always be honest.\n"
+SOUL_NEW = "# Soul\n\n## Core Truths\n\n- Always be honest.\n\n## Boundaries\n\n- Never run sudo.\n"
 REPLY = json.dumps(
     {
         "identity_md": IDENTITY_NEW,
@@ -133,6 +133,37 @@ def test_reflect_prompt_is_verbatim(conn, workspace):
     assert "Core Truths" in prompt
     assert "Constraints: do not use sudo; edit only IDENTITY.md, SOUL.md" in prompt
     assert "$DATE" not in prompt
+
+
+def test_reflect_prompt_mandates_evolution(conn, workspace):
+    rt = FakeRuntime([REPLY])
+    dreams.reflect(conn, rt, now=SUNDAY)
+
+    prompt = rt.calls[0]["messages"][0]["content"]
+    assert "evolve, do not merely check" in prompt
+    assert "SOUL — evolve it" in prompt
+    assert "null only" in prompt
+    assert "genuinely hold no durable insight" in prompt
+
+
+def test_reflect_rejects_soul_edit_that_drops_a_section(conn, workspace):
+    # An "evolution" that deletes ## Boundaries must not overwrite the file.
+    bad = json.dumps(
+        {
+            "identity_md": None,
+            "soul_md": "# Soul\n\n## Core Truths\n\n- Be honest.\n",
+            "changes": [{"file": "SOUL.md", "summary": "evolve"}],
+        }
+    )
+    rt = FakeRuntime([bad])
+    result = dreams.reflect(conn, rt, now=SUNDAY)
+
+    assert result["status"] == "ok"
+    assert result["rejected"] == ["SOUL.md"]
+    assert result["files"] == []
+    assert "Never run sudo." in (workspace / "SOUL.md").read_text(encoding="utf-8")
+    row = conn.execute("SELECT severity FROM events WHERE title='life: soul-reflect'").fetchone()
+    assert row["severity"] == "warning"
 
 
 DIARY = """<!-- openclaw:dreaming:diary:start -->
