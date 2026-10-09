@@ -86,6 +86,24 @@ def test_life_loop_disabled_runs_no_phase(client):
     assert client.get("/api/events", params={"source": "life"}).json()["count"] == 0
 
 
+def test_debug_overview_surfaces_rating_watch(client):
+    ov = client.get("/api/debug/overview").json()
+    rw = ov["rating_watch"]
+    assert {"enabled", "days", "hour", "until", "current", "last"} <= set(rw)
+    assert rw["days"] >= 1
+    assert {"useful", "noise", "used", "raters", "rated", "unranked", "atoms"} <= set(rw["current"])
+    assert rw["last"] is None  # fresh store: the loop has not recorded a snapshot
+
+
+def test_debug_overview_rating_watch_counts_verdicts(client):
+    atom = client.post("/api/mind/remember", json={"text": "rate me"}).json()
+    client.post("/api/mind/feedback", json={"atom_id": atom["id"], "signal": "useful", "session": "ses_test"})
+    rw = client.get("/api/debug/overview").json()["rating_watch"]
+    assert rw["current"]["useful"] >= 1
+    assert rw["current"]["rated"] >= 1
+    assert rw["current"]["raters"] >= 1
+
+
 def test_debug_logs_endpoint_is_on_demand_and_safe(client):
     # Fetched only when the Debug tab asks; best-effort even without journalctl.
     r = client.get("/api/debug/logs", params={"lines": 50})

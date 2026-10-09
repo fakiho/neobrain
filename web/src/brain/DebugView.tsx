@@ -48,6 +48,25 @@ type Overview = {
   phases: { phase: string; every_minutes: number; last: { ts: number; summary: string; next_due: number } | null }[]
   quiet_now: boolean
   last_dream: { ts: number; label: string } | null
+  rating_watch: {
+    enabled: boolean
+    days: number
+    hour: number
+    until: string
+    current: {
+      days: number
+      since_ms: number
+      at_ms: number
+      useful: number
+      noise: number
+      used: number
+      raters: number
+      rated: number
+      unranked: number
+      atoms: number
+    }
+    last: { ts: number; severity: string; summary: string; next_due: number | null; snapshot: Record<string, number> } | null
+  }
   self_trace: {
     docs: { doc_path: string; ts: number; content_hash: string }[]
     doc_counts: { doc_path: string; versions: number; last_ts: number }[]
@@ -297,6 +316,29 @@ export function DebugView() {
                 </tr>
               </tbody>
             </table>
+          </section>
+
+          {/* ---- rating watch ---- */}
+          <section className="dbg-card">
+            <h5>
+              Rating watch — memory-feedback volume over {ov.rating_watch.days}d
+              {ov.rating_watch.enabled
+                ? <span className="flag on">on · {String(ov.rating_watch.hour).padStart(2, '0')}:00</span>
+                : <span className="flag">off</span>}
+              {ov.rating_watch.last?.severity === 'warning' && <span className="flag">stalled</span>}
+            </h5>
+            <div className="dbg-stats">
+              {stat('useful', ov.rating_watch.current.useful)}
+              {stat('noise', ov.rating_watch.current.noise)}
+              {stat('used', ov.rating_watch.current.used)}
+              {stat('raters', ov.rating_watch.current.raters)}
+              {stat('unranked', `${ov.rating_watch.current.unranked}/${ov.rating_watch.current.atoms}`)}
+            </div>
+            <p className="muted dbg-note">
+              last snapshot {ago(ov.rating_watch.last?.ts)} · next {inMins(ov.rating_watch.last?.next_due)}
+              {ov.rating_watch.until ? ` · stops after ${ov.rating_watch.until}` : ''}
+              {' '}· a snapshot that finds zero ratings in the window flags «stalled» and pings Telegram.
+            </p>
           </section>
 
           {/* ---- lane injections (client-side pushes) ---- */}
