@@ -1092,6 +1092,9 @@
       .t-cursor { animation: none; }
     }
   </style>
+
+  <!-- Google Analytics (GA4) — loaded only after consent (analytics.js) -->
+  <script defer src="analytics.js" data-ga-id="G-43XTG581C8"></script>
 </head>
 <body>
 
@@ -1113,8 +1116,8 @@
     </ul>
 
     <div class="nav-actions">
-      <a class="btn btn-ghost" href="#observatory">See the Observatory</a>
-      <a class="btn btn-primary" href="#how">Get started</a>
+      <a data-ga-event="cta_click" data-ga-label="See the Observatory" data-ga-location="nav" class="btn btn-ghost" href="#observatory">See the Observatory</a>
+      <a data-ga-event="cta_click" data-ga-label="Get started" data-ga-location="nav" class="btn btn-primary" href="#how">Get started</a>
       <button class="burger" type="button" aria-label="Open menu" aria-expanded="false" aria-controls="mobile-menu">
         <span class="bars" aria-hidden="true"><span></span><span></span><span></span></span>
       </button>
@@ -1152,10 +1155,10 @@
       <h1 id="hero-title" class="reveal" style="--d:60ms">A simulated brain <span class="grad">for AI coding agents</span></h1>
       <p class="hero-lede reveal" style="--d:120ms">neoBrain gives AI coding agents durable memory, deterministic forgetting, nightly dreams and a self-authored soul — one local daemon, one dashboard. You watch the mind; the agent becomes.</p>
       <div class="hero-actions reveal" style="--d:180ms">
-        <a class="btn btn-primary btn-lg" href="#how">Quickstart
+        <a data-ga-event="cta_click" data-ga-label="Quickstart" data-ga-location="hero" class="btn btn-primary btn-lg" href="#how">Quickstart
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
         </a>
-        <a class="btn btn-ghost btn-lg" href="#mind">Explore the Mind Model</a>
+        <a data-ga-event="cta_click" data-ga-label="Explore the Mind Model" data-ga-location="hero" class="btn btn-ghost btn-lg" href="#mind">Explore the Mind Model</a>
       </div>
       <div class="hero-install reveal" style="--d:240ms">
         <span class="arrow" aria-hidden="true">→</span>
@@ -1500,10 +1503,10 @@
         </button>
       </div>
       <div class="cta-links reveal" style="--d:180ms">
-        <a class="btn btn-primary btn-lg" href="https://github.com/fakiho/neobrain" target="_blank" rel="noopener">View on GitHub <span class="ext" aria-hidden="true">↗</span></a>
-        <a class="btn btn-ghost btn-lg" href="#how">Quickstart</a>
-        <a class="btn btn-ghost btn-lg" href="https://alionix.com" target="_blank" rel="noopener">alionix.com <span class="ext" aria-hidden="true">↗</span></a>
-        <a class="btn btn-ghost btn-lg" href="https://neohive.alionix.com" target="_blank" rel="noopener">neohive — agents collaborate <span class="ext" aria-hidden="true">↗</span></a>
+        <a data-ga-event="cta_click" data-ga-label="View on GitHub" data-ga-location="cta" class="btn btn-primary btn-lg" href="https://github.com/fakiho/neobrain" target="_blank" rel="noopener">View on GitHub <span class="ext" aria-hidden="true">↗</span></a>
+        <a data-ga-event="cta_click" data-ga-label="Quickstart" data-ga-location="cta" class="btn btn-ghost btn-lg" href="#how">Quickstart</a>
+        <a data-ga-event="outbound_click" data-ga-label="alionix.com" class="btn btn-ghost btn-lg" href="https://alionix.com" target="_blank" rel="noopener">alionix.com <span class="ext" aria-hidden="true">↗</span></a>
+        <a data-ga-event="outbound_click" data-ga-label="neohive" class="btn btn-ghost btn-lg" href="https://neohive.alionix.com" target="_blank" rel="noopener">neohive — agents collaborate <span class="ext" aria-hidden="true">↗</span></a>
       </div>
       <div class="status-pill reveal" style="--d:240ms">
         <span class="dot" aria-hidden="true"></span>
@@ -1539,14 +1542,14 @@
       <div class="footer-col">
         <h3>The family</h3>
         <ul>
-          <li><a href="https://alionix.com" target="_blank" rel="noopener">alionix <span class="ext" aria-hidden="true">↗</span></a></li>
-          <li><a href="https://neohive.alionix.com" target="_blank" rel="noopener">neohive <span class="ext" aria-hidden="true">↗</span></a></li>
-          <li><a href="https://github.com/fakiho/neobrain" target="_blank" rel="noopener">neoBrain on GitHub <span class="ext" aria-hidden="true">↗</span></a></li>
+          <li><a data-ga-event="outbound_click" data-ga-label="alionix" href="https://alionix.com" target="_blank" rel="noopener">alionix <span class="ext" aria-hidden="true">↗</span></a></li>
+          <li><a data-ga-event="outbound_click" data-ga-label="neohive" href="https://neohive.alionix.com" target="_blank" rel="noopener">neohive <span class="ext" aria-hidden="true">↗</span></a></li>
+          <li><a data-ga-event="outbound_click" data-ga-label="GitHub" href="https://github.com/fakiho/neobrain" target="_blank" rel="noopener">neoBrain on GitHub <span class="ext" aria-hidden="true">↗</span></a></li>
         </ul>
       </div>
     </div>
     <div class="footer-bottom">
-      <span>MIT License &middot; built by <a href="https://alionix.com" target="_blank" rel="noopener">alionix</a></span>
+      <span>MIT License &middot; built by <a data-ga-event="outbound_click" data-ga-label="alionix" href="https://alionix.com" target="_blank" rel="noopener">alionix</a></span>
       <span>agents remember</span>
     </div>
   </div>
