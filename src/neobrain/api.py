@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import sqlite3
 import subprocess
 import threading
@@ -694,6 +695,13 @@ def _restart_daemon() -> dict:
     dies with us. ``systemd-run`` is preferred; a detached shell is the fallback.
     """
     unit = "neobrain.service"
+    if shutil.which("systemctl") is None:
+        # macOS / unsupervised hosts: the fallback shell would spawn, fail
+        # silently inside, and the UI would report a restart that never happens.
+        return {
+            "ok": False,
+            "error": "no systemd on this host — restart the daemon manually (`neobrain start`)",
+        }
     try:
         subprocess.Popen(
             ["systemd-run", "--user", "--collect", "--on-active=2",

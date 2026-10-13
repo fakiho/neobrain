@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Settings as SettingsIcon, Save, RotateCcw, RefreshCw, PlugZap, Check,
-  AlertTriangle, Loader2, Power,
+  AlertTriangle, Loader2, Power, X,
 } from 'lucide-react'
 
 // Settings tab: enable/disable the brain's rituals, and point its cognition at
@@ -60,14 +60,35 @@ export function SettingsView() {
   const [restartAsk, setRestartAsk] = useState<string[] | null>(null)
   const baseUrlRef = useRef<HTMLInputElement | null>(null)
 
-  const load = useCallback(() => {
+  const load = useCallback((keepDraft = false) => {
     fetch('/api/settings')
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
-      .then((d: Snap) => { setSnap(d); setDraft({}) })
+      .then((d: Snap) => { setSnap(d); if (!keepDraft) setDraft({}) })
       .catch(() => setMsg({ kind: 'err', text: 'Could not load settings — is the daemon up?' }))
   }, [])
 
   useEffect(() => { load() }, [load])
+
+  // Success notes dismiss themselves; errors stay until dismissed (they carry
+  // the why, and auto-hiding a failure is how it gets missed).
+  useEffect(() => {
+    if (msg?.kind !== 'ok') return
+    const t = window.setTimeout(() => setMsg(null), 6000)
+    return () => window.clearTimeout(t)
+  }, [msg])
+
+  // ⌘/Ctrl+S saves from anywhere on the page — no scrolling to a button.
+  const saveRef = useRef<() => void>(() => {})
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 's') {
+        e.preventDefault()
+        saveRef.current()
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
 
   const fields = useMemo(() => {
     const out: Record<string, Field> = {}
@@ -115,19 +136,40 @@ export function SettingsView() {
     }
   }
 
+  saveRef.current = () => { void save() }
+
   const restart = async () => {
     setBusy(true)
+    setMsg(null)
+    let accepted = false
     try {
       const r = await fetch('/api/settings/restart', { method: 'POST' })
-      const b = await r.json()
-      setMsg(r.ok && b.ok
-        ? { kind: 'ok', text: 'Restarting the daemon — the page will reconnect shortly.' }
-        : { kind: 'err', text: b.error || b.detail || 'restart failed' })
+      const b = await r.json().catch(() => ({}))
+      if (r.ok && b.ok) accepted = true
+      else setMsg({ kind: 'err', text: b.error || b.detail || `restart failed (${r.status})` })
     } catch {
-      setMsg({ kind: 'ok', text: 'Restarting — the connection dropped as expected.' })
-    } finally {
-      setBusy(false)
+      // The request dying mid-flight is expected: the restart kills this very process.
+      accepted = true
     }
+    setBusy(false)
+    if (!accepted) return
+    // Wait for the daemon to come back, then reload the snapshot so the page
+    // reflects the restarted process (not the stale pre-restart values).
+    setMsg({ kind: 'ok', text: 'Restarting the daemon — waiting for it to come back…' })
+    const deadline = Date.now() + 45000
+    const tick = () => {
+      fetch('/api/health')
+        .then((h) => {
+          if (!h.ok) throw new Error('not ready')
+          load(true)
+          setMsg({ kind: 'ok', text: 'Daemon is back — settings reloaded.' })
+        })
+        .catch(() => {
+          if (Date.now() < deadline) window.setTimeout(tick, 1500)
+          else setMsg({ kind: 'err', text: 'restart was sent, but the daemon did not come back within 45s' })
+        })
+    }
+    window.setTimeout(tick, 2500)
   }
 
   const loadModels = async () => {
@@ -163,10 +205,17 @@ export function SettingsView() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ base_url: baseUrl, api_key: apiKey || null, model }),
       })
-      const b = await r.json()
-      setProbe((p) => ({ ...p, [model]: b }))
+      const b = await r.json().catch(() => ({}))
+      // A non-2xx answer carries {detail}, not {error} — without normalising it
+      // the inline badge rendered an error icon with no text (invisible failure).
+      const out = r.ok ? b : { ok: false, error: b.detail || `HTTP ${r.status}` }
+      setProbe((p) => ({ ...p, [model]: out }))
+      setMsg(out.ok
+        ? { kind: 'ok', text: `Test ok — ${model} answered in ${out.latency_ms ?? '?'}ms.` }
+        : { kind: 'err', text: `Test failed (${model}): ${out.error || 'unknown error'}` })
     } catch {
-      setProbe((p) => ({ ...p, [model]: { ok: false, error: 'unreachable' } }))
+      setProbe((p) => ({ ...p, [model]: { ok: false, error: 'daemon unreachable' } }))
+      setMsg({ kind: 'err', text: `Test failed (${model}): daemon unreachable` })
     } finally {
       setTesting(null)
     }
@@ -289,7 +338,7 @@ export function SettingsView() {
                 <span className={'set-probe ' + (probe[String(v)].ok ? 'ok' : 'err')}>
                   {probe[String(v)].ok
                     ? <><Check size={12} /> {probe[String(v)].latency_ms}ms · {probe[String(v)].sample || 'ok'}</>
-                    : <><AlertTriangle size={12} /> {probe[String(v)].error}</>}
+                    : <><AlertTriangle size={12} /> {probe[String(v)].error || 'failed'}</>}
                 </span>
               )}
             </div>
@@ -315,28 +364,12 @@ export function SettingsView() {
           <p className="muted">
             Overrides the <span className="mono">.env</span> defaults. Every change applies live;
             the daemon's address fields (<b>Bind</b>, <b>API URL</b>) only take effect after a
-            restart, and saving them will say so.
+            restart, and saving them will say so. Save is always in the bottom bar (or ⌘/Ctrl+S).
           </p>
-        </div>
-        <div className="set-head-r">
-          {dirty.length > 0 && <span className="set-dirty">{dirty.length} unsaved</span>}
-          <button className="set-mini" onClick={restart} title="Restart the daemon (e.g. after editing .env)">
-            <Power size={12} /> Restart
-          </button>
-          <button className="set-save" onClick={save} disabled={busy || !dirty.length}>
-            {busy ? <Loader2 size={14} className="spin" /> : <Save size={14} />} Save
-          </button>
         </div>
       </header>
 
-      {msg && (
-        <div className={'set-note ' + (msg.kind === 'ok' ? 'ok' : 'err')}>
-          {msg.kind === 'ok' ? <Check size={14} /> : <AlertTriangle size={14} />}
-          <span>{msg.text}</span>
-        </div>
-      )}
-
-      {!snap && <div className="muted" style={{ padding: 24 }}>loading…</div>}
+      {!snap && !msg && <div className="muted" style={{ padding: 24 }}>loading…</div>}
 
       {snap && (
         <div className="set-grid">
@@ -353,6 +386,31 @@ export function SettingsView() {
           ))}
         </div>
       )}
+
+      {/* Sticky action bar: Save/Restart and every result message live here, so
+          feedback and the save control are visible from anywhere on the page. */}
+      <div className="set-bar">
+        {msg ? (
+          <div className={'set-bar-msg ' + msg.kind} role="status">
+            {msg.kind === 'ok' ? <Check size={13} /> : <AlertTriangle size={13} />}
+            <span>{msg.text}</span>
+            <button className="set-bar-x" onClick={() => setMsg(null)} title="Dismiss" aria-label="Dismiss message">
+              <X size={12} />
+            </button>
+          </div>
+        ) : (
+          <span className={'set-bar-hint' + (dirty.length ? ' dirty' : '')}>
+            {dirty.length ? `${dirty.length} unsaved change${dirty.length > 1 ? 's' : ''}` : 'all changes saved'}
+          </span>
+        )}
+        <div style={{ flex: 1 }} />
+        <button className="set-mini" onClick={restart} disabled={busy} title="Restart the daemon (e.g. after editing .env)">
+          <Power size={12} /> Restart
+        </button>
+        <button className="set-save" onClick={save} disabled={busy || !dirty.length}>
+          {busy ? <Loader2 size={14} className="spin" /> : <Save size={14} />} Save
+        </button>
+      </div>
 
       {restartAsk && (
         <div className="set-modal" role="dialog" aria-modal="true" onClick={() => setRestartAsk(null)}>
