@@ -4,6 +4,8 @@ Usage:
   neobrain init [--install-plugin]     # create the store + install the plugin
   neobrain start                       # run the daemon (API + dashboard + life loop)
   neobrain ui                          # print/open the dashboard URL
+  neobrain service install|uninstall|status|restart
+                                       # supervise the daemon (launchd / systemd --user)
   neobrain remember "…" --type lesson --hubs a,b
   neobrain recall "…" [--json] [--lexical]
   neobrain wakeup
@@ -154,6 +156,35 @@ def cmd_start(args: argparse.Namespace) -> int:
     # both behave identically.
     print(f"neoBrain daemon on http://{host}:{port}  (dashboard {config.settings.api})")
     uvicorn.run(api.app, host=host, port=port)
+    return 0
+
+
+def cmd_service(args: argparse.Namespace) -> int:
+    from . import service
+
+    action = args.action
+    if action == "status":
+        st = service.status()
+        for key, val in st.items():
+            print(f"{key:11} {val}")
+        return 0 if st["manager"] else 1
+    if action == "restart":
+        # Same path as the Settings tab; from a shell the launchd/systemd call can
+        # run synchronously instead of detached.
+        res = service.restart_now()
+    elif action == "install":
+        res = service.install()
+    else:
+        res = service.uninstall()
+    if not res.get("ok"):
+        print(f"service {action} failed: {res.get('error')}", file=sys.stderr)
+        return 1
+    if action == "install":
+        print(f"installed {res['manager']} service: {res['definition']}")
+        print(f"logs: {res['log']}")
+        print(f"dashboard: {config.settings.api}")
+    else:
+        print(f"service {action}: ok")
     return 0
 
 
@@ -349,6 +380,10 @@ def build_parser() -> argparse.ArgumentParser:
 
     sp = sub.add_parser("start", help="run the daemon (API + dashboard + life loop)")
     sp.set_defaults(func=cmd_start)
+
+    sp = sub.add_parser("service", help="run the daemon under launchd / systemd --user (start at login, restart on crash)")
+    sp.add_argument("action", choices=["install", "uninstall", "status", "restart"])
+    sp.set_defaults(func=cmd_service)
 
     sp = sub.add_parser("ui", help="print and open the dashboard URL")
     sp.set_defaults(func=cmd_ui)
