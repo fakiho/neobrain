@@ -1286,8 +1286,8 @@ input.tslider::-moz-range-thumb { width: 14px; height: 14px; background: #c8cbe0
 .set-modal-box p { margin: 10px 0 16px; font-size: 13px; line-height: 1.5; color: var(--text-muted); }
 .set-modal-actions { display: flex; justify-content: flex-end; gap: 9px; }
 
-.set-grid { margin-top: 18px; display: grid; grid-template-columns: repeat(auto-fit, minmax(360px, 1fr)); gap: 14px; align-items: start; }
-.set-card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 15px 17px; }
+.set-grid { margin-top: 18px; column-width: 380px; column-gap: 14px; }
+.set-card { break-inside: avoid; margin: 0 0 14px; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 15px 17px; }
 .set-card h5 { margin: 0; font-size: 12px; font-weight: 650; letter-spacing: 0.8px; text-transform: uppercase; color: var(--text-dim); }
 .set-desc { margin: 4px 0 12px; font-size: 11.5px; color: var(--text-muted); }
 .set-fields { display: grid; gap: 13px; }
