@@ -3,9 +3,12 @@
 Env vars (``.env``) remain the source of defaults; this module layers
 **DB-backed overrides** (``app_settings``, schema v5) on top and lets the UI
 read/write them. ``config.apply_overrides`` pushes a change into the live
-``settings`` singleton, so most keys take effect without a restart (the derived
-globals in ``config`` are recomputed); ``bind``/``api``/``data_dir`` are marked
-restart-required because the socket is already listening.
+``settings`` singleton and recomputes the derived globals, so every key takes
+effect immediately — including the embeddings provider/URL/model/key, which
+``config._derive_embeddings`` rebuilds and ``embeddings.py`` reads per call.
+Only ``bind``/``api`` (the socket is already listening) and ``data_dir`` (the
+store path is resolved at import) are marked restart-required; the UI warns on
+save instead of tagging the field.
 
 Two rules the whole surface obeys:
 
@@ -138,15 +141,15 @@ REGISTRY: tuple[Setting, ...] = (
     # --- embeddings -------------------------------------------------------
     Setting("embed_provider", "Provider", "choice", "embeddings",
             "Switching provider re-embeds everything (the vector key changes).",
-            choices=("ollama", "litellm"), restart=True),
+            choices=("ollama", "litellm")),
     Setting("embed_enabled", "Enable embeddings", "bool", "embeddings",
-            "Off = lexical-only recall.", restart=True),
+            "Off = lexical-only recall."),
     Setting("embed_url", "Endpoint", "str", "embeddings",
-            "Base URL of the embeddings endpoint (blank = provider default).", restart=True),
+            "Base URL of the embeddings endpoint (blank = provider default)."),
     Setting("embed_model", "Model", "str", "embeddings",
-            "Embedding model id (blank = provider default).", restart=True),
+            "Embedding model id (blank = provider default)."),
     Setting("embed_api_key", "API key", "secret", "embeddings",
-            "Key for the embeddings endpoint. Blank keeps the current one.", restart=True),
+            "Key for the embeddings endpoint. Blank keeps the current one."),
     # --- notifications ----------------------------------------------------
     Setting("notify_url", "Notify URL", "str", "notifications",
             "Local notifyd endpoint. Empty disables pings."),
