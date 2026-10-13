@@ -32,6 +32,8 @@ def client(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "DATA_DIR", tmp_path)
     monkeypatch.setattr(config, "DB_PATH", tmp_path / "neobrain.db")
     monkeypatch.setattr(config.settings, "life_enabled", "0")
+    # Hermetic: ignore whatever NEOBRAIN_SETTINGS_TOKEN the developer's .env has.
+    monkeypatch.setattr(config.settings, "settings_token", "")
     before = {k: getattr(config.settings, k) for k in settings_store._BY_KEY}
     with TestClient(app) as c:
         yield c
@@ -44,6 +46,14 @@ def test_registry_covers_real_settings_fields():
     for spec in settings_store.REGISTRY:
         assert spec.key in config.Settings.model_fields, spec.key
         assert spec.section in {s[0] for s in settings_store.SECTIONS}
+
+
+def test_restart_flag_is_only_on_the_daemon_address():
+    # Embeddings provider/url/model/key apply live (config._derive_embeddings +
+    # embeddings.py reads them per call); only the already-bound address and the
+    # import-resolved data dir need a restart.
+    flagged = {s.key for s in settings_store.REGISTRY if s.restart}
+    assert flagged == {"bind", "api", "data_dir"}
 
 
 def test_set_values_persists_applies_and_reverts(store):

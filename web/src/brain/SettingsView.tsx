@@ -54,6 +54,7 @@ export function SettingsView() {
   const [loadingModels, setLoadingModels] = useState(false)
   const [testing, setTesting] = useState<string | null>(null)
   const [probe, setProbe] = useState<Record<string, any>>({})
+  const [restartAsk, setRestartAsk] = useState<string[] | null>(null)
 
   const authHeaders = (): Record<string, string> =>
     token ? { 'X-NeoBrain-Token': token } : {}
@@ -104,14 +105,16 @@ export function SettingsView() {
       if (typeof draft.settings_token === 'string' && draft.settings_token.trim()) {
         setToken(draft.settings_token.trim())
       }
+      const needRestart = dirty
+        .filter((k) => fields[k]?.restart)
+        .map((k) => fields[k]?.label ?? k)
       setDraft({})
-      const pend = body.restart_pending?.length
       setMsg({
         kind: 'ok',
         text: `Saved${body.applied?.length ? ` — ${body.applied.length} change(s)` : ''}` +
-          `${body.reverted?.length ? `, ${body.reverted.length} reverted` : ''}` +
-          `${pend ? ` · ${pend} need a restart` : ''}.`,
+          `${body.reverted?.length ? `, ${body.reverted.length} reverted` : ''}.`,
       })
+      if (needRestart.length) setRestartAsk(needRestart)
     } catch {
       setMsg({ kind: 'err', text: 'save failed — daemon unreachable' })
     } finally {
@@ -251,7 +254,6 @@ export function SettingsView() {
       <div className={'set-field' + (f.env_only ? ' env-only' : '')} key={f.key}>
         <div className="set-field-head">
           <label>{f.label}</label>
-          {f.restart && <span className="set-tag restart" title="Takes effect after a daemon restart">restart</span>}
           {f.from_env && <span className="set-tag env" title="Also set in the environment">env</span>}
           {overridden && !f.env_only && (
             <button className="set-revert" title="Revert to the .env default" onClick={() => set(f.key, null)}>
@@ -298,17 +300,15 @@ export function SettingsView() {
     )
   }
 
-  const pending = snap?.restart_pending ?? []
-  const restartFields = pending.map((k) => fields[k]?.label ?? k)
-
   return (
     <div className="settings">
       <header className="set-head">
         <div>
           <h1><SettingsIcon size={18} /> Settings</h1>
           <p className="muted">
-            Overrides the <span className="mono">.env</span> defaults. Changes apply live; keys marked
-            <span className="set-tag restart">restart</span> need a daemon restart.
+            Overrides the <span className="mono">.env</span> defaults. Every change applies live;
+            the daemon's address fields (<b>Bind</b>, <b>API URL</b>) only take effect after a
+            restart, and saving them will say so.
           </p>
         </div>
         <div className="set-head-r">
@@ -324,6 +324,9 @@ export function SettingsView() {
             />
           </div>
           {dirty.length > 0 && <span className="set-dirty">{dirty.length} unsaved</span>}
+          <button className="set-mini" onClick={restart} disabled={busy} title="Restart the daemon (e.g. after editing .env)">
+            <Power size={12} /> Restart
+          </button>
           <button className="set-save" onClick={save} disabled={busy || !dirty.length}>
             {busy ? <Loader2 size={14} className="spin" /> : <Save size={14} />} Save
           </button>
@@ -347,14 +350,6 @@ export function SettingsView() {
         </div>
       )}
 
-      {pending.length > 0 && (
-        <div className="set-note restart">
-          <Power size={14} />
-          <span>Pending restart: {restartFields.join(', ')}.</span>
-          <button className="set-mini" onClick={restart} disabled={busy}>Restart daemon</button>
-        </div>
-      )}
-
       {!snap && <div className="muted" style={{ padding: 24 }}>loading…</div>}
 
       {snap && (
@@ -366,6 +361,27 @@ export function SettingsView() {
               <div className="set-fields">{s.fields.map(renderField)}</div>
             </section>
           ))}
+        </div>
+      )}
+
+      {restartAsk && (
+        <div className="set-modal" role="dialog" aria-modal="true" onClick={() => setRestartAsk(null)}>
+          <div className="set-modal-box" onClick={(e) => e.stopPropagation()}>
+            <div className="set-modal-head">
+              <Power size={15} />
+              <h3>Restart required</h3>
+            </div>
+            <p>
+              Saved <b>{restartAsk.join(', ')}</b>. {restartAsk.length > 1 ? 'These take' : 'It takes'} effect
+              only after the daemon restarts — until then the running process keeps the old value.
+            </p>
+            <div className="set-modal-actions">
+              <button className="set-mini" onClick={() => setRestartAsk(null)}>Later</button>
+              <button className="set-save" onClick={() => { setRestartAsk(null); restart() }}>
+                <Power size={14} /> Restart now
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>
