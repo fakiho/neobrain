@@ -1,13 +1,18 @@
 """Vector embeddings for the Timeline mind — provider-configurable.
 
-Two interchangeable providers (``NEOBRAIN_EMBED_PROVIDER``):
+The provider (``NEOBRAIN_EMBED_PROVIDER``) picks the **API shape**, not a
+vendor — any server speaking one of the two shapes works:
 
-* ``ollama`` (default) — ``embeddinggemma`` served by the Mac's Ollama on the
-  LAN (``192.168.1.149:11434``, since 2026-10-02; was host-local). Memory text
-  stays on-LAN. 768-dim, 2048-token context (see ``NEOBRAIN_EMBED_TIMEOUT``).
-* ``litellm`` — Google ``gemini-embedding-2`` through the local LiteLLM
-  gateway. **Privacy:** atom text is sent off-host to Google (user-approved
-  2026-09-27; see ``INFRA_TIMELINE.md`` §4a). Kept as an opt-in alternative.
+* ``ollama`` (default) — Ollama's native ``/api/embed``, no key. Defaults to
+  ``embeddinggemma`` on the LAN's Ollama (``192.168.1.149:11434``, since
+  2026-10-02); memory text stays on-LAN. 768-dim, 2048-token context.
+* ``openai`` — any OpenAI-compatible ``POST /embeddings`` with an optional
+  bearer key: OpenAI, the local LiteLLM gateway, llmgateway.io, TEI, vLLM, …
+  Set ``NEOBRAIN_EMBED_URL``/``_MODEL``/``_API_KEY`` for yours. ``litellm`` is
+  still accepted as the legacy name for this shape.
+  **Privacy:** if you point this at a hosted service, atom text leaves the
+  machine (the Google ``gemini-embedding-2`` route was user-approved
+  2026-09-27; see ``INFRA_TIMELINE.md`` §4a). On-host by default.
 
 Storage is a single side table ``m_embeddings`` keyed by ``atom_id``. Vectors are
 L2-normalised float32 blobs, so cosine similarity is a plain dot product and no
@@ -128,8 +133,8 @@ def _embed_ollama(prepared: list[str]):
         return None
 
 
-def _embed_litellm(prepared: list[str]):
-    """LiteLLM (OpenAI-compatible) ``POST /embeddings``."""
+def _embed_openai(prepared: list[str]):
+    """Any OpenAI-compatible ``POST /embeddings`` (key optional)."""
     headers = {}
     key = config.embed_api_key()
     if key:
@@ -159,14 +164,14 @@ def _embed_litellm(prepared: list[str]):
 def embed(texts: list[str]) -> list[list[float]] | None:
     """Embed a batch of texts. Returns None on any provider failure (never
     raises), so callers degrade to lexical-only."""
-    if not config.EMBED_ENABLED or not texts:
+    if not config.EMBED_ENABLED or not config.EMBED_URL or not config.EMBED_MODEL or not texts:
         return None
     prepared = [t if (t and t.strip()) else " " for t in texts]
-    # Only an explicit ``litellm`` selection reaches the gateway; everything
-    # else (including an unknown value) stays on the local Ollama path, so there
-    # is no accidental off-host/Google dependency.
-    if config.EMBED_PROVIDER == "litellm":
-        return _embed_litellm(prepared)
+    # Only an explicit OpenAI-shaped selection reaches the ``/embeddings`` path;
+    # everything else (including an unknown value) stays on the local Ollama
+    # path, so there is no accidental off-host dependency.
+    if config.EMBED_PROVIDER in ("openai", "litellm"):
+        return _embed_openai(prepared)
     return _embed_ollama(prepared)
 
 

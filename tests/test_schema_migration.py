@@ -32,8 +32,8 @@ def test_v1_to_v4_backfills_rank_rows(tmp_path):
     conn.commit()
     assert schema.user_version(conn) == 1
 
-    assert schema.migrate(conn, now=123) == 4
-    assert schema.user_version(conn) == 4
+    assert schema.migrate(conn, now=123) == schema.USER_VERSION
+    assert schema.user_version(conn) == schema.USER_VERSION
 
     rows = list(conn.execute(
         "SELECT atom_id,quality,served,interacted,last_served,state,state_since,updated "
@@ -47,7 +47,7 @@ def test_v1_to_v4_backfills_rank_rows(tmp_path):
         assert row["updated"] == 123
     # existing data intact; second migrate is a no-op
     assert conn.execute("SELECT COUNT(*) FROM m_atoms").fetchone()[0] == 2
-    assert schema.migrate(conn, now=999) == 4
+    assert schema.migrate(conn, now=999) == schema.USER_VERSION
     assert conn.execute("SELECT COUNT(*) FROM m_rank").fetchone()[0] == 2
     conn.close()
 
@@ -70,14 +70,14 @@ def test_migrate_preserves_existing_rank_state(tmp_path):
     conn.close()
 
 
-def test_fresh_init_is_v4(tmp_path, monkeypatch):
+def test_fresh_init_is_current(tmp_path, monkeypatch):
     from neobrain import config
 
     monkeypatch.setattr(config, "DATA_DIR", tmp_path)
     conn = db.connect(tmp_path / "fresh.db")
     db.init_db(conn)
-    assert schema.user_version(conn) == 4
-    assert schema.USER_VERSION == 4
+    assert schema.user_version(conn) == schema.USER_VERSION
+    assert schema.USER_VERSION == 5
     assert conn.execute(
         "SELECT 1 FROM sqlite_master WHERE type='table' AND name='m_rank'").fetchone() is not None
     conn.close()
@@ -95,7 +95,7 @@ def test_v3_rebuild_realigns_fts_rowids(tmp_path):
     conn.execute("INSERT INTO events_fts(rowid,event_id,title,detail) VALUES(500,'ghost','stale','stale')")
     conn.commit()
 
-    assert schema.migrate(conn) == 4
+    assert schema.migrate(conn) == schema.USER_VERSION
 
     rows = list(conn.execute("SELECT rowid, event_id FROM events_fts"))
     assert len(rows) == 1 and rows[0]["event_id"] == "a"     # stale row gone
@@ -154,7 +154,7 @@ def test_v4_adds_provenance_columns_to_pre_v4_store(tmp_path):
     conn.commit()
     assert "session_id" not in {r[1] for r in conn.execute("PRAGMA table_info(m_atoms)")}
 
-    assert schema.migrate(conn) == 4
+    assert schema.migrate(conn) == schema.USER_VERSION
     assert "session_id" in {r[1] for r in conn.execute("PRAGMA table_info(m_atoms)")}
     assert "origin_session_id" in {r[1] for r in conn.execute("PRAGMA table_info(m_feedback)")}
     conn.close()
@@ -178,7 +178,7 @@ def test_v4_backfills_origin_session_from_source(tmp_path):
         )
     conn.commit()
 
-    assert schema.migrate(conn) == 4
+    assert schema.migrate(conn) == schema.USER_VERSION
     got = dict(conn.execute("SELECT id, session_id FROM m_atoms"))
     assert got["a1"] == "ses_abc123XYZ"
     assert got["a2"] == "ses_def456"

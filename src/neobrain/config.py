@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
+from typing import Any
 
 from pydantic import BaseModel
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -96,6 +97,14 @@ class Settings(BaseSettings):
     life_dream_hour: int = 2         # local hour rest() may invoke the dream phases
     life_enabled: str = "1"          # "0" disables the in-daemon life loop
 
+    # --- feature toggles (rituals; editable from the Observatory Settings tab) ---
+    # Each gates one ritual in the life loop, independently of the life master
+    # switch, so a ritual can be paused without stopping perceive/ingest.
+    dreams_enabled: str = "1"         # nightly dream pass (rest phase)
+    soul_reflect_enabled: str = "1"   # weekly identity/soul reflection (rest phase)
+    consolidate_enabled: str = "1"    # reflect phase: mind.consolidate
+    act_enabled: str = "1"            # act phase: one internal thought
+
     # --- dreams / reflect (SPEC §4.4/4.5) ---
     # Empty -> WORKSPACE/DREAMS.md when a workspace is set, else DATA_DIR/DREAMS.md.
     dreams_file: str = ""
@@ -143,19 +152,29 @@ def reflect_days() -> set[int]:
     return days or {6}
 
 # --- resolved paths -----------------------------------------------------
-DATA_DIR = settings.data_dir.expanduser().resolve()
+# DATA_DIR/DB_PATH are resolved once at import from the env: ``data_dir`` is
+# env-only (changing it mid-process would move the store out from under an open
+# connection), so it is never recomputed by ``apply_overrides``.
+DATA_DIR: Path = settings.data_dir.expanduser().resolve()
 # PORT-NOTE: DB renamed timeline.db -> neobrain.db (S1 contract).
-DB_PATH = DATA_DIR / "neobrain.db"
+DB_PATH: Path = DATA_DIR / "neobrain.db"
+WORKSPACE: Path | None = None
+OPENCODE_DB: Path | None = None
 
-# PORT-NOTE: empty NEOBRAIN_WORKSPACE must NOT resolve to the cwd (Path("").resolve()
-# would), so an unset workspace stays None and doc groups are empty.
-WORKSPACE: Path | None = Path(settings.workspace).expanduser().resolve() if settings.workspace.strip() else None
 
-OPENCODE_DB: Path | None = (
-    Path(settings.opencode_db).expanduser()
-    if settings.opencode_db
-    else (WORKSPACE / ".local/share/opencode/opencode.db") if WORKSPACE else None
-)
+def _derive_workspace() -> None:
+    """Recompute the workspace-derived globals (recomputed by ``apply_overrides``)."""
+    global WORKSPACE, OPENCODE_DB
+    # PORT-NOTE: empty NEOBRAIN_WORKSPACE must NOT resolve to the cwd
+    # (Path("").resolve() would), so an unset workspace stays None and doc
+    # groups are empty.
+    WORKSPACE = Path(settings.workspace).expanduser().resolve() if settings.workspace.strip() else None
+    OPENCODE_DB = (
+        Path(settings.opencode_db).expanduser()
+        if settings.opencode_db
+        else (WORKSPACE / ".local/share/opencode/opencode.db") if WORKSPACE else None
+    )
+
 
 # --- embeddings (provider-configurable) --------------------------------
 # `ollama` (default): `embeddinggemma` served on the host — memory text never
@@ -166,30 +185,59 @@ OPENCODE_DB: Path | None = (
 #   by the user 2026-09-27 (see INFRA_TIMELINE.md §4a). Kept as an option.
 # Switching provider re-embeds everything (the provider is part of the vector's
 # model key), so both paths can coexist as an option.
-_EMBED_PROVIDER = settings.embed_provider.strip().lower()
 _EMBED_DEFAULTS = {
     "ollama": ("http://127.0.0.1:11434", "embeddinggemma", 180.0),
+    # Any OpenAI-compatible server: set the URL + model yourself.
+    "openai": ("", "", 30.0),
+    # Legacy name for the OpenAI shape — keeps the local gateway default.
     "litellm": ("http://127.0.0.1:4000/v1", "gemini-embedding-2", 30.0),
 }
-_default_url, _default_model, _default_timeout = _EMBED_DEFAULTS.get(
-    _EMBED_PROVIDER, _EMBED_DEFAULTS["ollama"]
-)
-EMBED_PROVIDER = _EMBED_PROVIDER
-EMBED_URL = (settings.embed_url or _default_url).rstrip("/")
-EMBED_MODEL = settings.embed_model or _default_model
-EMBED_TIMEOUT = settings.embed_timeout if settings.embed_timeout is not None else _default_timeout
-EMBED_ENABLED = settings.embed_enabled.strip().lower() not in ("0", "false", "no", "off")
-EMBED_KEY_FILE: Path | None = Path(settings.embed_key_file).expanduser() if settings.embed_key_file else None
+EMBED_PROVIDER = "ollama"
+EMBED_URL = ""
+EMBED_MODEL = ""
+EMBED_TIMEOUT = 180.0
+EMBED_ENABLED = True
+EMBED_KEY_FILE: Path | None = None
+
+
+def _derive_embeddings() -> None:
+    global EMBED_PROVIDER, EMBED_URL, EMBED_MODEL, EMBED_TIMEOUT, EMBED_ENABLED, EMBED_KEY_FILE
+    EMBED_PROVIDER = settings.embed_provider.strip().lower()
+    _default_url, _default_model, _default_timeout = _EMBED_DEFAULTS.get(
+        EMBED_PROVIDER, _EMBED_DEFAULTS["ollama"]
+    )
+    EMBED_URL = (settings.embed_url or _default_url).rstrip("/")
+    EMBED_MODEL = settings.embed_model or _default_model
+    EMBED_TIMEOUT = settings.embed_timeout if settings.embed_timeout is not None else _default_timeout
+    EMBED_ENABLED = settings.embed_enabled.strip().lower() not in ("0", "false", "no", "off")
+    EMBED_KEY_FILE = Path(settings.embed_key_file).expanduser() if settings.embed_key_file else None
+
 
 # Hybrid recall weight: score = lexical_norm + alpha * cosine_norm (both 0..1).
 # Provider-agnostic because of the min-max norm.
-RECALL_ALPHA = settings.recall_alpha
+RECALL_ALPHA = 2.0
+
+
+def _derive_recall() -> None:
+    global RECALL_ALPHA
+    RECALL_ALPHA = settings.recall_alpha
+
+
+_derive_workspace()
+_derive_embeddings()
+_derive_recall()
 
 _embed_key: str | None = None
 
 
+def reset_embed_key_cache() -> None:
+    """Forget the cached embeddings key (after a settings change)."""
+    global _embed_key
+    _embed_key = None
+
+
 def embed_api_key() -> str:
-    """The LiteLLM gateway key (never logged). Env overrides the local config."""
+    """The embeddings gateway key (never logged). Env overrides the settings UI."""
     global _embed_key
     if _embed_key is not None:
         return _embed_key
@@ -198,6 +246,10 @@ def embed_api_key() -> str:
         if value:
             _embed_key = value
             return value
+    # Key set from the Observatory Settings tab (stored in app_settings).
+    if (settings.embed_api_key or "").strip():
+        _embed_key = settings.embed_api_key.strip()
+        return _embed_key
     if EMBED_KEY_FILE is None:
         _embed_key = ""  # PORT-NOTE: no key file configured -> no key to read
     else:
@@ -290,3 +342,111 @@ def discover_repos(max_depth: int = 3) -> list[Path]:
 
 def ensure_dirs() -> None:
     DATA_DIR.mkdir(parents=True, exist_ok=True)
+
+
+# --- runtime settings overrides (Observatory Settings tab) ----------------
+# The Settings tab writes the keys it changes to ``app_settings`` (schema v5);
+# these helpers read that table back, coerce to the field's type, and apply the
+# result to the live ``settings`` singleton + the derived globals above. A new
+# process applies the same overrides at boot (``apply_db_overrides``), so every
+# key — including the ones whose derived globals are frozen at import — takes
+# effect after a daemon restart. Nothing here reads or logs a secret value.
+_SETTINGS_TABLE = "app_settings"
+
+
+def coerce_field(name: str, value: Any) -> Any:
+    """Coerce ``value`` to the declared type of setting ``name``.
+
+    Raises ``KeyError`` for an unknown field and ``ValueError`` for a value
+    that cannot be coerced — the API turns both into a 400.
+    """
+    import typing
+
+    field = Settings.model_fields.get(name)
+    if field is None:
+        raise KeyError(name)
+    if value is None:
+        return None
+    annotation = field.annotation
+    origin = typing.get_origin(annotation)
+    if origin is typing.Union:  # Optional[X] -> X
+        args = [a for a in typing.get_args(annotation) if a is not type(None)]
+        annotation = args[0] if args else str
+    if annotation is bool:
+        if isinstance(value, bool):
+            return value
+        text = str(value).strip().lower()
+        if text in ("1", "true", "yes", "on"):
+            return True
+        if text in ("0", "false", "no", "off", ""):
+            return False
+        raise ValueError(f"{name}: expected a boolean, got {value!r}")
+    if annotation is int:
+        return int(value)
+    if annotation is float:
+        return float(value)
+    return str(value)
+
+
+def db_overrides(db_path: Path | None = None) -> dict[str, Any]:
+    """Typed overrides stored in ``app_settings`` ({} when the table is absent)."""
+    import sqlite3
+
+    path = Path(db_path) if db_path is not None else DB_PATH
+    if not path.exists():
+        return {}
+    out: dict[str, Any] = {}
+    try:
+        con = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+        try:
+            rows = con.execute(f"SELECT key, value FROM {_SETTINGS_TABLE}").fetchall()
+        finally:
+            con.close()
+    except sqlite3.Error:
+        return {}
+    for key, raw in rows:
+        if key not in Settings.model_fields:
+            continue
+        try:
+            parsed = json.loads(raw)
+            out[key] = coerce_field(key, parsed)
+        except (ValueError, TypeError, json.JSONDecodeError):
+            continue
+    return out
+
+
+def _recompute_derived() -> None:
+    """Recompute every module global derived from ``settings``."""
+    global KNOWN_REPOS, DOC_GROUPS
+    _derive_workspace()
+    _derive_embeddings()
+    _derive_recall()
+    KNOWN_REPOS = [r.strip() for r in settings.known_repos.split(",") if r.strip()]
+    DOC_GROUPS = doc_groups()
+    reset_embed_key_cache()
+
+
+def apply_overrides(values: dict[str, Any], *, recompute: bool = True) -> dict[str, Any]:
+    """Apply typed overrides to the live ``settings`` singleton.
+
+    Unknown keys and values that fail coercion are skipped (never fatal — a
+    stale row must not stop the daemon from booting). Returns the applied keys.
+    """
+    applied: dict[str, Any] = {}
+    for key, value in values.items():
+        try:
+            coerced = coerce_field(key, value)
+        except (KeyError, ValueError, TypeError):
+            continue
+        if coerced is None:
+            continue
+        setattr(settings, key, coerced)
+        applied[key] = coerced
+    if recompute:
+        _recompute_derived()
+    return applied
+
+
+def apply_db_overrides(db_path: Path | None = None) -> dict[str, Any]:
+    """Load and apply the stored overrides (call once at process startup)."""
+    return apply_overrides(db_overrides(db_path))

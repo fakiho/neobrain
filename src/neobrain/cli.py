@@ -437,6 +437,13 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: Optional[list[str]] = None) -> int:
     args = build_parser().parse_args(argv)
+    # Layer the Observatory's DB-backed settings overrides over the env defaults
+    # so CLI runs (dreams, reflect, embed, …) honor what the UI changed. A
+    # missing/unreadable store is not an error here (init/start create it).
+    try:
+        config.apply_db_overrides()
+    except Exception:  # noqa: BLE001 - never block a CLI command on settings
+        pass
     return args.func(args)
 
 
