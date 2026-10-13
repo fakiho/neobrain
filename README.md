@@ -172,6 +172,21 @@ neobrain ui                         # print and open the Observatory URL
 Dashboard defaults to `http://127.0.0.1:9192` (`NEOBRAIN_API`); the OpenAPI
 schema is at `/api/schema`.
 
+**Run it as a service** — `neobrain start` in a terminal is an unsupervised
+process: it can't be restarted from the Settings tab and doesn't survive a
+crash or reboot. Put it under the OS service manager instead (launchd
+LaunchAgent on macOS, `systemd --user` on Linux):
+
+```bash
+neobrain service install            # start at login, restart on crash
+neobrain service status
+neobrain service restart            # same as the Settings tab's Restart button
+neobrain service uninstall
+```
+
+On macOS logs go to `<data dir>/daemon.log`; on Linux, `journalctl --user -u neobrain`.
+Stop any hand-started daemon before `install` (it refuses if the port is taken).
+
 **OpenCode plugin** — symlink the adapter into the plugins directory (or let
 `neobrain init --install-plugin` do it):
 

@@ -8,7 +8,7 @@ from __future__ import annotations
 import pytest
 from fastapi.testclient import TestClient
 
-from neobrain import config
+from neobrain import config, service
 from neobrain.api import app
 
 
@@ -119,7 +119,9 @@ def test_debug_logs_endpoint_is_on_demand_and_safe(client):
     r = client.get("/api/debug/logs", params={"lines": 50})
     assert r.status_code == 200
     body = r.json()
-    assert body["unit"] == "neobrain.service"
+    from neobrain import service
+
+    assert body["unit"] == service.service_name()  # launchd label on macOS, unit on Linux
     assert isinstance(body["lines"], list)
     assert client.get("/api/debug/logs", params={"lines": 99999}).status_code == 422
 
@@ -179,3 +181,21 @@ def test_injection_ring_records_pushed_ids(client):
     finally:
         # The ring is a module-level deque shared across tests: leave it as found.
         api._INJECTIONS.clear()
+
+
+def test_debug_overview_reports_supervision(client, monkeypatch):
+    monkeypatch.delenv("INVOCATION_ID", raising=False)
+    monkeypatch.delenv("NEOBRAIN_SUPERVISED", raising=False)
+    monkeypatch.setattr(service, "manager", lambda: "launchd")
+    d = client.get("/api/debug/overview").json()["daemon"]
+    assert d["supervised"] is False and "service install" in d["manager"]
+    monkeypatch.setenv("NEOBRAIN_SUPERVISED", "launchd")
+    assert client.get("/api/debug/overview").json()["daemon"]["supervised"] is True
+
+
+def test_restart_endpoint_is_honest_for_an_orphan(client, monkeypatch):
+    monkeypatch.delenv("INVOCATION_ID", raising=False)
+    monkeypatch.delenv("NEOBRAIN_SUPERVISED", raising=False)
+    monkeypatch.setattr(service, "manager", lambda: "launchd")
+    body = client.post("/api/settings/restart").json()
+    assert body["ok"] is False and "service install" in body["error"]

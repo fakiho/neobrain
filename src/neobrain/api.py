@@ -7,7 +7,6 @@ from __future__ import annotations
 
 import json
 import os
-import shutil
 import sqlite3
 import subprocess
 import threading
@@ -23,7 +22,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from . import config, db, mind, settings_store
+from . import config, db, mind, service, settings_store
 from .models import iso, new, now_ms, to_ms
 
 # PORT-NOTE: the old in-API ingest scheduler (INGEST_INTERVAL / _ingest_loop) is
@@ -688,37 +687,8 @@ def settings_test(body: ProbeBody) -> dict:
 
 
 def _restart_daemon() -> dict:
-    """Restart the systemd user unit from outside this process.
-
-    Detached on purpose: the restart kills the process serving this request, so
-    it must be launched in its own session (or a transient systemd unit) or it
-    dies with us. ``systemd-run`` is preferred; a detached shell is the fallback.
-    """
-    unit = "neobrain.service"
-    if shutil.which("systemctl") is None:
-        # macOS / unsupervised hosts: the fallback shell would spawn, fail
-        # silently inside, and the UI would report a restart that never happens.
-        return {
-            "ok": False,
-            "error": "no systemd on this host — restart the daemon manually (`neobrain start`)",
-        }
-    try:
-        subprocess.Popen(
-            ["systemd-run", "--user", "--collect", "--on-active=2",
-             "--unit", "neobrain-restart", "systemctl", "--user", "restart", unit],
-            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True,
-        )
-        return {"ok": True, "method": "systemd-run", "detail": "restarting in ~2s"}
-    except FileNotFoundError:
-        pass
-    try:
-        subprocess.Popen(
-            ["sh", "-c", f"sleep 2; systemctl --user restart {unit}"],
-            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True,
-        )
-        return {"ok": True, "method": "detached-shell", "detail": "restarting in ~2s"}
-    except Exception as exc:  # noqa: BLE001 - report, never crash
-        return {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
+    """Restart the supervised daemon (launchd / systemd --user); see ``service``."""
+    return service.restart()
 
 
 @app.post("/api/settings/restart")
@@ -743,21 +713,12 @@ def debug_requests(limit: int = Query(200, le=500)) -> dict:
 def debug_logs(lines: int = Query(300, ge=1, le=2000)) -> dict:
     """Tail of this daemon's journal — fetched on demand, never polled.
 
-    The daemon's stdout/stderr go to the systemd journal; this is a read-only
-    window for the Debug tab. Best-effort: a missing journalctl or a denied
-    journal comes back as an ``error`` string with an empty list, not a 500.
+    The daemon's stdout/stderr go to the systemd journal (Linux) or the launchd
+    log file (macOS); this is a read-only window for the Debug tab. Best-effort:
+    a missing journal or log comes back as an ``error`` string with an empty
+    list, not a 500.
     """
-    unit = "neobrain.service"
-    try:
-        proc = subprocess.run(
-            ["journalctl", "--user", "-u", unit, "-n", str(lines), "--no-pager", "-o", "short-iso"],
-            capture_output=True, text=True, timeout=5,
-        )
-    except Exception as exc:  # noqa: BLE001 - logs are a convenience, never fatal
-        return {"unit": unit, "lines": [], "count": 0, "error": f"{type(exc).__name__}: {exc}"}
-    rows = [ln for ln in (proc.stdout or "").splitlines() if ln.strip()]
-    err = (proc.stderr or "").strip() if proc.returncode != 0 else None
-    return {"unit": unit, "lines": rows, "count": len(rows), "error": err}
+    return service.tail_logs(lines)
 
 
 # Client-side lane pushes: the OpenCode plugin reports every injection it makes
@@ -802,7 +763,7 @@ def debug_injections(limit: int = Query(200, le=500)) -> dict:
 
 
 def _process_start_ms() -> Optional[int]:
-    """This process's start time (epoch ms) from /proc, or None off-Linux."""
+    """This process's start time (epoch ms): /proc on Linux, ``ps`` elsewhere."""
     try:
         with open("/proc/self/stat", "rb") as fh:
             stat = fh.read().decode("ascii", "replace")
@@ -811,26 +772,33 @@ def _process_start_ms() -> Optional[int]:
         with open("/proc/uptime") as fh:
             uptime_s = float(fh.read().split()[0])
         return int((time.time() - uptime_s + ticks / os.sysconf("SC_CLK_TCK")) * 1000)
+    except Exception:  # noqa: BLE001 - fall through to ps
+        pass
+    try:  # macOS/BSD: ``etime`` = [[dd-]hh:]mm:ss since this pid started
+        out = subprocess.run(["ps", "-o", "etime=", "-p", str(os.getpid())],
+                             capture_output=True, text=True, timeout=3).stdout.strip()
+        days, _, clock = out.rpartition("-")
+        secs = 0
+        for part in clock.split(":"):
+            secs = secs * 60 + int(part)
+        return int((time.time() - secs - (int(days) * 86400 if days else 0)) * 1000)
     except Exception:  # noqa: BLE001 - status is best-effort
         return None
 
 
 def _daemon_status() -> dict:
-    """How this daemon runs: pid/uptime and whether systemd supervises it.
+    """How this daemon runs: pid/uptime and whether a service manager supervises it.
 
-    systemd sets ``INVOCATION_ID`` for a unit's process, so its presence is the
-    reliable "supervised" signal — an orphan started outside systemd has it
-    unset and therefore no ``Restart=`` protection.
+    A supervised process is recognised by ``INVOCATION_ID`` (set by systemd) or
+    ``NEOBRAIN_SUPERVISED`` (set by the launchd job ``neobrain service install``
+    writes). An orphan has neither, and therefore no restart on crash.
     """
     started = _process_start_ms()
-    invocation = os.environ.get("INVOCATION_ID")
     return {
         "pid": os.getpid(),
         "started_at": started,
         "uptime_s": int(time.time() - started / 1000) if started else None,
-        "supervised": bool(invocation),
-        "manager": "systemd --user" if invocation else "none (orphan — no restart on crash)",
-        "service": "neobrain.service",
+        **service.supervisor(),
         "bind": config.settings.bind,
         "api": config.settings.api,
         "life_enabled": _life_enabled(),

@@ -741,8 +741,8 @@ export function DebugView() {
                   <p className="dbg-note">
                     unit {ov.daemon.service} · bind {ov.daemon.bind}<br />
                     {ov.daemon.supervised
-                      ? `supervised by ${ov.daemon.manager} — Restart= brings it back after a crash`
-                      : 'NOT supervised — an orphan is never restarted'}
+                      ? `supervised by ${ov.daemon.manager} — it is restarted after a crash`
+                      : `NOT supervised — ${ov.daemon.manager}`}
                   </p>
                 </div>
               </section>
