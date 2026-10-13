@@ -111,7 +111,7 @@ def test_get_settings_lists_sections_and_flags(client):
     assert "features" in ids and "cognition" in ids
     keys = {f["key"] for s in d["sections"] for f in s["fields"]}
     assert {"dreams_enabled", "llm_model_strong"} <= keys
-    assert any(p["id"] == "litellm" for p in d["providers"])
+    assert any(p["id"] == "openai" for p in d["providers"])
 
 
 def test_put_settings_applies(client):
