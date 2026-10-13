@@ -478,9 +478,14 @@ def import_mind(conn: sqlite3.Connection) -> dict:
             hub_birth[h] = min(hub_birth.get(h, 1 << 62), a["created"])
 
     cur = conn.cursor()
-    for hid, (label, _kw) in HUBS.items():
+    # Found a hub only when an imported atom actually references it — the HUBS
+    # dictionary is a taxonomy for classification, not a graph seed. Seeding it
+    # wholesale founded empty shell nodes on every ingest (visible in the Brain
+    # view as statically-created, zero-atom nodes).
+    for hid, birth in hub_birth.items():
+        label = HUBS.get(hid, (hid.replace("-", " ").title(), []))[0]
         cur.execute("INSERT OR REPLACE INTO m_hubs(id,label,created) VALUES(?,?,?)",
-                    (hid, label, hub_birth.get(hid, now_ms())))
+                    (hid, label, birth))
     for a in items:
         cur.execute(
             """INSERT OR REPLACE INTO m_atoms(id,label,type,created,text,source,tags,weight,hub,hash)
@@ -507,7 +512,7 @@ def import_mind(conn: sqlite3.Connection) -> dict:
 
     return {
         "atoms": len(atoms),
-        "hubs": len(HUBS),
+        "hubs": conn.execute("SELECT COUNT(*) FROM m_hubs").fetchone()[0],
         "edges": sum(1 for _ in conn.execute("SELECT 1 FROM m_edges")),
         "by_type": {r[0]: r[1] for r in conn.execute("SELECT type, COUNT(*) FROM m_atoms GROUP BY type")},
     }
@@ -523,7 +528,13 @@ def graph(conn: sqlite3.Connection) -> dict:
             "text": r[4], "source": r[5], "tags": [t for t in (r[6] or "").split(",") if t],
             "weight": r[7], "hub": r[8],
         })
-    for r in conn.execute("SELECT id,label,created FROM m_hubs"):
+    # Hub nodes only when the graph actually uses them — an empty hub row
+    # (statically founded by an old import) must not render as an orphan node.
+    for r in conn.execute(
+        """SELECT h.id, h.label, h.created FROM m_hubs h
+           WHERE EXISTS (SELECT 1 FROM m_atoms a WHERE a.hub = h.id)
+              OR EXISTS (SELECT 1 FROM m_edges e WHERE e.target = h.id)"""
+    ):
         nodes.append({"id": r[0], "label": r[1], "kind": "hub", "type": r[0], "created": r[2]})
     links = [{"source": r[0], "target": r[1], "type": r[2]} for r in conn.execute("SELECT source,target,type FROM m_edges")]
     return {"nodes": nodes, "links": links}
