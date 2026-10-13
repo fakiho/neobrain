@@ -22,7 +22,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from . import config, db, mind
+from . import config, db, mind, settings_store
 from .models import iso, new, now_ms, to_ms
 
 # PORT-NOTE: the old in-API ingest scheduler (INGEST_INTERVAL / _ingest_loop) is
@@ -107,6 +107,16 @@ async def lifespan(app: FastAPI):
         conn.close()
     except Exception as exc:
         print(f"[startup] store init failed: {exc}", flush=True)
+
+    # Layer the Observatory's runtime settings overrides over the env defaults
+    # (schema v5 ``app_settings``). This recomputes config's derived globals, so
+    # path/embedding/recall keys set from the UI survive a restart too.
+    try:
+        applied = config.apply_db_overrides()
+        if applied:
+            print(f"[startup] settings overrides applied: {', '.join(sorted(applied))}", flush=True)
+    except Exception as exc:  # noqa: BLE001 - a bad row must never block boot
+        print(f"[startup] settings override load failed: {exc}", flush=True)
 
     # PORT-NOTE: the daemon (not the CLI process, not a systemd unit) owns the
     # in-process life loop (SPEC §6). It runs in a daemon thread; shutdown sets
@@ -601,6 +611,122 @@ def mind_reader(group: str) -> dict:
         raise HTTPException(400, str(exc))
     finally:
         conn.close()
+
+
+# --- settings (Observatory Settings tab) --------------------------------
+# Env/.env stays the source of defaults; these endpoints read/write the
+# DB-backed overrides (``settings_store``) and push them into the live config.
+# Writes are gated by NEOBRAIN_SETTINGS_TOKEN when it is set — an empty token
+# means "unprotected", which is only safe on a LAN-only bind (see INFRA docs).
+
+
+def _require_settings_token(request: Request) -> None:
+    if not settings_store.token_ok(request.headers.get("x-neobrain-token", "")):
+        raise HTTPException(401, "invalid or missing settings token (X-NeoBrain-Token)")
+
+
+@app.get("/api/settings")
+def get_settings() -> dict:
+    conn = _conn()
+    try:
+        snap = settings_store.snapshot(conn)
+        snap["restart_pending"] = settings_store.restart_pending(conn)
+        return snap
+    finally:
+        conn.close()
+
+
+class SettingsBody(BaseModel):
+    values: dict[str, Any]
+
+
+@app.put("/api/settings")
+def put_settings(body: SettingsBody, request: Request) -> dict:
+    _require_settings_token(request)
+    conn = db.connect()
+    try:
+        db.init_db(conn)
+        try:
+            result = settings_store.set_values(conn, body.values)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc))
+        snap = settings_store.snapshot(conn)
+        snap.update(result)
+        return snap
+    finally:
+        conn.close()
+
+
+class ModelsBody(BaseModel):
+    base_url: Optional[str] = None
+    api_key: Optional[str] = None
+
+
+@app.post("/api/settings/models")
+def settings_models(body: ModelsBody, request: Request) -> dict:
+    """List models an OpenAI-compatible endpoint advertises (``GET /models``)."""
+    _require_settings_token(request)
+    base = (body.base_url or config.settings.llm_base_url or "").strip()
+    if not base:
+        raise HTTPException(400, "base_url is required")
+    key = settings_store.effective_key(body.api_key)
+    try:
+        models = settings_store.discover_models(base, key)
+    except Exception as exc:  # noqa: BLE001 - surface the provider's answer
+        raise HTTPException(502, f"{type(exc).__name__}: {exc}")
+    return {"base_url": base, "count": len(models), "models": models}
+
+
+class ProbeBody(BaseModel):
+    base_url: Optional[str] = None
+    api_key: Optional[str] = None
+    model: str
+
+
+@app.post("/api/settings/test")
+def settings_test(body: ProbeBody, request: Request) -> dict:
+    """One tiny completion, to prove endpoint + key + model work."""
+    _require_settings_token(request)
+    base = (body.base_url or config.settings.llm_base_url or "").strip()
+    if not base:
+        raise HTTPException(400, "base_url is required")
+    if not body.model.strip():
+        raise HTTPException(400, "model is required")
+    key = settings_store.effective_key(body.api_key)
+    return settings_store.probe_model(base, key, body.model.strip())
+
+
+def _restart_daemon() -> dict:
+    """Restart the systemd user unit from outside this process.
+
+    Detached on purpose: the restart kills the process serving this request, so
+    it must be launched in its own session (or a transient systemd unit) or it
+    dies with us. ``systemd-run`` is preferred; a detached shell is the fallback.
+    """
+    unit = "neobrain.service"
+    try:
+        subprocess.Popen(
+            ["systemd-run", "--user", "--collect", "--on-active=2",
+             "--unit", "neobrain-restart", "systemctl", "--user", "restart", unit],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True,
+        )
+        return {"ok": True, "method": "systemd-run", "detail": "restarting in ~2s"}
+    except FileNotFoundError:
+        pass
+    try:
+        subprocess.Popen(
+            ["sh", "-c", f"sleep 2; systemctl --user restart {unit}"],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True,
+        )
+        return {"ok": True, "method": "detached-shell", "detail": "restarting in ~2s"}
+    except Exception as exc:  # noqa: BLE001 - report, never crash
+        return {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
+
+
+@app.post("/api/settings/restart")
+def settings_restart(request: Request) -> dict:
+    _require_settings_token(request)
+    return _restart_daemon()
 
 
 # --- static UI ----------------------------------------------------------

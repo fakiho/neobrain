@@ -72,8 +72,16 @@ Durable memory for AI agents, built as a mind model rather than a log:
 - **Rank layer** — `rank.py`: the bounded feedback·decay·conn formula above,
   plus exposure counters (`served + 3·interacted`).
 - **Observatory** — React/Vite SPA (`web/src/brain/`): Brain graph, Memory
-  feed, Dreams, Reader, Debug. Views deep-link by hash — `/#debug`,
-  `/#dreams` — which is handy for jumping straight at the live trace.
+  feed, Dreams, Reader, Debug, Settings. Views deep-link by hash — `/#debug`,
+  `/#settings`, `/#dreams` — which is handy for jumping straight at the live
+  trace or the controls.
+- **Settings tab** — enable/disable the rituals (dreams, identity/soul-reflect,
+  consolidation, internal thoughts, rating watch), tune the schedule, and point
+  cognition at a provider (in-house LiteLLM, LLM Gateway, OpenAI, Ollama, or
+  custom) with a key + model picked from the provider's own `/models`. Writes
+  are stored as overrides over `.env` (`app_settings`, schema v5) and applied
+  live; when `NEOBRAIN_SETTINGS_TOKEN` is set they require it as
+  `X-NeoBrain-Token`.
 
 ## Hybrid recall
 
@@ -209,6 +217,10 @@ Read-mostly JSON; groups worth knowing (full schema at `/api/schema`):
   `injections` (plugin lane pushes, GET/POST), `logs` (on-demand journal tail),
   `overview` (rank states, mind ops, feedback, ingest runs, life phases,
   daemon status, self/soul trace, config).
+- `/api/settings` — `GET` the effective settings + section metadata, `PUT`
+  overrides, `POST /models` (list a provider's models), `/test` (one tiny
+  completion), `/restart` (restart the daemon). Writes need `X-NeoBrain-Token`
+  when `NEOBRAIN_SETTINGS_TOKEN` is set.
 - Plus `/api/health`, `/api/stats`, `/api/events`, `/api/sessions`,
   `/api/search`, `/api/docs`, `/api/ingest/run`.
 

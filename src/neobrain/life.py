@@ -570,7 +570,7 @@ class LifeLoop:
         ran: list[str] = []
 
         # --- nightly dream phases ------------------------------------------
-        if not self._dream_ran_tonight(conn, now):
+        if _flag_enabled(config.settings.dreams_enabled) and not self._dream_ran_tonight(conn, now):
             if importlib.util.find_spec("neobrain.dreams") is None:
                 self._emit(
                     conn,
@@ -614,7 +614,8 @@ class LifeLoop:
         # PORT-NOTE: S6b — runs on the settings.reflect_weekdays days at the
         # dream hour, once per day; the guard is the "life: soul-reflect" event.
         if (
-            now.weekday() in config.reflect_days()
+            _flag_enabled(config.settings.soul_reflect_enabled)
+            and now.weekday() in config.reflect_days()
             and not self._reflect_ran_today(conn, now)
             and importlib.util.find_spec("neobrain.dreams") is not None
         ):
@@ -680,10 +681,10 @@ class LifeLoop:
         if quiet:
             ran.extend(self._rest(conn, now, when))
         else:
-            if self._due(conn, "reflect", when):
+            if _flag_enabled(config.settings.consolidate_enabled) and self._due(conn, "reflect", when):
                 self._reflect(conn, when)
                 ran.append("reflect")
-            if self._due(conn, "act", when):
+            if _flag_enabled(config.settings.act_enabled) and self._due(conn, "act", when):
                 self._act(conn, when)
                 ran.append("act")
 
