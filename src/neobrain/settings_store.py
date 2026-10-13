@@ -61,11 +61,8 @@ SECTIONS: tuple[tuple[str, str, str], ...] = (
 
 #: Known provider presets the Cognition section offers (label, base URL).
 PROVIDERS: tuple[dict[str, str], ...] = (
-    {"id": "litellm", "label": "In-house LiteLLM gateway", "base_url": "http://127.0.0.1:4000/v1"},
-    {"id": "llmgateway", "label": "LLM Gateway (llmgateway.io)", "base_url": "https://api.llmgateway.io/v1"},
     {"id": "openai", "label": "OpenAI", "base_url": "https://api.openai.com/v1"},
-    {"id": "ollama", "label": "Ollama (local)", "base_url": "http://127.0.0.1:11434/v1"},
-    {"id": "custom", "label": "Custom OpenAI-compatible", "base_url": ""},
+    {"id": "custom", "label": "Custom…", "base_url": ""},
 )
 
 
@@ -108,7 +105,7 @@ REGISTRY: tuple[Setting, ...] = (
             "ISO date (YYYY-MM-DD); the watch stops after it. Empty = no end."),
     # --- cognition --------------------------------------------------------
     Setting("llm_base_url", "Base URL", "str", "cognition",
-            "OpenAI-compatible endpoint, e.g. http://127.0.0.1:4000/v1."),
+            "Any OpenAI-compatible endpoint, e.g. https://api.openai.com/v1."),
     Setting("llm_api_key", "API key", "secret", "cognition",
             "Bearer key for the endpoint. Leave blank to keep the current one."),
     Setting("llm_model_cheap", "Cheap model", "str", "cognition",

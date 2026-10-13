@@ -1,12 +1,12 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Settings as SettingsIcon, Save, RotateCcw, RefreshCw, PlugZap, Check,
   AlertTriangle, Loader2, Power,
 } from 'lucide-react'
 
 // Settings tab: enable/disable the brain's rituals, and point its cognition at
-// a provider (in-house LiteLLM, LLM Gateway, or any OpenAI-compatible endpoint)
-// with a key + model chosen from the provider's own /models list.
+// any OpenAI-compatible endpoint (OpenAI, or a custom base URL + token) with a
+// key + model chosen from the provider's own /models list.
 //
 // Writes go to PUT /api/settings (DB-backed overrides over .env).
 
@@ -50,6 +50,7 @@ export function SettingsView() {
   const [testing, setTesting] = useState<string | null>(null)
   const [probe, setProbe] = useState<Record<string, any>>({})
   const [restartAsk, setRestartAsk] = useState<string[] | null>(null)
+  const baseUrlRef = useRef<HTMLInputElement | null>(null)
 
   const load = useCallback(() => {
     fetch('/api/settings')
@@ -69,6 +70,8 @@ export function SettingsView() {
   const dirty = useMemo(() => Object.keys(draft), [draft])
 
   const set = (key: string, value: any) => setDraft((d) => ({ ...d, [key]: value }))
+  const clear = (key: string) =>
+    setDraft((d) => { const next = { ...d }; delete next[key]; return next })
   const current = (f: Field) => (f.key in draft ? draft[f.key] : f.value)
 
   const save = async () => {
@@ -163,7 +166,7 @@ export function SettingsView() {
 
   const renderField = (f: Field) => {
     const v = current(f)
-    const overridden = f.overridden || f.key in draft
+    const dirtyField = f.key in draft
     const input = () => {
       if (f.kind === 'bool') {
         return (
@@ -221,6 +224,7 @@ export function SettingsView() {
           <input
             className="set-input mono"
             list={listId}
+            ref={f.key === 'llm_base_url' ? baseUrlRef : undefined}
             value={v ?? ''}
             onChange={(e) => set(f.key, e.target.value)}
             disabled={f.env_only}
@@ -235,8 +239,12 @@ export function SettingsView() {
         <div className="set-field-head">
           <label>{f.label}</label>
           {f.from_env && <span className="set-tag env" title="Also set in the environment">env</span>}
-          {overridden && !f.env_only && (
-            <button className="set-revert" title="Revert to the .env default" onClick={() => set(f.key, null)}>
+          {!f.env_only && (dirtyField || f.overridden) && (
+            <button
+              className="set-revert"
+              title={dirtyField ? 'Discard this edit' : 'Revert to the .env default'}
+              onClick={() => (dirtyField ? clear(f.key) : set(f.key, null))}
+            >
               <RotateCcw size={12} />
             </button>
           )}
@@ -249,9 +257,12 @@ export function SettingsView() {
               {snap?.providers.map((p) => (
                 <button
                   key={p.id}
-                  className={'set-chip' + (String(v) === p.base_url ? ' on' : '')}
-                  onClick={() => set('llm_base_url', p.base_url)}
-                  title={p.base_url || 'enter a URL below'}
+                  className={'set-chip' + (p.base_url && String(v) === p.base_url ? ' on' : '')}
+                  onClick={() => {
+                    if (p.base_url) set('llm_base_url', p.base_url)
+                    else { baseUrlRef.current?.focus(); baseUrlRef.current?.select() }
+                  }}
+                  title={p.base_url || 'type any OpenAI-compatible base URL below'}
                 >
                   {p.label}
                 </button>
@@ -293,7 +304,7 @@ export function SettingsView() {
         </div>
         <div className="set-head-r">
           {dirty.length > 0 && <span className="set-dirty">{dirty.length} unsaved</span>}
-          <button className="set-mini" onClick={restart} disabled={busy} title="Restart the daemon (e.g. after editing .env)">
+          <button className="set-mini" onClick={restart} title="Restart the daemon (e.g. after editing .env)">
             <Power size={12} /> Restart
           </button>
           <button className="set-save" onClick={save} disabled={busy || !dirty.length}>
