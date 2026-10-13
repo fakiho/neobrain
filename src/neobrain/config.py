@@ -187,6 +187,9 @@ def _derive_workspace() -> None:
 # model key), so both paths can coexist as an option.
 _EMBED_DEFAULTS = {
     "ollama": ("http://127.0.0.1:11434", "embeddinggemma", 180.0),
+    # Any OpenAI-compatible server: set the URL + model yourself.
+    "openai": ("", "", 30.0),
+    # Legacy name for the OpenAI shape — keeps the local gateway default.
     "litellm": ("http://127.0.0.1:4000/v1", "gemini-embedding-2", 30.0),
 }
 EMBED_PROVIDER = "ollama"
