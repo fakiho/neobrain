@@ -40,6 +40,14 @@ type Snap = {
 
 const truthy = (v: any) => v === true || ['1', 'true', 'yes', 'on'].includes(String(v).toLowerCase())
 
+// Which column each section sits in, left to right. Anything not listed drops
+// into the last column, so a new section can't silently disappear.
+const COLUMNS: string[][] = [
+  ['features', 'notifications', 'sources', 'daemon'],
+  ['schedule', 'cognition'],
+  ['memory', 'embeddings'],
+]
+
 export function SettingsView() {
   const [snap, setSnap] = useState<Snap | null>(null)
   const [draft, setDraft] = useState<Record<string, any>>({})
@@ -291,6 +299,14 @@ export function SettingsView() {
     )
   }
 
+  const cols = useMemo(() => {
+    const out: Section[][] = COLUMNS.map(() => [])
+    const at = new Map<string, number>()
+    COLUMNS.forEach((ids, i) => ids.forEach((id) => at.set(id, i)))
+    for (const s of snap?.sections ?? []) out[at.get(s.id) ?? out.length - 1].push(s)
+    return out.filter((c) => c.length)
+  }, [snap])
+
   return (
     <div className="settings">
       <header className="set-head">
@@ -324,12 +340,16 @@ export function SettingsView() {
 
       {snap && (
         <div className="set-grid">
-          {snap.sections.map((s) => (
-            <section className="set-card" key={s.id} id={`set-${s.id}`}>
-              <h5>{s.label}</h5>
-              <p className="set-desc">{s.description}</p>
-              <div className="set-fields">{s.fields.map(renderField)}</div>
-            </section>
+          {cols.map((c, i) => (
+            <div className="set-col" key={i}>
+              {c.map((s) => (
+                <section className="set-card" key={s.id} id={`set-${s.id}`}>
+                  <h5>{s.label}</h5>
+                  <p className="set-desc">{s.description}</p>
+                  <div className="set-fields">{s.fields.map(renderField)}</div>
+                </section>
+              ))}
+            </div>
           ))}
         </div>
       )}
