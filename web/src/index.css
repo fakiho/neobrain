@@ -1259,29 +1259,43 @@ input.tslider::-moz-range-thumb { width: 14px; height: 14px; background: #c8cbe0
 :root[data-theme='light'] .settings { --ok: #067647; --warn: #b54708; --err: #b42318; }
 .obs-mobile .settings {
   inset: var(--m-header, 96px) 0 0 0;
-  padding: 18px 16px calc(86px + env(safe-area-inset-bottom));
+  padding: 18px 16px calc(44px + env(safe-area-inset-bottom));
 }
 
-/* Action bar pinned to the bottom of the scrolling settings page: the save
-   control and every result message stay visible wherever you are. */
-.set-bar {
-  position: sticky; bottom: 0; z-index: 25;
-  display: flex; align-items: center; gap: 10px;
-  margin: 18px -28px -120px; padding: 11px 28px;
-  background: color-mix(in srgb, var(--bg, #0d0f14) 88%, transparent);
-  backdrop-filter: blur(10px);
-  border-top: 1px solid var(--border);
+/* Inline result notes: shown right under the control that produced them
+   (a model's Test, a card's Save), never somewhere off-screen. */
+.set-inline {
+  display: flex; align-items: flex-start; gap: 9px; margin-top: 2px;
+  border-radius: 10px; padding: 9px 11px; font-size: 12.5px; line-height: 1.45;
+  border: 1px solid var(--border); animation: set-in 0.18s ease-out;
 }
-.obs-mobile .set-bar { margin: 18px -16px calc(-86px - env(safe-area-inset-bottom)); padding: 11px 16px; }
-.set-bar-hint { font-size: 12px; color: var(--text-muted); }
-.set-bar-hint.dirty { color: var(--warn); }
-.set-bar-msg { display: flex; align-items: center; gap: 7px; font-size: 12.5px; min-width: 0; }
-.set-bar-msg span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.set-bar-msg svg { flex: none; }
-.set-bar-msg.ok { color: var(--ok); }
-.set-bar-msg.err { color: var(--err); }
-.set-bar-x { display: inline-flex; align-items: center; border: 0; background: transparent; color: inherit; opacity: 0.6; padding: 2px; border-radius: 6px; }
-.set-bar-x:hover { opacity: 1; background: rgba(255, 255, 255, 0.06); }
+.set-inline > svg { flex: none; margin-top: 2px; }
+.set-inline-body { display: grid; gap: 2px; min-width: 0; flex: 1; overflow-wrap: anywhere; }
+.set-inline-body b { font-weight: 600; }
+.set-inline-body span { color: var(--text); opacity: 0.85; }
+.set-inline.ok { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 40%, transparent); background: color-mix(in srgb, var(--ok) 8%, transparent); }
+.set-inline.err { color: var(--err); border-color: color-mix(in srgb, var(--err) 50%, transparent); background: color-mix(in srgb, var(--err) 9%, transparent); }
+.set-inline-x { flex: none; display: inline-flex; border: 0; background: transparent; color: inherit; opacity: 0.6; padding: 2px; border-radius: 6px; }
+.set-inline-x:hover { opacity: 1; background: color-mix(in srgb, currentColor 12%, transparent); }
+.set-loaderr { margin-top: 16px; align-items: center; }
+@keyframes set-in { from { opacity: 0; transform: translateY(-3px); } }
+@media (prefers-reduced-motion: reduce) { .set-inline { animation: none; } }
+
+/* Per-card save: appears inside the card that has edits, under its fields. */
+.set-card.dirty { border-color: color-mix(in srgb, var(--warn) 45%, var(--border)); }
+.set-field.dirty .set-field-head label::after { content: ' •'; color: var(--warn); }
+.set-card-actions {
+  display: flex; align-items: center; justify-content: flex-end; gap: 8px; flex-wrap: wrap;
+  margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--border);
+}
+.set-card-pending { margin-right: auto; font-size: 12px; color: var(--warn); }
+.set-card-extra { display: flex; margin-top: 12px; }
+.set-pending {
+  border: 1px solid color-mix(in srgb, var(--warn) 45%, transparent); border-radius: 999px;
+  background: color-mix(in srgb, var(--warn) 8%, transparent); color: var(--warn);
+  font-size: 12px; padding: 5px 12px;
+}
+.set-pending:hover { background: color-mix(in srgb, var(--warn) 14%, transparent); }
 
 .set-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
 .set-head h1 { display: flex; align-items: center; gap: 9px; font-size: 22px; font-weight: 600; margin: 0 0 5px; letter-spacing: -0.3px; }
@@ -1338,9 +1352,6 @@ input.tslider::-moz-range-thumb { width: 14px; height: 14px; background: #c8cbe0
 .set-mini { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; letter-spacing: 0.4px; text-transform: uppercase; border: 1px solid var(--border); border-radius: 999px; padding: 4px 11px; color: var(--text-muted); background: transparent; }
 .set-mini:hover:not(:disabled) { color: var(--text); border-color: var(--border-strong); }
 .set-mini:disabled { opacity: 0.5; cursor: not-allowed; }
-.set-probe { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; font-family: var(--mono); }
-.set-probe.ok { color: var(--ok); }
-.set-probe.err { color: var(--err); }
 
 .spin { animation: set-spin 0.9s linear infinite; }
 @keyframes set-spin { to { transform: rotate(360deg); } }

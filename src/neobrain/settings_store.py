@@ -354,6 +354,30 @@ def discover_models(base_url: str, api_key: str, timeout: float = 10.0) -> list[
     return sorted(ids)
 
 
+def _error_detail(exc: urllib.error.HTTPError) -> str:
+    """The human-readable part of a provider error body.
+
+    OpenAI-compatible APIs answer ``{"error": {"message": ...}}`` (or
+    ``{"error": "..."}`` / ``{"detail": ...}``); surface that message, not the
+    raw JSON envelope. Falls back to the collapsed body text.
+    """
+    try:
+        raw = exc.read().decode("utf-8", "replace")
+    except Exception:  # noqa: BLE001 - the body is diagnostic only
+        return ""
+    try:
+        body = json.loads(raw)
+    except ValueError:
+        return " ".join(raw.split())[:300]
+    msg: Any = body
+    if isinstance(body, dict):
+        msg = body.get("error") or body.get("detail") or body.get("message") or body
+        if isinstance(msg, dict):
+            msg = msg.get("message") or msg.get("detail") or msg
+    text = msg if isinstance(msg, str) else json.dumps(msg)
+    return " ".join(text.split())[:300]
+
+
 def probe_model(base_url: str, api_key: str, model: str, timeout: float = 30.0) -> dict[str, Any]:
     """One tiny chat completion, to prove an endpoint + key + model work."""
     url = base_url.rstrip("/") + "/chat/completions"
@@ -373,12 +397,7 @@ def probe_model(base_url: str, api_key: str, model: str, timeout: float = 30.0) 
         with urllib.request.urlopen(req, timeout=timeout) as resp:  # noqa: S310 - user-supplied endpoint
             payload = json.loads(resp.read().decode("utf-8"))
     except urllib.error.HTTPError as exc:
-        detail = ""
-        try:
-            detail = " ".join(exc.read().decode("utf-8", "replace").split())[:300]
-        except Exception:  # noqa: BLE001 - the body is diagnostic only
-            pass
-        return {"ok": False, "error": f"HTTP {exc.code}" + (f": {detail}" if detail else "")}
+        return {"ok": False, "error": f"HTTP {exc.code}" + (f": {d}" if (d := _error_detail(exc)) else "")}
     except Exception as exc:  # noqa: BLE001 - a probe failure is data, not a crash
         return {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
     latency = round((time.perf_counter() - started) * 1000)
