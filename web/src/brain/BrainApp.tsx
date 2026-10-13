@@ -43,31 +43,11 @@ const fmtTime = (ms: number) => new Date(ms).toLocaleTimeString(undefined, { hou
 const REPLAY_MS = 20000
 const relColor = (t: string) => (t === 'about' ? 'var(--text-muted)' : EDGE_COLORS[t] ?? 'var(--text-muted)')
 
-// templates for simulated stores (stand-ins for real remember() calls)
-const STORE_TEMPLATES = [
-  { type: 'observation', hub: 'openwrt', label: 'Conntrack at 4.2k', text: 'Conntrack table steady at ~4,200 entries after the nft DNS enforcement went live. No drops.', tags: ['conntrack', 'openwrt'] },
-  { type: 'decision', hub: 'dns', label: 'Keep DoH blocked', text: 'Keep DoH/DoT blocked and logged; IoT devices fall back to AdGuard cleanly, no user complaints.', tags: ['dns', 'doh'] },
-  { type: 'lesson', hub: 'frigate', label: 'Cap beats resolution', text: 'Capping HomeKit bitrate is more effective than lowering resolution — corruption comes from UDP loss, not pixels.', tags: ['frigate', 'homekit'] },
-  { type: 'observation', hub: 'grafana', label: 'device_inventory stable', text: 'device_inventory now shows ~40 devices with names; enrichment via mDNS + AdGuard PTR.', tags: ['grafana', 'inventory'] },
-  { type: 'preference', hub: 'agent', label: 'Cite the source', text: 'When memorizing a decision, always record the source (file or session) so it stays traceable.', tags: ['agent', 'rule'] },
-  { type: 'decision', hub: 'litellm', label: 'Stay pinned', text: 'Stay on litellm v1.101.2 until the unmapped-model regression is fixed upstream.', tags: ['litellm'] },
-]
-const RECALL_QUERIES = [
-  'what do I know about DNS enforcement?',
-  'why did Matter break?',
-  'how are the cameras wired?',
-  'what is the DHCP reservation gotcha?',
-  'how is OpenCode exposed?',
-  'latest on litellm pinning',
-  'what changed on the host network?',
-]
-
 export default function BrainApp() {
   // the graph starts empty and fills from the real mind API (/api/mind/graph)
   const [nodes, setNodes] = useState<BrainNode[]>([])
   const [links, setLinks] = useState<BrainLink[]>([])
-  const [mode, setMode] = useState<'prototype' | 'real'>('prototype')
-  const [realOps, setRealOps] = useState(false)
+  const [mode, setMode] = useState<'empty' | 'real'>('empty')
   const [selected, setSelected] = useState<string | null>(null)
   const [search, setSearch] = useState('')
   const [leftOpen, setLeftOpen] = useState(false)
@@ -159,8 +139,6 @@ export default function BrainApp() {
   linksRef.current = links
   const timeEndRef = useRef(0)
   const maxTRef = useRef(0)
-  const tplRef = useRef(0)
-  const liveIdRef = useRef(1)
 
   // ---- real mind data (M1) ----
   // Refetchable so the graph grows as the agent stores/links/forgets memories;
@@ -180,7 +158,7 @@ export default function BrainApp() {
 
   useEffect(() => { loadGraph() }, [loadGraph])
 
-  // poll real memory ops; if any exist, show those instead of the simulator
+  // poll real memory ops from the mind service and show them in the feed
   useEffect(() => {
     let stop = false
     let lastOpTs = 0
@@ -191,7 +169,6 @@ export default function BrainApp() {
           if (stop || !d?.ops?.length) return
           const rows = d.ops.map((o: any) => ({ op: o.op, id: o.id, label: o.label, ts: o.ts, query: o.query }))
           setOps(rows)
-          setRealOps(true)
           // freshly recorded ops: ping the graph node and flash the feed row 2.5 s
           const fresh = lastOpTs ? rows.filter((o: any) => o.ts > lastOpTs) : []
           if (fresh.length) {
@@ -213,42 +190,6 @@ export default function BrainApp() {
     const t = window.setInterval(load, 5000)
     return () => { stop = true; window.clearInterval(t) }
   }, [loadGraph])
-
-  // ---- simulated live feed (stands in for the memory service stream) ----
-  useEffect(() => {
-    if (!live || realOps) return
-    const tick = () => {
-      const atoms = nodesRef.current.filter((n) => n.kind === 'atom')
-      if (Math.random() < 0.4) {
-        // store
-        const tpl = STORE_TEMPLATES[tplRef.current++ % STORE_TEMPLATES.length]
-        const id = `live_${liveIdRef.current++}`
-        const created = Date.now()
-        const node: BrainNode = {
-          id, label: tpl.label, kind: 'atom', type: tpl.type, created,
-          text: tpl.text, hub: tpl.hub, weight: 0.7, source: `session live ${fmtTime(created)}`, tags: tpl.tags,
-        }
-        const anchor = atoms[atoms.length - 1]
-        const newLinks: BrainLink[] = [{ source: id, target: tpl.hub, type: 'about' }]
-        if (anchor) newLinks.push({ source: id, target: anchor.id, type: 'derived-from' })
-        setNodes((prev) => [...prev, node])
-        setLinks((prev) => [...prev, ...newLinks])
-        // only follow "now" if we were already at the present (don't yank the slider)
-        if (timeEndRef.current >= maxTRef.current - 2000) setTimeEnd(created)
-        setOps((prev) => [{ op: 'store', id, label: tpl.label, ts: created }, ...prev].slice(0, 60))
-      } else if (atoms.length) {
-        // recall
-        const pick = atoms[Math.floor(Math.random() * atoms.length)]
-        const query = RECALL_QUERIES[Math.floor(Math.random() * RECALL_QUERIES.length)]
-        const now = Date.now()
-        setPulse({ ids: [pick.id], at: performance.now() })
-        setRecalls((prev) => ({ ...prev, [pick.id]: { n: (prev[pick.id]?.n ?? 0) + 1, last: now } }))
-        setOps((prev) => [{ op: 'recall', id: pick.id, label: pick.label, ts: now, query }, ...prev].slice(0, 60))
-      }
-    }
-    const timer = window.setInterval(tick, 2600)
-    return () => window.clearInterval(timer)
-  }, [live, realOps])
 
   const times = useMemo(() => nodes.map((n) => n.created).sort((a, b) => a - b), [nodes])
   // Numeric sentinels, not undefined: the first render has no nodes yet, and an
@@ -434,7 +375,7 @@ export default function BrainApp() {
             <span className="obs-mark">{BRAND_MARK}</span>
             <span className="obs-title">OBSERVATORY</span>
             <div style={{ flex: 1 }} />
-            <button className={'obs-iconbtn' + (live ? ' on' : '')} onClick={() => setLive((v) => !v)} title="Live memory feed" aria-label="Live memory feed"><Radio size={16} /></button>
+            <button className={'obs-iconbtn' + (live ? ' on' : '')} onClick={() => setLive((v) => !v)} title="Follow the present (off = browse history)" aria-label="Follow the present"><Radio size={16} /></button>
             <button className={'obs-iconbtn' + (searchOpen ? ' on' : '')} onClick={() => setSearchOpen((v) => !v)} title="Search" aria-label="Search"><Search size={17} /></button>
           </div>
           {searchOpen && (
@@ -467,7 +408,7 @@ export default function BrainApp() {
         <div className="obs-brand">
           <span className="obs-mark">{BRAND_MARK}</span>
           <span className="obs-title">OBSERVATORY</span>
-          <span className="obs-sub">the brain · {mode === 'real' ? 'live memory' : 'prototype'}</span>
+          <span className="obs-sub">the brain · {mode === 'real' ? 'live memory' : 'no memories yet'}</span>
         </div>
 
         <div className="obs-search-wrap">
@@ -496,8 +437,8 @@ export default function BrainApp() {
 
         <div style={{ flex: 1 }} />
 
-        <button className={'obs-btn' + (live ? ' primary' : '')} onClick={() => setLive((v) => !v)} title="Simulated live memory feed">
-          <Radio size={14} /> {live ? 'Live' : 'Live off'}
+        <button className={'obs-btn' + (live ? ' primary' : '')} onClick={() => setLive((v) => !v)} title="Follow the present — turn off to browse history over real memories">
+          <Radio size={14} /> {live ? 'Live' : 'History'}
         </button>
         <button className="obs-btn" onClick={replay}><RotateCcw size={14} /> Replay growth</button>
         <button
@@ -522,6 +463,16 @@ export default function BrainApp() {
         />
       )}
 
+      {view === 'brain' && nodes.length === 0 && (
+        <div className="obs-empty muted" style={{ position: 'absolute', inset: 0, display: 'grid', placeItems: 'center', pointerEvents: 'none', textAlign: 'center', fontSize: 13, lineHeight: 1.7 }}>
+          <div>
+            <b style={{ color: 'var(--text-dim)', fontWeight: 600 }}>This mind is empty.</b>
+            <br />
+            Memories the agent stores will appear here.
+          </div>
+        </div>
+      )}
+
       {view === 'brain' && !isMobile && leftOpen && (
         <div className="obs-left">{sidebarContent}</div>
       )}
@@ -532,7 +483,7 @@ export default function BrainApp() {
           <div className="obs-feed">
             <h6>
               <span className="live-dot" style={{ opacity: live ? 1 : 0.3 }} /> Live memory activity
-              <span className="muted" style={{ marginLeft: 'auto', fontWeight: 400 }}>{realOps ? 'live' : 'simulated'} · {ops.length}</span>
+              <span className="muted" style={{ marginLeft: 'auto', fontWeight: 400 }}>{ops.length}</span>
             </h6>
             {activityRows}
           </div>
@@ -647,7 +598,7 @@ export default function BrainApp() {
             <button className="obs-activity-head" onClick={() => setFeedOpen((v) => !v)} aria-expanded={feedOpen}>
               <span className="live-dot" style={{ opacity: live ? 1 : 0.3 }} />
               <span>Activity</span>
-              <span className="muted">{realOps ? 'live' : 'simulated'} · {ops.length}</span>
+              <span className="muted">{ops.length}</span>
               <span className="chev">{feedOpen ? <ChevronDown size={15} /> : <ChevronUp size={15} />}</span>
             </button>
             {feedOpen && <div className="obs-activity-body">{activityRows}</div>}
