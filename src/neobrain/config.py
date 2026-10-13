@@ -105,12 +105,6 @@ class Settings(BaseSettings):
     consolidate_enabled: str = "1"    # reflect phase: mind.consolidate
     act_enabled: str = "1"            # act phase: one internal thought
 
-    # --- settings UI write token (Observatory Settings tab) ---
-    # Empty = settings writes are unprotected (fine on a LAN-only bind; NOT fine
-    # while the Observatory is publicly reachable). When set, PUT/POST settings
-    # calls must carry it as the ``X-NeoBrain-Token`` header.
-    settings_token: str = ""
-
     # --- dreams / reflect (SPEC §4.4/4.5) ---
     # Empty -> WORKSPACE/DREAMS.md when a workspace is set, else DATA_DIR/DREAMS.md.
     dreams_file: str = ""

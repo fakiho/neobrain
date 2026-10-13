@@ -80,8 +80,8 @@ Durable memory for AI agents, built as a mind model rather than a log:
   cognition at a provider (in-house LiteLLM, LLM Gateway, OpenAI, Ollama, or
   custom) with a key + model picked from the provider's own `/models`. Writes
   are stored as overrides over `.env` (`app_settings`, schema v5) and applied
-  live; when `NEOBRAIN_SETTINGS_TOKEN` is set they require it as
-  `X-NeoBrain-Token`.
+  live — only the daemon's address fields (Bind, API URL) wait for a restart,
+  and saving one says so.
 
 ## Hybrid recall
 
@@ -219,8 +219,7 @@ Read-mostly JSON; groups worth knowing (full schema at `/api/schema`):
   daemon status, self/soul trace, config).
 - `/api/settings` — `GET` the effective settings + section metadata, `PUT`
   overrides, `POST /models` (list a provider's models), `/test` (one tiny
-  completion), `/restart` (restart the daemon). Writes need `X-NeoBrain-Token`
-  when `NEOBRAIN_SETTINGS_TOKEN` is set.
+  completion), `/restart` (restart the daemon).
 - Plus `/api/health`, `/api/stats`, `/api/events`, `/api/sessions`,
   `/api/search`, `/api/docs`, `/api/ingest/run`.
 

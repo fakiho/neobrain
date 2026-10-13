@@ -616,13 +616,6 @@ def mind_reader(group: str) -> dict:
 # --- settings (Observatory Settings tab) --------------------------------
 # Env/.env stays the source of defaults; these endpoints read/write the
 # DB-backed overrides (``settings_store``) and push them into the live config.
-# Writes are gated by NEOBRAIN_SETTINGS_TOKEN when it is set — an empty token
-# means "unprotected", which is only safe on a LAN-only bind (see INFRA docs).
-
-
-def _require_settings_token(request: Request) -> None:
-    if not settings_store.token_ok(request.headers.get("x-neobrain-token", "")):
-        raise HTTPException(401, "invalid or missing settings token (X-NeoBrain-Token)")
 
 
 @app.get("/api/settings")
@@ -641,8 +634,7 @@ class SettingsBody(BaseModel):
 
 
 @app.put("/api/settings")
-def put_settings(body: SettingsBody, request: Request) -> dict:
-    _require_settings_token(request)
+def put_settings(body: SettingsBody) -> dict:
     conn = db.connect()
     try:
         db.init_db(conn)
@@ -663,9 +655,8 @@ class ModelsBody(BaseModel):
 
 
 @app.post("/api/settings/models")
-def settings_models(body: ModelsBody, request: Request) -> dict:
+def settings_models(body: ModelsBody) -> dict:
     """List models an OpenAI-compatible endpoint advertises (``GET /models``)."""
-    _require_settings_token(request)
     base = (body.base_url or config.settings.llm_base_url or "").strip()
     if not base:
         raise HTTPException(400, "base_url is required")
@@ -684,9 +675,8 @@ class ProbeBody(BaseModel):
 
 
 @app.post("/api/settings/test")
-def settings_test(body: ProbeBody, request: Request) -> dict:
+def settings_test(body: ProbeBody) -> dict:
     """One tiny completion, to prove endpoint + key + model work."""
-    _require_settings_token(request)
     base = (body.base_url or config.settings.llm_base_url or "").strip()
     if not base:
         raise HTTPException(400, "base_url is required")
@@ -724,8 +714,7 @@ def _restart_daemon() -> dict:
 
 
 @app.post("/api/settings/restart")
-def settings_restart(request: Request) -> dict:
-    _require_settings_token(request)
+def settings_restart() -> dict:
     return _restart_daemon()
 
 

@@ -18,7 +18,6 @@ Two rules the whole surface obeys:
 """
 from __future__ import annotations
 
-import hmac
 import json
 import os
 import sqlite3
@@ -58,7 +57,6 @@ SECTIONS: tuple[tuple[str, str, str], ...] = (
     ("notifications", "Notifications", "Where stall and health alerts are sent."),
     ("sources", "Sources", "What the brain reads: workspace docs, repos, OpenCode sessions."),
     ("daemon", "Daemon", "Bind address and data directory."),
-    ("security", "Security", "The token that protects settings writes."),
 )
 
 #: Known provider presets the Cognition section offers (label, base URL).
@@ -170,9 +168,6 @@ REGISTRY: tuple[Setting, ...] = (
     Setting("data_dir", "Data directory", "str", "daemon",
             "Where the store lives. Change it in .env, then restart.",
             restart=True, env_only=True),
-    # --- security ---------------------------------------------------------
-    Setting("settings_token", "Settings token", "secret", "security",
-            "Required (as X-NeoBrain-Token) for settings writes. Empty = unprotected."),
 )
 
 _BY_KEY: dict[str, Setting] = {s.key: s for s in REGISTRY}
@@ -235,7 +230,6 @@ def snapshot(conn: sqlite3.Connection) -> dict[str, Any]:
     return {
         "sections": out_sections,
         "providers": list(PROVIDERS),
-        "token_required": bool((config.settings.settings_token or "").strip()),
         "life_enabled": str(config.settings.life_enabled).strip().lower()
         not in ("0", "false", "no", "off"),
     }
@@ -323,17 +317,6 @@ def set_values(conn: sqlite3.Connection, values: dict[str, Any]) -> dict[str, An
         "reverted": reverted,
         "restart_pending": restart_pending(conn),
     }
-
-
-# --- token gate ---------------------------------------------------------
-
-
-def token_ok(supplied: str) -> bool:
-    """True when writes are allowed (no token configured, or it matches)."""
-    expected = (config.settings.settings_token or "").strip()
-    if not expected:
-        return True
-    return hmac.compare_digest(supplied or "", expected)
 
 
 # --- provider discovery / probe ----------------------------------------
