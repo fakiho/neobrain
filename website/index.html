@@ -1163,7 +1163,7 @@
       <div class="hero-install reveal" style="--d:240ms">
         <span class="arrow" aria-hidden="true">→</span>
         <button class="copy-chip" type="button" data-copy="neobrain init" aria-label="Copy command: neobrain init">neobrain init</button>
-        <button class="copy-chip" type="button" data-copy="neobrain start" aria-label="Copy command: neobrain start">neobrain start</button>
+        <button class="copy-chip" type="button" data-copy="neobrain service install" aria-label="Copy command: neobrain service install">neobrain service install</button>
         <button class="copy-chip" type="button" data-copy="neobrain ui" aria-label="Copy command: neobrain ui">neobrain ui</button>
       </div>
 
@@ -1187,7 +1187,7 @@
                 <span class="pane-title">terminal</span>
                 <span class="pane-sub">quickstart</span>
               </div>
-              <div class="terminal-body" id="terminal" role="img" aria-label="Terminal transcript: initialise the store, start the daemon on 127.0.0.1:9192, then open the Observatory. The plugin lanes for wakeup, recall and standing directives fire automatically.">
+              <div class="terminal-body" id="terminal" role="img" aria-label="Terminal transcript: initialise the store, install the daemon as a login service (launchd on macOS, systemd on Linux), then open the Observatory. The plugin lanes for wakeup, recall and standing directives fire automatically.">
                 <div class="t-line" data-t="cmd">
                   <span class="t-prompt" aria-hidden="true"><span class="t-user">you</span><span class="t-punc">:</span><span class="t-dir">~/agent</span><span class="t-caret">$</span></span>
                   <span class="t-msg">neobrain init</span>
@@ -1198,11 +1198,11 @@
                 </div>
                 <div class="t-line" data-t="cmd">
                   <span class="t-prompt" aria-hidden="true"><span class="t-user">you</span><span class="t-punc">:</span><span class="t-dir">~/agent</span><span class="t-caret">$</span></span>
-                  <span class="t-msg">neobrain start</span>
+                  <span class="t-msg">neobrain service install</span>
                 </div>
                 <div class="t-line" data-t="out">
                   <span class="t-name t-acc">neobrain</span>
-                  <span class="t-msg">daemon on 127.0.0.1:9192 — life loop running</span>
+                  <span class="t-msg">daemon under launchd — starts at login, restarts on crash, on 127.0.0.1:9192</span>
                 </div>
                 <div class="t-line" data-t="out">
                   <span class="t-name t-mid">lane</span>
@@ -1397,7 +1397,7 @@
           <div class="step-num">2</div>
           <div>
             <h3>Start the daemon</h3>
-            <p><code>neobrain start</code> runs the API, the dashboard and the in-process life loop: perceive, reflect, act, rest.</p>
+            <p><code>neobrain service install</code> puts it under the OS service manager (launchd on macOS, <code>systemd --user</code> on Linux): started at login, restarted on crash, restartable from the Settings tab. Prefer a terminal process? <code>neobrain start</code> runs the same API, dashboard and in-process life loop — perceive, reflect, act, rest — unsupervised.</p>
           </div>
         </div>
         <div class="step-connector" aria-hidden="true"><div class="step-connector-line"></div></div>

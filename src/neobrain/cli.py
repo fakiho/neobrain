@@ -98,7 +98,8 @@ def cmd_init(args: argparse.Namespace) -> int:
     conn.close()
     print(f"initialised {config.DB_PATH}")
     print("next steps:")
-    print("  1. neobrain start                 # daemon: API + dashboard + life loop")
+    print("  1. neobrain service install       # daemon under launchd/systemd: starts at login, restarts on crash")
+    print("     (or `neobrain start` to run it just in this terminal)")
     print(f"  2. open {config.settings.api}   # the Observatory")
     print('  3. neobrain remember "…"          # store your first memory')
     if args.install_plugin:

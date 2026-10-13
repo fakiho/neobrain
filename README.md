@@ -165,7 +165,7 @@ cp .env.example .env                # then fill NEOBRAIN_LLM_* / embeddings
 
 neobrain init                       # create the store + print next steps
 neobrain init --install-plugin      # also symlink the opencode plugin (below)
-neobrain start                      # daemon: API + dashboard + life loop
+neobrain service install            # daemon under launchd/systemd (or `neobrain start` for a terminal run)
 neobrain ui                         # print and open the Observatory URL
 ```
 

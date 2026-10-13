@@ -40,7 +40,8 @@ character they author themselves — with zero user interaction. Public-first:
 ```
 
 One repo = one source of truth. Deployed artifacts elsewhere (plugin symlink,
-optional systemd unit) are dumb install outputs of `neobrain init`.
+optional launchd/systemd service) are dumb install outputs of
+`neobrain init` / `neobrain service install`.
 
 ## 4. The organs (LOCKED)
 
@@ -106,7 +107,8 @@ the loop — the system is designed so the critical parts do not depend on it.
 In-process state machine inside the daemon (cadence in code + DB, **not** OS
 timers): **perceive** (ingest sources + health checks; failures become atoms)
 → **reflect** (consolidate) → **act** (urge queue: opinions, proactivity,
-tasks) → **rest** (dream phases nightly). systemd tick = optional Linux extra.
+tasks) → **rest** (dream phases nightly). OS supervision (`neobrain service`,
+launchd/systemd) is an optional extra — the loop itself never depends on it.
 
 ## 7. Runtime (LOCKED — m_07143f9c901d, m_56b788795ffd)
 
