@@ -6,6 +6,7 @@ import { DebugView } from './DebugView'
 import { DreamsView } from './DreamsView'
 import { MemoryView } from './MemoryView'
 import { ReaderView, type ReaderGroup } from './ReaderView'
+import { SettingsView } from './SettingsView'
 import { useIsMobile } from './useMedia'
 import { ATOM_COLORS, ATOM_LABELS, EDGE_COLORS, EDGE_LABELS, HUB_COLOR } from './theme'
 
@@ -15,9 +16,10 @@ const TABS = [
   ['memory', 'Memory'],
   ['identity', 'Identity'],
   ['infra', 'Infra'],
+  ['settings', 'Settings'],
 ] as const
 
-type ObsView = 'brain' | 'dreams' | 'debug' | ReaderGroup
+type ObsView = 'brain' | 'dreams' | 'debug' | 'settings' | ReaderGroup
 
 // Deep link: /#debug, /#dreams … open that view directly, and the hash tracks
 // the view so any screen can be shared or bookmarked.
@@ -590,6 +592,8 @@ export default function BrainApp() {
       )}
 
       {view === 'debug' && <DebugView />}
+
+      {view === 'settings' && <SettingsView />}
 
       {view === 'brain' && (isMobile || !live) && (
       <div className={'obs-slider' + (!live ? ' obs-slider-history' : '')}>

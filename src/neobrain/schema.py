@@ -24,8 +24,9 @@ from .models import now_ms
 # made a full ingest quadratic (see ``db.upsert_events``). v4 links a memory to
 # the session it was saved from: ``m_atoms.session_id`` (origin) and
 # ``m_feedback.origin_session_id`` (so a rating records both the rater and the
-# memory's home session).
-USER_VERSION = 4
+# memory's home session). v5 adds ``app_settings`` — the Observatory's runtime
+# settings overrides layered over the env defaults (see ``settings_store.py``).
+USER_VERSION = 5
 
 #: Origin session ids embedded in legacy ``m_atoms.source`` strings
 #: ("session ses_…", "session:ses_…", …). Only real ``ses_`` ids are matched;
@@ -160,6 +161,16 @@ CREATE TABLE IF NOT EXISTS m_embeddings (
   updated INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_m_embeddings_model ON m_embeddings(model);
+
+-- Runtime settings overrides (v5): the Observatory's Settings tab writes the
+-- keys it changes here, JSON-encoded; ``config`` layers them over the env
+-- defaults. Only keys that differ from the env default are stored, so clearing
+-- a row reverts that setting to its ``.env``/code default.
+CREATE TABLE IF NOT EXISTS app_settings (
+  key        TEXT PRIMARY KEY,
+  value      TEXT NOT NULL,          -- JSON-encoded typed value
+  updated_at INTEGER NOT NULL
+);
 """
 
 
@@ -222,6 +233,8 @@ def migrate(conn: sqlite3.Connection, now: int | None = None) -> int:
     v3 -> v4 adds the session-provenance columns (``m_atoms.session_id``,
     ``m_feedback.origin_session_id``) and backfills the origin session from any
     ``ses_`` id embedded in ``m_atoms.source``.
+    v4 -> v5 adds ``app_settings`` (runtime settings overrides); the DDL is in
+    ``SCHEMA`` and ``CREATE ... IF NOT EXISTS``, so there is no data step.
     A fresh/unmigrated store is completed with the full schema first.
     Idempotent: once stamped, later calls are a no-op. Returns the version.
     """
@@ -248,6 +261,10 @@ def migrate(conn: sqlite3.Connection, now: int | None = None) -> int:
         conn.executescript(FTS_REBUILD)
     if version < 4:
         _backfill_origin_sessions(conn)
+    if version < 5:
+        # app_settings DDL is part of SCHEMA (CREATE ... IF NOT EXISTS), applied
+        # by ``apply()``/``init_db`` before this runs — nothing to backfill.
+        pass
     conn.execute(f"PRAGMA user_version = {USER_VERSION}")
     conn.commit()
     return USER_VERSION
