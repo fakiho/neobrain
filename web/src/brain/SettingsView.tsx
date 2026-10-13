@@ -1,16 +1,14 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   Settings as SettingsIcon, Save, RotateCcw, RefreshCw, PlugZap, Check,
-  AlertTriangle, Loader2, KeyRound, Power,
+  AlertTriangle, Loader2, Power,
 } from 'lucide-react'
 
 // Settings tab: enable/disable the brain's rituals, and point its cognition at
 // a provider (in-house LiteLLM, LLM Gateway, or any OpenAI-compatible endpoint)
 // with a key + model chosen from the provider's own /models list.
 //
-// Writes go to PUT /api/settings (DB-backed overrides over .env). When the
-// daemon has NEOBRAIN_SETTINGS_TOKEN set, every write — and the provider
-// probes — must carry it as X-NeoBrain-Token; it is kept in localStorage.
+// Writes go to PUT /api/settings (DB-backed overrides over .env).
 
 type Field = {
   key: string
@@ -36,18 +34,15 @@ type Provider = { id: string; label: string; base_url: string }
 type Snap = {
   sections: Section[]
   providers: Provider[]
-  token_required: boolean
   life_enabled: boolean
   restart_pending: string[]
 }
 
-const TOKEN_KEY = 'neobrain-settings-token'
 const truthy = (v: any) => v === true || ['1', 'true', 'yes', 'on'].includes(String(v).toLowerCase())
 
 export function SettingsView() {
   const [snap, setSnap] = useState<Snap | null>(null)
   const [draft, setDraft] = useState<Record<string, any>>({})
-  const [token, setToken] = useState<string>(() => localStorage.getItem(TOKEN_KEY) || '')
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null)
   const [models, setModels] = useState<string[]>([])
@@ -55,9 +50,6 @@ export function SettingsView() {
   const [testing, setTesting] = useState<string | null>(null)
   const [probe, setProbe] = useState<Record<string, any>>({})
   const [restartAsk, setRestartAsk] = useState<string[] | null>(null)
-
-  const authHeaders = (): Record<string, string> =>
-    token ? { 'X-NeoBrain-Token': token } : {}
 
   const load = useCallback(() => {
     fetch('/api/settings')
@@ -67,7 +59,6 @@ export function SettingsView() {
   }, [])
 
   useEffect(() => { load() }, [load])
-  useEffect(() => { localStorage.setItem(TOKEN_KEY, token) }, [token])
 
   const fields = useMemo(() => {
     const out: Record<string, Field> = {}
@@ -87,24 +78,15 @@ export function SettingsView() {
     try {
       const r = await fetch('/api/settings', {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json', ...authHeaders() },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ values: draft }),
       })
-      if (r.status === 401) {
-        setMsg({ kind: 'err', text: 'Settings token required — enter it above and save again.' })
-        return
-      }
       const body = await r.json()
       if (!r.ok) {
         setMsg({ kind: 'err', text: body.detail || `save failed (${r.status})` })
         return
       }
       setSnap(body)
-      // If the token itself was just set, carry it into the auth field so the
-      // next write is already authenticated.
-      if (typeof draft.settings_token === 'string' && draft.settings_token.trim()) {
-        setToken(draft.settings_token.trim())
-      }
       const needRestart = dirty
         .filter((k) => fields[k]?.restart)
         .map((k) => fields[k]?.label ?? k)
@@ -125,7 +107,7 @@ export function SettingsView() {
   const restart = async () => {
     setBusy(true)
     try {
-      const r = await fetch('/api/settings/restart', { method: 'POST', headers: authHeaders() })
+      const r = await fetch('/api/settings/restart', { method: 'POST' })
       const b = await r.json()
       setMsg(r.ok && b.ok
         ? { kind: 'ok', text: 'Restarting the daemon — the page will reconnect shortly.' }
@@ -145,11 +127,10 @@ export function SettingsView() {
     try {
       const r = await fetch('/api/settings/models', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...authHeaders() },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ base_url: baseUrl, api_key: apiKey || null }),
       })
       const b = await r.json()
-      if (r.status === 401) { setMsg({ kind: 'err', text: 'Settings token required.' }); return }
       if (!r.ok) { setMsg({ kind: 'err', text: b.detail || 'could not list models' }); return }
       setModels(b.models || [])
       setMsg({ kind: 'ok', text: `Found ${b.count} model(s) at ${b.base_url}.` })
@@ -168,11 +149,10 @@ export function SettingsView() {
     try {
       const r = await fetch('/api/settings/test', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...authHeaders() },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ base_url: baseUrl, api_key: apiKey || null, model }),
       })
       const b = await r.json()
-      if (r.status === 401) { setMsg({ kind: 'err', text: 'Settings token required.' }); return }
       setProbe((p) => ({ ...p, [model]: b }))
     } catch {
       setProbe((p) => ({ ...p, [model]: { ok: false, error: 'unreachable' } }))
@@ -312,17 +292,6 @@ export function SettingsView() {
           </p>
         </div>
         <div className="set-head-r">
-          <div className={'set-token' + (snap?.token_required ? ' on' : '')}>
-            <KeyRound size={13} />
-            <input
-              type="password"
-              placeholder={snap?.token_required ? 'settings token' : 'no token set'}
-              value={token}
-              onChange={(e) => setToken(e.target.value)}
-              autoComplete="off"
-              spellCheck={false}
-            />
-          </div>
           {dirty.length > 0 && <span className="set-dirty">{dirty.length} unsaved</span>}
           <button className="set-mini" onClick={restart} disabled={busy} title="Restart the daemon (e.g. after editing .env)">
             <Power size={12} /> Restart
@@ -332,16 +301,6 @@ export function SettingsView() {
           </button>
         </div>
       </header>
-
-      {!snap?.token_required && (
-        <div className="set-note warn">
-          <AlertTriangle size={14} />
-          <span>
-            No settings token is set, so writes are open to anyone who can reach this page. Set
-            {' '}<b>Settings token</b> under Security to lock writes down.
-          </span>
-        </div>
-      )}
 
       {msg && (
         <div className={'set-note ' + (msg.kind === 'ok' ? 'ok' : 'err')}>

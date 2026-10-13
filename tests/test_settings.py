@@ -32,8 +32,6 @@ def client(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "DATA_DIR", tmp_path)
     monkeypatch.setattr(config, "DB_PATH", tmp_path / "neobrain.db")
     monkeypatch.setattr(config.settings, "life_enabled", "0")
-    # Hermetic: ignore whatever NEOBRAIN_SETTINGS_TOKEN the developer's .env has.
-    monkeypatch.setattr(config.settings, "settings_token", "")
     before = {k: getattr(config.settings, k) for k in settings_store._BY_KEY}
     with TestClient(app) as c:
         yield c
@@ -104,45 +102,23 @@ def test_boolean_override_is_coerced_and_gates_the_life_loop(store):
     assert config.settings.dreams_enabled == "1"
 
 
-def test_token_gate(monkeypatch):
-    monkeypatch.setattr(config.settings, "settings_token", "")
-    assert settings_store.token_ok("") is True          # unprotected
-    monkeypatch.setattr(config.settings, "settings_token", "abc")
-    assert settings_store.token_ok("") is False
-    assert settings_store.token_ok("abc") is True
-    assert settings_store.token_ok("abd") is False
-
-
 # --- API ---------------------------------------------------------------
 
 
 def test_get_settings_lists_sections_and_flags(client):
     d = client.get("/api/settings").json()
-    assert d["token_required"] is False
     ids = [s["id"] for s in d["sections"]]
     assert "features" in ids and "cognition" in ids
     keys = {f["key"] for s in d["sections"] for f in s["fields"]}
-    assert {"dreams_enabled", "llm_model_strong", "settings_token"} <= keys
+    assert {"dreams_enabled", "llm_model_strong"} <= keys
     assert any(p["id"] == "litellm" for p in d["providers"])
 
 
-def test_put_settings_applies_and_requires_token(client, monkeypatch):
-    # no token configured: the write is allowed
+def test_put_settings_applies(client):
     r = client.put("/api/settings", json={"values": {"act_enabled": "0"}})
     assert r.status_code == 200
     assert "act_enabled" in r.json()["applied"]
     assert config.settings.act_enabled == "0"
-
-    # configure a token: the same write is now refused without it
-    monkeypatch.setattr(config.settings, "settings_token", "s3cret")
-    assert client.put("/api/settings", json={"values": {"act_enabled": "1"}}).status_code == 401
-    ok = client.put(
-        "/api/settings",
-        json={"values": {"act_enabled": "1"}},
-        headers={"X-NeoBrain-Token": "s3cret"},
-    )
-    assert ok.status_code == 200
-    assert config.settings.act_enabled == "1"
 
 
 def test_put_settings_rejects_bad_key(client):
