@@ -135,8 +135,11 @@ REGISTRY: tuple[Setting, ...] = (
             "Where DREAMS.md lives. Empty = WORKSPACE/DREAMS.md."),
     # --- embeddings -------------------------------------------------------
     Setting("embed_provider", "Provider", "choice", "embeddings",
-            "Switching provider re-embeds everything (the vector key changes).",
-            choices=("ollama", "litellm")),
+            "API shape, not a vendor: ollama = native /api/embed (no key); "
+            "openai = any OpenAI-compatible POST /embeddings (OpenAI, LiteLLM, "
+            "llmgateway.io, TEI, …). Point Endpoint/Model/API key at your own. "
+            "Switching re-embeds everything (the provider is part of the vector key).",
+            choices=("ollama", "openai")),
     Setting("embed_enabled", "Enable embeddings", "bool", "embeddings",
             "Off = lexical-only recall."),
     Setting("embed_url", "Endpoint", "str", "embeddings",
