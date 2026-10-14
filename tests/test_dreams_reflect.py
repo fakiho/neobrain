@@ -129,7 +129,7 @@ def test_reflect_prompt_is_verbatim(conn, workspace):
     dreams.reflect(conn, rt, now=SUNDAY)
 
     prompt = rt.calls[0]["messages"][0]["content"]
-    assert "You are running your weekly SELF-REFLECTION ritual (OpenClaw style) for 2026-10-04." in prompt
+    assert "You are running your weekly SELF-REFLECTION ritual for 2026-10-04." in prompt
     assert "Core Truths" in prompt
     assert "Constraints: do not use sudo; edit only IDENTITY.md, SOUL.md" in prompt
     assert "$DATE" not in prompt
@@ -166,14 +166,14 @@ def test_reflect_rejects_soul_edit_that_drops_a_section(conn, workspace):
     assert row["severity"] == "warning"
 
 
-DIARY = """<!-- openclaw:dreaming:diary:start -->
+DIARY = """<!-- neobrain:dreaming:diary:start -->
 ---
 *October 1, 2026 at 2:00 AM*
 first night body
 ---
 *October 2, 2026 at 2:00 AM*
 second night body
-<!-- openclaw:dreaming:diary:end -->
+<!-- neobrain:dreaming:diary:end -->
 """
 
 

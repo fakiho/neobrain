@@ -3,7 +3,7 @@
 Thin OpenCode plugin: session wakeup injection, per-turn recall lane, the
 `memory_store` / `memory_open` / `memory_search` / `memory_rate` tools, and the persona lane —
 injects `SOUL.md` / `IDENTITY.md` / `USER.md` into the system prompt once per
-session (OpenClaw bootstrap parity; caps 20k chars/file, 60k total, USER.md 4k).
+session (caps 20k chars/file, 60k total, USER.md 4k).
 `USER.md` is compacted before the cap applies — the header/format explainer,
 fenced examples, dated metadata comments, `superseded` entries, inline `[pin]`
 markers and the `Related` footer are stripped, leaving only the active directive
