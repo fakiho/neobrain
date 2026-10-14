@@ -2,7 +2,7 @@
 // registers pull tools (open/search) plus a store tool that records the origin
 // session.
 //
-// Three lanes, modelled on OpenClaw's active-memory: the platform PUSHES memory
+// Three lanes, active-memory style: the platform PUSHES memory
 // into context deterministically instead of relying on the model to call a tool,
 // and exposes the same memory for PULL when the model wants more.
 //   1. Bootstrap: identity + open loops + active areas, once per session.
@@ -77,8 +77,8 @@ type PluginContext = {
 // default was already http://127.0.0.1:9192, so the default value is unchanged.
 const API = process.env.NEOBRAIN_API ?? "http://127.0.0.1:9192"
 
-// Curated types auto-inject on ordinary turns (OpenClaw restricts auto-injection
-// to its curated tier too); observations/dreams/events only surface on intent.
+// Curated types auto-inject on ordinary turns; observations/dreams/events
+// only surface on intent.
 const CURATED = new Set(["preference", "lesson", "decision"])
 const INTENT =
   /\b(remind|remember|recall|last time|previously|earlier|what did (we|i)|why did (we|i)|have we|did we|decided|decisions?|lessons?|learned|memory|memories)\b/i
@@ -455,8 +455,8 @@ async function registerTools(ctx: PluginContext, markUsed: (sid: string | undefi
   })
 }
 
-// Persona docs injected once per session (caps per OpenClaw's bootstrap:
-// 20k chars/file, 60k total, USER.md 4k).
+// Persona docs injected once per session (caps: 20k chars/file, 60k total,
+// USER.md 4k).
 // Workspace root for the persona docs; default to $HOME so the plugin is
 // portable (no hardcoded personal path).
 const WORKSPACE = process.env.OPENCODE_WORKSPACE ?? process.env.HOME ?? "."
@@ -602,9 +602,9 @@ export default {
 
       // persona lane (merged from the former standalone persona-bootstrap
       // plugin, 2026-10-01): inject the workspace persona docs once per
-      // session — OpenClaw parity for the files OpenCode doesn't load
-      // natively (AGENTS.md only). Local file I/O, deliberately independent
-      // of the daemon so it survives downtime.
+      // session for the files OpenCode doesn't load natively (AGENTS.md only).
+      // Local file I/O, deliberately independent of the daemon so it survives
+      // downtime.
       if (!personaDone.has(sid)) {
         personaDone.add(sid)
         const parts: string[] = []

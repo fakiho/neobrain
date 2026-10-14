@@ -58,8 +58,8 @@ class Settings(BaseSettings):
     embed_model: str | None = None    # None -> per-provider default below
     embed_timeout: float | None = None
     embed_enabled: str = "1"
-    # PORT-NOTE: old default was $WORKSPACE/.openclaw/openclaw.json (a
-    # /home/sparo path). Now unset by default; only read when configured.
+    # PORT-NOTE: old default was a machine-local JSON path. Now unset by
+    # default; only read when configured.
     embed_key_file: str | None = None
     embed_api_key: str = ""
 
