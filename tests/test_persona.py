@@ -48,6 +48,29 @@ def test_save_writes_and_keeps_a_trailing_newline(tmp_path, monkeypatch):
     assert "Name: Dale" in path.read_text(encoding="utf-8")
 
 
+def test_diary_markers_are_rebranded_but_still_read_legacy(tmp_path):
+    from neobrain import dreams
+    from datetime import datetime
+
+    legacy = (
+        "<!-- openclaw:dreaming:diary:start -->\n"
+        "---\n*October 1, 2026 at 2:00 AM*\nold night\n"
+        "<!-- openclaw:dreaming:diary:end -->\n"
+    )
+    path = tmp_path / "DREAMS.md"
+    path.write_text(legacy, encoding="utf-8")
+    assert "old night" in dreams._recent_dreams(path)
+
+    # appending inserts before the legacy marker and moves the diary to the
+    # neoBrain spelling, so new entries are not branded OpenClaw.
+    now = datetime(2026, 10, 14, 2, 30)
+    assert dreams._append_dreams(path, "new night body", "2026-10-14", now) is True
+    out = path.read_text(encoding="utf-8")
+    assert "new night body" in out
+    assert "openclaw" not in out
+    assert "<!-- neobrain:dreaming:diary:end -->" in out
+
+
 def test_init_seeds_the_persona(tmp_path, monkeypatch, capsys):
     from neobrain import cli, config
 

@@ -94,9 +94,9 @@ def workspace(tmp_path, monkeypatch):
         encoding="utf-8",
     )
     (ws / "DREAMS.md").write_text(
-        "# Dreams\n\n<!-- openclaw:dreaming:diary:start -->\n"
+        "# Dreams\n\n<!-- neobrain:dreaming:diary:start -->\n"
         "\n---\n*September 28, 2026 at 2:00 AM*\nA quiet night.\n\n"
-        "<!-- openclaw:dreaming:diary:end -->\n",
+        "<!-- neobrain:dreaming:diary:end -->\n",
         encoding="utf-8",
     )
     (ws / "memory" / "dreaming" / "light").mkdir(parents=True)

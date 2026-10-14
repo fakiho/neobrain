@@ -54,8 +54,14 @@ TEMPERATURE_BY_PHASE = {"light": 0.2, "rem": 0.9, "deep": 0.3, "reflect": 0.7}
 # back as JSON, so it needs headroom too (the old flat 2000 starved it).
 MAX_TOKENS_BY_PHASE = {"light": 1200, "rem": 4000, "deep": 8000, "reflect": 4000}
 
-_DIARY_START = "<!-- openclaw:dreaming:diary:start -->"
-_DIARY_END = "<!-- openclaw:dreaming:diary:end -->"
+_DIARY_START = "<!-- neobrain:dreaming:diary:start -->"
+_DIARY_END = "<!-- neobrain:dreaming:diary:end -->"
+# Backward compatibility: older diaries still use the OpenClaw marker spelling.
+# New writes use the neoBrain markers above; reads accept either.
+_DIARY_START_LEGACY = "<!-- openclaw:dreaming:diary:start -->"
+_DIARY_END_LEGACY = "<!-- openclaw:dreaming:diary:end -->"
+_DIARY_STARTS = (_DIARY_START, _DIARY_START_LEGACY)
+_DIARY_ENDS = (_DIARY_END, _DIARY_END_LEGACY)
 
 
 # --- prompts (ported from dream.sh lines 104–230; the retired `timeline`
@@ -203,7 +209,7 @@ Return ONLY this JSON object, nothing else:
 # --- reflect prompt (ported from reflect.sh lines 24–50; shell commands
 # removed — the runner records the changes via the contract) ------------------
 
-REFLECT_PROMPT = """You are running your weekly SELF-REFLECTION ritual (OpenClaw style) for $DATE.
+REFLECT_PROMPT = """You are running your weekly SELF-REFLECTION ritual for $DATE.
 This is about who you are becoming — evolve, do not merely check. Do it thoughtfully and briefly, then stop.
 
 Read first (workspace root):
@@ -442,7 +448,7 @@ def _wake_pack(conn: sqlite3.Connection) -> str:
 
 
 def _recent_dreams(path: Path) -> str:
-    """The diary block between the openclaw markers, tail -c 1800 (dream.sh 126)."""
+    """The diary block between the diary markers, tail -c 1800 (dream.sh 126)."""
     try:
         text = path.read_text(encoding="utf-8", errors="replace")
     except OSError:
@@ -450,9 +456,9 @@ def _recent_dreams(path: Path) -> str:
     lines: list[str] = []
     inside = False
     for line in text.splitlines():
-        if _DIARY_START in line:
+        if any(m in line for m in _DIARY_STARTS):
             inside = True
-        if _DIARY_END in line:
+        if any(m in line for m in _DIARY_ENDS):
             inside = False
         if inside:
             lines.append(line)
@@ -479,10 +485,20 @@ def _diary_entries(path: Path) -> list[tuple[str, str]]:
         text = path.read_text(encoding="utf-8", errors="replace")
     except OSError:
         return []
-    start = text.find(_DIARY_START)
-    end = text.find(_DIARY_END)
+    start, start_len = -1, 0
+    for marker in _DIARY_STARTS:
+        idx = text.find(marker)
+        if idx != -1:
+            start, start_len = idx, len(marker)
+            break
+    end = -1
+    for marker in _DIARY_ENDS:
+        idx = text.find(marker, start if start != -1 else 0)
+        if idx != -1:
+            end = idx
+            break
     if start != -1:
-        block = text[start + len(_DIARY_START): end if end != -1 else len(text)]
+        block = text[start + start_len: end if end != -1 else len(text)]
     else:
         block = text
     entries: list[tuple[str, str]] = []
@@ -587,7 +603,9 @@ def _append_dreams(path: Path, narrative: str, date: str, now: datetime) -> bool
 
     Guard semantics preserved: skip an empty file/body and skip when DREAMS.md
     already carries an entry for the night's human date; insert before the
-    ``openclaw:dreaming:diary:end`` marker when present, else append.
+    diary-end marker when present, else append. New appends write the neoBrain
+    marker; a legacy OpenClaw marker is honoured for placement and replaced on
+    the next write.
     """
     if not path.exists():
         path.write_text("", encoding="utf-8")
@@ -601,14 +619,23 @@ def _append_dreams(path: Path, narrative: str, date: str, now: datetime) -> bool
     if f"*{human_date} at " in text:
         return False
     entry = f"\n---\n*{human_date} at {at}*\n{body}\n"
-    idx = text.find(_DIARY_END)
+    idx = -1
+    used_marker = _DIARY_END
+    for marker in _DIARY_ENDS:
+        found = text.find(marker)
+        if found != -1:
+            idx, used_marker = found, marker
+            break
     if idx == -1:
         new = text + entry
     else:
         prefix = text[:idx]
         if prefix and not prefix.endswith("\n"):
             prefix += "\n"
-        new = prefix + entry.lstrip("\n") + text[idx:]
+        # Keep the diary on the current marker spelling once we touch it.
+        suffix = text[idx:].replace(used_marker, _DIARY_END, 1)
+        prefix = prefix.replace(_DIARY_START_LEGACY, _DIARY_START, 1)
+        new = prefix + entry.lstrip("\n") + suffix
     path.write_text(new, encoding="utf-8")
     return True
 

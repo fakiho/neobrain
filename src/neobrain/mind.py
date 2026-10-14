@@ -1613,10 +1613,14 @@ def _add_supersessions(conn: sqlite3.Connection) -> int:
 
 
 def _clean_dream(text: str | None) -> str | None:
-    """Strip OpenClaw bookkeeping markers and trailing deep-sleep blocks."""
+    """Strip diary bookkeeping markers and trailing deep-sleep blocks."""
     if not text:
         return text
-    t = re.split(r"<!--\s*openclaw: dreaming: diary: end|<!--\s*openclaw:dreaming:diary:end|##\s*Deep Sleep", text)[0]
+    t = re.split(
+        r"<!--\s*neobrain:\s*dreaming:\s*diary:\s*end|<!--\s*openclaw:\s*dreaming:\s*diary:\s*end|##\s*Deep Sleep",
+        text,
+        flags=re.I,
+    )[0]
     t = re.sub(r"<!--.*?-->", "", t, flags=re.S)
     t = re.sub(r"##\s*Deep Sleep.*", "", t, flags=re.S)
     return re.sub(r"\n{3,}", "\n\n", t).strip()
