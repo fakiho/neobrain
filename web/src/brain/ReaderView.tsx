@@ -12,12 +12,12 @@ const META: Record<ReaderGroup, { title: string; icon: any; blurb: string }> = {
   identity: {
     title: 'Identity & rules',
     icon: Braces,
-    blurb: 'Who the agent is, its personality and its standing rules (USER, SOUL, IDENTITY, AGENTS).',
+    blurb: 'Who the agent is, its personality and its standing rules (USER, SOUL, IDENTITY, AGENTS). IDENTITY and SOUL start as placeholders — edit them here, or leave them for the weekly reflection to fill in.',
   },
   infra: {
     title: 'Infrastructure docs',
     icon: FileText,
-    blurb: 'The INFRA_* reference docs — the map of the machine.',
+    blurb: 'The INFRA_* reference docs — the map of the machine. Drop an INFRA_<topic>.md in the workspace root and it appears here on the next ingest. Nothing is generated; these are written by hand.',
   },
 }
 

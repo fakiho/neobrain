@@ -187,6 +187,16 @@ neobrain service uninstall
 On macOS logs go to `<data dir>/daemon.log`; on Linux, `journalctl --user -u neobrain`.
 Stop any hand-started daemon before `install` (it refuses if the port is taken).
 
+**Identity** — `neobrain init` seeds `IDENTITY.md` and `SOUL.md` in the workspace
+as placeholders (parenthesised values, which the parser ignores). Edit them from
+the Identity tab, or leave them: the weekly reflection fills a placeholder in
+from what it observes. Existing files are never overwritten. `USER.md` and
+`AGENTS.md` are yours to write; they are read but not seeded.
+
+**Infra** — the Infra tab lists `INFRA_<topic>.md` files in the workspace root
+(the map of the machine: decisions, lessons, open questions). Nothing generates
+them; write one and the next ingest picks it up.
+
 **OpenCode plugin** — symlink the adapter into the plugins directory (or let
 `neobrain init --install-plugin` do it):
 

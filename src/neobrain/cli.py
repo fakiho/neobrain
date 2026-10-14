@@ -96,7 +96,12 @@ def cmd_init(args: argparse.Namespace) -> int:
     conn = db.connect()
     db.init_db(conn)
     conn.close()
+    from . import persona
+
+    seeded = persona.seed()
     print(f"initialised {config.DB_PATH}")
+    if seeded:
+        print(f"persona placeholder: {', '.join(seeded)} (edit them, or let the weekly reflection fill them in)")
     print("next steps:")
     print("  1. neobrain service install       # daemon under launchd/systemd: starts at login, restarts on crash")
     print("     (or `neobrain start` to run it just in this terminal)")
