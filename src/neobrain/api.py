@@ -22,7 +22,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from . import config, db, mind, service, settings_store
+from . import config, db, mind, persona, service, settings_store
 from .models import iso, new, now_ms, to_ms
 
 # PORT-NOTE: the old in-API ingest scheduler (INGEST_INTERVAL / _ingest_loop) is
@@ -627,6 +627,34 @@ def get_settings() -> dict:
         return snap
     finally:
         conn.close()
+
+
+class PersonaBody(BaseModel):
+    name: str
+    content: str
+
+
+@app.put("/api/mind/persona")
+def put_persona(body: PersonaBody) -> dict:
+    """Edit IDENTITY.md or SOUL.md from the Identity tab, then re-ingest it.
+
+    The file is the source of truth (the plugin and the reflect runner read it
+    too), so the edit lands on disk and a docs ingest follows — that versions
+    the new content, which is what the reader tab shows.
+    """
+    from .ingest import runner
+
+    try:
+        path = persona.save(body.name, body.content)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+    conn = db.connect()
+    try:
+        db.init_db(conn)
+        summary = runner.run(conn, ("docs",))
+    finally:
+        conn.close()
+    return {"ok": True, "path": str(path), "ingest": summary.get("mind")}
 
 
 class SettingsBody(BaseModel):
