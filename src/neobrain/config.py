@@ -66,6 +66,15 @@ class Settings(BaseSettings):
     # --- recall ---
     recall_alpha: float = 2.0
 
+    # --- memory writes (agent-facing quality gate) ---
+    # Generic conversation filler ("ok", "thanks", "done") is not a memory.
+    # "1" rejects it with a portable error before anything is written; "0"
+    # stores whatever the caller sent. Short durable facts still pass.
+    remember_quality: str = "1"
+    # Minimum significant characters (letters or digits) after stripping.
+    # Default is low on purpose: short facts like "use tabs" stay.
+    remember_min_chars: int = 3
+
     # --- rank (deterministic; SPEC §4.2/4.3 — the model has no discretion) ---
     # quality = feedback * decay(recency) * conn(connectivity); see rank.py.
     # Each factor is bounded in [floor, 1] so every one of them can push a

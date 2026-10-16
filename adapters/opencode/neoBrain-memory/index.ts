@@ -129,7 +129,7 @@ type WakePack = {
   hubs?: { label?: string; atoms?: number }[]
 }
 
-function renderPack(pack: WakePack | null) {
+export function renderPack(pack: WakePack | null) {
   if (!pack) return null
   const lines = []
   const id = (pack.identity ?? []).slice(0, 6).map((p) => `- ${p.text}`)
@@ -142,8 +142,8 @@ function renderPack(pack: WakePack | null) {
   return [
     "# Memory (neoBrain)",
     // PORT-NOTE: CLI names rebranded (timeline → neobrain) per SPEC §2.
-    'Recalled from my durable memory at wake-up. Use `neobrain recall "<query>"` for more,',
-    'and `neobrain remember "<sentence>" --type … --hubs …` when I decide or learn something durable.',
+    'Recalled from my durable memory at wake-up. Use memory_search(query) for more.',
+    "Use memory_store only for a durable decision, preference, or lesson — never for chatter or status.",
     "",
     lines.join("\n\n"),
   ].join("\n")
@@ -288,12 +288,22 @@ async function registerTools(ctx: PluginContext, markUsed: (sid: string | undefi
     editor.add({
       name: "store",
       description:
-        "Store a durable neoBrain memory (decision, lesson, preference, observation). " +
-        "Its origin session is this OpenCode session, so prefer this over the CLI for agent saves.",
+        "Save ONE durable fact the user decided, corrected, or asked to remember " +
+        "(a preference, decision, or lesson) so a later session can recall it. " +
+        "Do NOT call this for chatter, acknowledgements, status, or your own narration " +
+        '("ok", "thanks", "got it", "done", "continuing", "I will…"). ' +
+        "Do not store task progress, tool output, or something already in the repo. " +
+        "The server rejects filler and returns stored:false — do not retry the same text. " +
+        "Prefer this over the CLI: the origin session is recorded automatically.",
       input: {
         type: "object",
         properties: {
-          text: { type: "string", description: "One clear sentence to remember." },
+          text: {
+            type: "string",
+            description:
+              "One self-contained durable fact, in the user's words when possible. " +
+              "Not a status update and not a fragment.",
+          },
           type: {
             type: "string",
             enum: ["decision", "lesson", "observation", "preference", "open", "dream", "identity", "correction"],
@@ -333,8 +343,14 @@ async function registerTools(ctx: PluginContext, markUsed: (sid: string | undefi
             }),
             signal: context?.signal,
           })
-          if (!res.ok) return { content: `memory_store: HTTP ${res.status}` }
-          const a: any = await res.json()
+          const a: any = await res.json().catch(() => ({}))
+          if (!res.ok) {
+            const detail = a?.detail
+            const rejected = detail?.rejected === true
+            const reason = oneLine(rejected ? detail.reason : a?.detail ?? a?.message) || `HTTP ${res.status}`
+            const code = rejected && detail.code ? ` (${detail.code})` : ""
+            return { content: `memory_store: not stored${code} — ${reason}` }
+          }
           const hubStr = Array.isArray(a?.hubs) && a.hubs.length ? ` · ${a.hubs.join(",")}` : ""
           const dup = a?.deduped ? " (existing)" : ""
           return {

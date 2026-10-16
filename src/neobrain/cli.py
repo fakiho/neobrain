@@ -280,11 +280,15 @@ def cmd_remember(args: argparse.Namespace) -> int:
             kind, target = spec.split(":", 1)
             links.setdefault(kind, []).append(target)
     hubs = [h for h in (args.hubs.split(",") if args.hubs else []) if h]
-    res = _retry(
-        mind.remember, conn, args.text, atype=args.type, hubs=hubs or None,
-        links=links or None, source=args.source, session_id=_session(args), label=args.label,
-        dedupe=args.dedupe,
-    )
+    try:
+        res = _retry(
+            mind.remember, conn, args.text, atype=args.type, hubs=hubs or None,
+            links=links or None, source=args.source, session_id=_session(args), label=args.label,
+            dedupe=args.dedupe,
+        )
+    except mind.RememberRejected as exc:
+        print(json.dumps(exc.as_dict(), indent=2))
+        return 2
     print(json.dumps(res, indent=2))
     return 0
 
