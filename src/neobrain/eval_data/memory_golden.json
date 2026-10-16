@@ -1,0 +1,216 @@
+{
+  "version": 1,
+  "k": 5,
+  "atoms": [
+    {
+      "key": "a01",
+      "type": "preference",
+      "hub": "python",
+      "text": "Use tabs for indentation in Python files; the project formatter is configured for tabs and CI rejects spaces."
+    },
+    {
+      "key": "a02",
+      "type": "decision",
+      "hub": "storage",
+      "text": "Chose SQLite over a client-server database for storage because the tool is local-first and must run with no daemon to install."
+    },
+    {
+      "key": "a03",
+      "type": "lesson",
+      "hub": "deploy",
+      "text": "Run database migrations before switching traffic to the new release; deploying code first caused a schema mismatch outage."
+    },
+    {
+      "key": "a04",
+      "type": "lesson",
+      "hub": "api",
+      "text": "Retry requests that return HTTP 429 with exponential backoff and jitter instead of a fixed sleep."
+    },
+    {
+      "key": "a05",
+      "type": "preference",
+      "hub": "testing",
+      "text": "Tests must be hermetic: no network access and no writes outside the temporary directory."
+    },
+    {
+      "key": "a06",
+      "type": "decision",
+      "hub": "security",
+      "text": "API keys are rotated every ninety days and stored in the secret manager, never committed to the repository."
+    },
+    {
+      "key": "a07",
+      "type": "lesson",
+      "hub": "git",
+      "text": "Never force-push to the shared main branch; rebase a personal branch and open a merge request instead."
+    },
+    {
+      "key": "a08",
+      "type": "preference",
+      "hub": "docs",
+      "text": "Write commit messages in the imperative mood with a short summary line under seventy-two characters."
+    },
+    {
+      "key": "a09",
+      "type": "lesson",
+      "hub": "performance",
+      "text": "A missing index on the events timestamp column made the dashboard query take several seconds; add an index before paginating."
+    },
+    {
+      "key": "a10",
+      "type": "decision",
+      "hub": "logging",
+      "text": "Structured JSON logging is the standard; every log line carries a request identifier so traces can be correlated."
+    },
+    {
+      "key": "a11",
+      "type": "preference",
+      "hub": "ui",
+      "text": "Dark theme is the default for the dashboard; respect the operating system color scheme when the user has not chosen one."
+    },
+    {
+      "key": "a12",
+      "type": "lesson",
+      "hub": "concurrency",
+      "text": "Writing from two processes to one SQLite file raised database is locked errors; enable WAL mode and set a busy timeout."
+    },
+    {
+      "key": "a13",
+      "type": "decision",
+      "hub": "release",
+      "text": "Releases follow semantic versioning and each tag is cut from main only after the full test suite passes."
+    },
+    {
+      "key": "a14",
+      "type": "observation",
+      "hub": "backup",
+      "text": "Nightly backups are written to a separate disk and the newest seven copies are kept; older copies are pruned automatically."
+    },
+    {
+      "key": "a15",
+      "type": "preference",
+      "hub": "review",
+      "text": "Keep merge requests small, under four hundred changed lines, so a reviewer can finish within one sitting."
+    },
+    {
+      "key": "a16",
+      "type": "lesson",
+      "hub": "config",
+      "text": "Read configuration from environment variables with documented defaults; hardcoded paths broke the container build."
+    }
+  ],
+  "queries": [
+    {
+      "id": "q01",
+      "query": "indentation style for Python files",
+      "expected": [
+        "a01"
+      ]
+    },
+    {
+      "id": "q02",
+      "query": "why SQLite for storage",
+      "expected": [
+        "a02"
+      ]
+    },
+    {
+      "id": "q03",
+      "query": "order of database migrations and deploy",
+      "expected": [
+        "a03"
+      ]
+    },
+    {
+      "id": "q04",
+      "query": "how to handle HTTP 429 rate limit retries",
+      "expected": [
+        "a04"
+      ]
+    },
+    {
+      "id": "q05",
+      "query": "API keys rotation and secret manager",
+      "expected": [
+        "a06"
+      ]
+    },
+    {
+      "id": "q06",
+      "query": "force-push main branch rebase",
+      "expected": [
+        "a07"
+      ]
+    },
+    {
+      "id": "q07",
+      "query": "database is locked WAL busy timeout",
+      "expected": [
+        "a12"
+      ]
+    },
+    {
+      "id": "q08",
+      "query": "slow dashboard query index",
+      "expected": [
+        "a09"
+      ]
+    },
+    {
+      "id": "q09",
+      "query": "merge request size for reviewer",
+      "expected": [
+        "a15"
+      ]
+    },
+    {
+      "id": "q10",
+      "query": "semantic versioning release tag",
+      "expected": [
+        "a13"
+      ]
+    },
+    {
+      "id": "q11",
+      "query": "what theme should the dashboard use by default",
+      "expected": [
+        "a11"
+      ]
+    },
+    {
+      "id": "q12",
+      "query": "keep secrets out of the repository",
+      "expected": [
+        "a06"
+      ]
+    }
+  ],
+  "junk": {
+    "filler": [
+      "ok",
+      "thanks",
+      "got it",
+      "Sounds good",
+      "ok, thank you very much",
+      "Done.",
+      "I see",
+      "all good, thanks",
+      "what would you like to do next",
+      "the tool outputs show the command succeeded",
+      "Let me know if you need anything else",
+      "Is there anything else you need?"
+    ],
+    "real": [
+      "API key rotated",
+      "Use tabs in Python",
+      "Port is 8080",
+      "Timeout is 30s",
+      "Never commit .env files",
+      "Retry on 429 with backoff",
+      "Prefer rg over grep",
+      "Run migrations before deploy",
+      "Chose SQLite over Postgres for local-first storage.",
+      "Cache TTL set to five minutes"
+    ]
+  }
+}

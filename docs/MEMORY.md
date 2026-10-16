@@ -161,3 +161,52 @@ empty or one-letter prefix cannot match half the store.
    store changed.
 4. To undo, stop the daemon and replace `neobrain.db` (and its `-wal`/`-shm`
    sidecars) with the backup file. There is no automatic restore command.
+
+## Evaluation
+
+neoBrain ships a small, deterministic memory-quality eval. It has no model, no
+judge and no network: the same code gives the same numbers on any machine.
+
+- **Golden set.** `src/neobrain/eval_data/memory_golden.json` holds 16 atoms
+  (preferences, decisions, lessons) with fixed text, and 12 queries that each
+  list the atoms that should be found. It is loaded into a fresh temporary
+  store with `mind.remember`, then queried with lexical recall
+  (`semantic=False`, so no embedding service is needed).
+- **recall@k and MRR.** recall@k is the share of expected atoms that appear in
+  the top k results (k = 5), averaged over queries. MRR is the mean of
+  1 / rank of the first expected atom (0 when it is missing). The test floors
+  are recall@5 ≥ 0.8 and MRR ≥ 0.6.
+- **Junk rate.** The same file lists conversational filler and short real
+  memories. The report counts how much filler the write gate
+  (`mind.remember_rejection`) refuses and how many real memories it wrongly
+  refuses: `filler_rejected / filler_total`, `real_rejected / real_total`.
+
+Run it:
+
+```
+neobrain eval                      # prints the JSON report; uses a throwaway store
+pytest tests/test_memory_eval.py   # asserts the floors and the junk gate
+```
+
+From Python: `neobrain.eval.run(conn)` on an empty temporary connection returns
+`{"recall_at_k", "mrr", "k", "queries", "failures", "junk"}`. `neobrain eval`
+never reads or writes your real store.
+
+The idea — audit memory quality with fixed cases — is adapted from published
+memory-evaluation practice. No external project's data, prompts or code are
+used; the cases here are written for this repository.
+
+### Known gaps in the write gate
+
+The gate matches filler by vocabulary, so full-sentence agent chatter that
+uses content words still gets through. These four strings are in the junk set,
+are **not** refused today, and are pinned in `tests/test_memory_eval.py`
+(`KNOWN_FILLER_GAPS`) so the gap is visible rather than hidden:
+
+- `what would you like to do next`
+- `the tool outputs show the command succeeded`
+- `Let me know if you need anything else`
+- `Is there anything else you need?`
+
+When the gate learns to refuse them, that test fails and the list should be
+emptied. The gate was deliberately not changed as part of the eval.

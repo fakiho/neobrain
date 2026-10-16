@@ -16,6 +16,7 @@ Usage:
   neobrain maintain source-cleanup [--prefix icm:] [--apply --confirm TOKEN]
   neobrain feedback <atom_id> used|useful|noise
   neobrain embed [--force] [--limit N]
+  neobrain eval                        # deterministic memory-quality report (temp store)
   neobrain dreams [--phase light|rem|deep|all] [--replay YYYY-MM-DD]
   neobrain reflect
   neobrain ingest [--source …]
@@ -40,6 +41,7 @@ from pathlib import Path
 from typing import Optional
 
 from . import config, db, embeddings, maintenance, mind
+from . import eval as memory_eval
 
 # Repo root = parents[2] (src/neobrain/cli.py); adapters/ lives there.
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -432,6 +434,22 @@ def cmd_embed(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_eval(args: argparse.Namespace) -> int:
+    """Deterministic memory-quality eval in a throwaway store (never the real one)."""
+    import tempfile
+
+    with tempfile.TemporaryDirectory(prefix="neobrain-eval-") as tmp:
+        conn = sqlite3.connect(str(Path(tmp) / "eval.db"))
+        conn.row_factory = sqlite3.Row
+        try:
+            db.init_db(conn)
+            report = memory_eval.run(conn)
+        finally:
+            conn.close()
+    print(json.dumps(report, indent=2))
+    return 0
+
+
 # --- parser --------------------------------------------------------------
 
 
@@ -496,6 +514,10 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--force", action="store_true", help="re-embed every atom")
     sp.add_argument("--limit", type=int, default=None, help="cap atoms embedded this run")
     sp.set_defaults(func=cmd_embed)
+
+    sp = sub.add_parser(
+        "eval", help="deterministic memory-quality report: recall@k, MRR, junk rate (no model, temp store)")
+    sp.set_defaults(func=cmd_eval)
 
     sp = sub.add_parser("wakeup", help="compact wake-up pack (identity + open loops + recent)")
     sp.add_argument("--session")
