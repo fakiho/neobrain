@@ -36,9 +36,11 @@ prefix is the only handle the cleanup below uses — it never matches on text.
 
 ## Superseded memories
 
-Default recall hides an atom only when a caller-stated (explicit) `supersedes`
-edge points at it from an *active* atom (an atom with no rank row counts as
-active). A guessed edge, or one with no provenance, does not hide. If the
+Default recall hides an atom only when an explicit `supersedes` edge points
+at it from an *active* atom (an atom with no rank row counts as active).
+Edges that already existed when a store upgrades to v7 are marked explicit,
+so an upgrade does not un-hide memories that were already hidden. A guessed
+edge created after that, or one with no provenance, does not hide. If the
 superseding atom is ignored or archived, the older one is shown again. This is
 a read-time SQL filter only: nothing is deleted or rewritten. Pass `include_superseded=true`
 (API query param), `include_superseded=True` (`mind.recall`) or

@@ -266,7 +266,9 @@ def migrate(conn: sqlite3.Connection, now: int | None = None) -> int:
     v4 -> v5 adds ``app_settings`` (runtime settings overrides); the DDL is in
     ``SCHEMA`` and ``CREATE ... IF NOT EXISTS``, so there is no data step.
     v5 -> v6 adds ``m_history`` the same way (DDL only, no backfill).
-    v6 -> v7 adds ``m_edge_meta`` the same way (DDL only, no backfill).
+    v6 -> v7 adds ``m_edge_meta`` and marks every existing ``supersedes`` edge
+    explicit, so an upgrade does not un-hide memories that were already hidden.
+    Edges created after the upgrade are not backfilled.
     A fresh/unmigrated store is completed with the full schema first.
     Idempotent: once stamped, later calls are a no-op. Returns the version.
     """
@@ -302,9 +304,33 @@ def migrate(conn: sqlite3.Connection, now: int | None = None) -> int:
         # starts when the table appears).
         pass
     if version < 7:
-        # m_edge_meta DDL is part of SCHEMA too — nothing to backfill (existing
-        # guessed edges stay unmarked until a caller states them).
-        pass
+        # ``apply()`` already ran this DDL. A caller that only runs ``migrate()``
+        # has not, so create it here too. Then mark edges that already exist so
+        # an upgrade keeps the old hide behaviour. A fresh store has no edges
+        # yet, so the insert writes nothing. Later guesses stay unmarked.
+        conn.executescript(
+            "CREATE TABLE IF NOT EXISTS m_edge_meta ("
+            "  edge_source TEXT NOT NULL,"
+            "  edge_target TEXT NOT NULL,"
+            "  edge_type   TEXT NOT NULL,"
+            "  explicit    INTEGER NOT NULL DEFAULT 0,"
+            "  actor       TEXT,"
+            "  created     INTEGER NOT NULL,"
+            "  PRIMARY KEY (edge_source, edge_target, edge_type)"
+            ");"
+        )
+        ts = now if now is not None else now_ms()
+        has_edges = conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='m_edges'"
+        ).fetchone()
+        if has_edges:
+            conn.execute(
+                """INSERT OR IGNORE INTO m_edge_meta
+                     (edge_source, edge_target, edge_type, explicit, actor, created)
+                   SELECT source, target, type, 1, 'migration:v7', ?
+                   FROM m_edges WHERE type = 'supersedes'""",
+                (ts,),
+            )
     conn.execute(f"PRAGMA user_version = {USER_VERSION}")
     conn.commit()
     return USER_VERSION
