@@ -78,3 +78,23 @@ def test_age_alone_ignores_a_low_exposure_atom(conn):
     ).fetchone()[0]
     assert quality < rank.params().ignore_below
     assert rank.run_eviction(conn, now=T)["ignored"] == 1
+
+
+def test_prior_keeps_one_noise_from_forgetting(conn, add_atom):
+    """A stray noise must not cross 0.15. Reaching it takes a real flood.
+
+    ``rank_prior_n`` stays at 10 on purpose: one noise only moves a fresh atom
+    from 0.5 to about 0.45, and even five stay well clear of the threshold.
+    Lowering the prior would forget on a handful of ratings we do not have.
+    """
+    add_atom("stray", created=T)
+    mind.feedback(conn, "stray", "noise")
+    rank.recompute(conn, now=T)
+    one = conn.execute("SELECT quality FROM m_rank WHERE atom_id='stray'").fetchone()[0]
+    assert 0.4 < one < 0.5
+    for _ in range(4):
+        mind.feedback(conn, "stray", "noise")
+    rank.recompute(conn, now=T)
+    five = conn.execute("SELECT quality FROM m_rank WHERE atom_id='stray'").fetchone()[0]
+    assert five > rank.params().ignore_below
+    assert rank.run_eviction(conn, now=T)["archived"] == 0

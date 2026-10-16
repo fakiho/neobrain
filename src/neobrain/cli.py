@@ -7,13 +7,16 @@ Usage:
   neobrain service install|uninstall|status|restart
                                        # supervise the daemon (launchd / systemd --user)
   neobrain remember "…" --type lesson --hubs a,b
-  neobrain recall "…" [--json] [--lexical]
+  neobrain recall "…" [--json] [--lexical] [--include-superseded]
   neobrain wakeup
   neobrain link <src> <target> <kind>
   neobrain forget <atom_id>
+  neobrain history <atom_id>
   neobrain consolidate
+  neobrain maintain source-cleanup [--prefix icm:] [--apply --confirm TOKEN]
   neobrain feedback <atom_id> used|useful|noise
   neobrain embed [--force] [--limit N]
+  neobrain eval                        # deterministic memory-quality report (temp store)
   neobrain dreams [--phase light|rem|deep|all] [--replay YYYY-MM-DD]
   neobrain reflect
   neobrain ingest [--source …]
@@ -37,7 +40,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
-from . import config, db, embeddings, mind
+from . import config, db, embeddings, maintenance, mind
+from . import eval as memory_eval
 
 # Repo root = parents[2] (src/neobrain/cli.py); adapters/ lives there.
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -280,11 +284,15 @@ def cmd_remember(args: argparse.Namespace) -> int:
             kind, target = spec.split(":", 1)
             links.setdefault(kind, []).append(target)
     hubs = [h for h in (args.hubs.split(",") if args.hubs else []) if h]
-    res = _retry(
-        mind.remember, conn, args.text, atype=args.type, hubs=hubs or None,
-        links=links or None, source=args.source, session_id=_session(args), label=args.label,
-        dedupe=args.dedupe,
-    )
+    try:
+        res = _retry(
+            mind.remember, conn, args.text, atype=args.type, hubs=hubs or None,
+            links=links or None, source=args.source, session_id=_session(args), label=args.label,
+            dedupe=args.dedupe,
+        )
+    except mind.RememberRejected as exc:
+        print(json.dumps(exc.as_dict(), indent=2))
+        return 2
     print(json.dumps(res, indent=2))
     return 0
 
@@ -293,7 +301,8 @@ def cmd_recall(args: argparse.Namespace) -> int:
     conn = db.connect()
     db.init_db(conn)
     pack = mind.recall(conn, args.query, limit=args.limit, session_id=_session(args),
-                       semantic=not args.lexical)
+                       semantic=not args.lexical,
+                       include_superseded=args.include_superseded)
     if args.json:
         print(json.dumps(pack, indent=2))
         return 0
@@ -319,7 +328,10 @@ def cmd_wakeup(args: argparse.Namespace) -> int:
 def cmd_link(args: argparse.Namespace) -> int:
     conn = db.connect()
     _retry(db.init_db, conn)
-    print(json.dumps(_retry(mind.link, conn, args.source, args.target, args.kind, _session(args)), indent=2))
+    print(json.dumps(
+        _retry(mind.link, conn, args.source, args.target, args.kind, _session(args), explicit=True),
+        indent=2,
+    ))
     return 0
 
 
@@ -327,6 +339,16 @@ def cmd_forget(args: argparse.Namespace) -> int:
     conn = db.connect()
     _retry(db.init_db, conn)
     print(json.dumps(_retry(mind.forget, conn, args.atom_id, _session(args)), indent=2))
+    return 0
+
+
+def cmd_history(args: argparse.Namespace) -> int:
+    conn = db.connect()
+    db.init_db(conn)  # additive migration only; this command writes no history
+    try:
+        print(json.dumps(mind.history(conn, args.atom_id), indent=2))
+    finally:
+        conn.close()
     return 0
 
 
@@ -361,6 +383,50 @@ def cmd_pin(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_maintain(args: argparse.Namespace) -> int:
+    """Provenance-scoped cleanup. Dry-run (read-only) unless ``--apply``."""
+    try:
+        if not args.apply:
+            if args.confirm:
+                print("error: --confirm only makes sense with --apply", file=sys.stderr)
+                return 2
+            if not config.DB_PATH.exists():
+                print(f"error: no store at {config.DB_PATH}", file=sys.stderr)
+                return 1
+            conn = db.connect(readonly=True)  # cannot write, by construction
+            try:
+                plan = maintenance.plan_source_cleanup(
+                    conn, args.prefix, prune_empty_hubs=args.prune_empty_hubs, sample=args.sample)
+            finally:
+                conn.close()
+            print(json.dumps(plan, indent=2))
+            if plan["confirm_token"]:
+                print(
+                    "\ndry-run only; nothing was changed. To delete, re-run with:\n"
+                    f"  neobrain maintain source-cleanup --prefix {args.prefix} "
+                    f"{'--prune-empty-hubs ' if args.prune_empty_hubs else ''}"
+                    f"--apply --confirm {plan['confirm_token']}",
+                    file=sys.stderr,
+                )
+            return 0
+        if not config.DB_PATH.exists():
+            print(f"error: no store at {config.DB_PATH}", file=sys.stderr)
+            return 1
+        conn = db.connect()
+        try:
+            res = maintenance.apply_source_cleanup(
+                conn, args.prefix, confirm=args.confirm, prune_empty_hubs=args.prune_empty_hubs,
+                backup=not args.no_backup, backup_dir=Path(args.backup_dir) if args.backup_dir else None)
+        finally:
+            conn.close()
+    except maintenance.MaintenanceError as exc:
+        print(f"refused: {exc}", file=sys.stderr)
+        return 1
+    res.pop("plan", None)  # the dry-run already showed it; keep the receipt short
+    print(json.dumps(res, indent=2))
+    return 0
+
+
 def cmd_embed(args: argparse.Namespace) -> int:
     conn = db.connect()
     db.init_db(conn)
@@ -369,6 +435,22 @@ def cmd_embed(args: argparse.Namespace) -> int:
         limit=args.limit if args.limit is not None else None,
     )
     print(json.dumps(summary, indent=2))
+    return 0
+
+
+def cmd_eval(args: argparse.Namespace) -> int:
+    """Deterministic memory-quality eval in a throwaway store (never the real one)."""
+    import tempfile
+
+    with tempfile.TemporaryDirectory(prefix="neobrain-eval-") as tmp:
+        conn = sqlite3.connect(str(Path(tmp) / "eval.db"))
+        conn.row_factory = sqlite3.Row
+        try:
+            db.init_db(conn)
+            report = memory_eval.run(conn)
+        finally:
+            conn.close()
+    print(json.dumps(report, indent=2))
     return 0
 
 
@@ -429,6 +511,8 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--limit", type=int, default=8)
     sp.add_argument("--json", action="store_true")
     sp.add_argument("--lexical", action="store_true", help="force lexical-only ranking")
+    sp.add_argument("--include-superseded", action="store_true",
+                    help="also return memories a caller explicitly marked superseded by a newer active one (only those are hidden by default)")
     sp.add_argument("--session")
     sp.set_defaults(func=cmd_recall)
 
@@ -436,6 +520,10 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--force", action="store_true", help="re-embed every atom")
     sp.add_argument("--limit", type=int, default=None, help="cap atoms embedded this run")
     sp.set_defaults(func=cmd_embed)
+
+    sp = sub.add_parser(
+        "eval", help="deterministic memory-quality report: recall@k, MRR, junk rate (no model, temp store)")
+    sp.set_defaults(func=cmd_eval)
 
     sp = sub.add_parser("wakeup", help="compact wake-up pack (identity + open loops + recent)")
     sp.add_argument("--session")
@@ -452,6 +540,10 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("atom_id")
     sp.add_argument("--session")
     sp.set_defaults(func=cmd_forget)
+
+    sp = sub.add_parser("history", help="show a memory's append-only history (read-only)")
+    sp.add_argument("atom_id")
+    sp.set_defaults(func=cmd_history)
 
     sp = sub.add_parser("consolidate", help="dream pass: merge hubs, promote patterns, resolve supersessions")
     sp.add_argument("--session")
@@ -473,6 +565,24 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--off", action="store_true", help="unpin instead of pin")
     sp.add_argument("--session")
     sp.set_defaults(func=cmd_pin)
+
+    sp = sub.add_parser("maintain", help="memory maintenance (dry-run by default)")
+    msub = sp.add_subparsers(dest="maintain_cmd", required=True)
+    mp = msub.add_parser(
+        "source-cleanup",
+        help="remove atoms whose source starts with a prefix (default icm:); dry-run unless --apply")
+    mp.add_argument("--prefix", default=maintenance.DEFAULT_PREFIX,
+                    help="provenance namespace ending in ':' (default %(default)s)")
+    mp.add_argument("--prune-empty-hubs", action="store_true",
+                    help="also delete hubs left with no atoms by this cleanup")
+    mp.add_argument("--sample", type=int, default=maintenance.DEFAULT_SAMPLE,
+                    help="how many selected atoms to list (default %(default)s)")
+    mp.add_argument("--apply", action="store_true", help="actually delete (needs --confirm)")
+    mp.add_argument("--confirm", help="confirm_token printed by the dry-run")
+    mp.add_argument("--no-backup", action="store_true",
+                    help="skip the pre-delete backup (not recommended)")
+    mp.add_argument("--backup-dir", help="where to write the backup (default <data dir>/backups)")
+    sp.set_defaults(func=cmd_maintain)
     return p
 
 

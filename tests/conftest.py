@@ -43,6 +43,7 @@ _RANK_DEFAULTS = {
     "rank_prior_n": 10.0,
     "rank_ignore_below": 0.15,
     "rank_archive_exposure": 5,
+    "rank_interval_minutes": 1440,
 }
 
 

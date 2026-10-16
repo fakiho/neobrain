@@ -77,7 +77,7 @@ def test_fresh_init_is_current(tmp_path, monkeypatch):
     conn = db.connect(tmp_path / "fresh.db")
     db.init_db(conn)
     assert schema.user_version(conn) == schema.USER_VERSION
-    assert schema.USER_VERSION == 5
+    assert schema.USER_VERSION == 7
     assert conn.execute(
         "SELECT 1 FROM sqlite_master WHERE type='table' AND name='m_rank'").fetchone() is not None
     conn.close()
@@ -187,4 +187,31 @@ def test_v4_backfills_origin_session_from_source(tmp_path):
     # idempotent: re-running the migration changes nothing
     schema.migrate(conn)
     assert dict(conn.execute("SELECT id, session_id FROM m_atoms")) == got
+    conn.close()
+
+
+def test_v6_to_v7_marks_existing_supersedes_explicit(tmp_path):
+    """An upgrade must not un-hide memories a pre-v7 store already hid."""
+    conn = _connect(tmp_path / "v6.db")
+    conn.executescript(schema.SCHEMA)
+    conn.execute("PRAGMA user_version = 6")
+    _insert_atom(conn, "old")
+    _insert_atom(conn, "new")
+    conn.execute("INSERT INTO m_edges(source,target,type) VALUES('new','old','supersedes')")
+    conn.execute("INSERT INTO m_edges(source,target,type) VALUES('new','old','caused-by')")
+    conn.commit()
+
+    assert schema.migrate(conn, now=123) == schema.USER_VERSION
+
+    rows = list(conn.execute(
+        "SELECT edge_type, explicit, actor, created FROM m_edge_meta ORDER BY edge_type"))
+    assert len(rows) == 1
+    assert rows[0]["edge_type"] == "supersedes"
+    assert rows[0]["explicit"] == 1
+    assert rows[0]["actor"] == "migration:v7"
+    assert rows[0]["created"] == 123
+    # a second migrate does not add rows or rewrite the stamp
+    schema.migrate(conn, now=999)
+    assert conn.execute("SELECT COUNT(*) FROM m_edge_meta").fetchone()[0] == 1
+    assert conn.execute("SELECT created FROM m_edge_meta").fetchone()[0] == 123
     conn.close()

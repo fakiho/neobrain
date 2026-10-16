@@ -26,7 +26,10 @@ from .models import now_ms
 # ``m_feedback.origin_session_id`` (so a rating records both the rater and the
 # memory's home session). v5 adds ``app_settings`` — the Observatory's runtime
 # settings overrides layered over the env defaults (see ``settings_store.py``).
-USER_VERSION = 5
+# v6 adds ``m_history`` — the append-only per-atom audit trail (see ``history.py``).
+# v7 adds ``m_edge_meta`` — provenance for a typed edge (explicit vs guessed).
+# ``m_edges`` has no room for it (its primary key is source/target/type).
+USER_VERSION = 7
 
 #: Origin session ids embedded in legacy ``m_atoms.source`` strings
 #: ("session ses_…", "session:ses_…", …). Only real ``ses_`` ids are matched;
@@ -171,6 +174,33 @@ CREATE TABLE IF NOT EXISTS app_settings (
   value      TEXT NOT NULL,          -- JSON-encoded typed value
   updated_at INTEGER NOT NULL
 );
+
+-- Append-only atom history (v6): one row per state change, written in the same
+-- transaction as the change. No foreign key on purpose: rows outlive the atom.
+CREATE TABLE IF NOT EXISTS m_history (
+  id       INTEGER PRIMARY KEY AUTOINCREMENT,
+  ts       INTEGER NOT NULL,
+  atom_id  TEXT NOT NULL,
+  event    TEXT NOT NULL,            -- add | delete
+  old_text TEXT,
+  new_text TEXT,
+  actor    TEXT,
+  reason   TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_m_history_atom_ts ON m_history(atom_id, ts);
+
+-- Edge provenance (v7): whether a caller stated the link, or a guesser wrote it.
+-- No foreign key. ``forget`` deletes the matching row in the same transaction
+-- as the edge, so a recreated triple cannot inherit a stale trust bit.
+CREATE TABLE IF NOT EXISTS m_edge_meta (
+  edge_source TEXT NOT NULL,
+  edge_target TEXT NOT NULL,
+  edge_type   TEXT NOT NULL,
+  explicit    INTEGER NOT NULL DEFAULT 0,
+  actor       TEXT,
+  created     INTEGER NOT NULL,
+  PRIMARY KEY (edge_source, edge_target, edge_type)
+);
 """
 
 
@@ -235,6 +265,10 @@ def migrate(conn: sqlite3.Connection, now: int | None = None) -> int:
     ``ses_`` id embedded in ``m_atoms.source``.
     v4 -> v5 adds ``app_settings`` (runtime settings overrides); the DDL is in
     ``SCHEMA`` and ``CREATE ... IF NOT EXISTS``, so there is no data step.
+    v5 -> v6 adds ``m_history`` the same way (DDL only, no backfill).
+    v6 -> v7 adds ``m_edge_meta`` and marks every existing ``supersedes`` edge
+    explicit, so an upgrade does not un-hide memories that were already hidden.
+    Edges created after the upgrade are not backfilled.
     A fresh/unmigrated store is completed with the full schema first.
     Idempotent: once stamped, later calls are a no-op. Returns the version.
     """
@@ -265,6 +299,38 @@ def migrate(conn: sqlite3.Connection, now: int | None = None) -> int:
         # app_settings DDL is part of SCHEMA (CREATE ... IF NOT EXISTS), applied
         # by ``apply()``/``init_db`` before this runs — nothing to backfill.
         pass
+    if version < 6:
+        # m_history DDL is part of SCHEMA too — nothing to backfill (history
+        # starts when the table appears).
+        pass
+    if version < 7:
+        # ``apply()`` already ran this DDL. A caller that only runs ``migrate()``
+        # has not, so create it here too. Then mark edges that already exist so
+        # an upgrade keeps the old hide behaviour. A fresh store has no edges
+        # yet, so the insert writes nothing. Later guesses stay unmarked.
+        conn.executescript(
+            "CREATE TABLE IF NOT EXISTS m_edge_meta ("
+            "  edge_source TEXT NOT NULL,"
+            "  edge_target TEXT NOT NULL,"
+            "  edge_type   TEXT NOT NULL,"
+            "  explicit    INTEGER NOT NULL DEFAULT 0,"
+            "  actor       TEXT,"
+            "  created     INTEGER NOT NULL,"
+            "  PRIMARY KEY (edge_source, edge_target, edge_type)"
+            ");"
+        )
+        ts = now if now is not None else now_ms()
+        has_edges = conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='m_edges'"
+        ).fetchone()
+        if has_edges:
+            conn.execute(
+                """INSERT OR IGNORE INTO m_edge_meta
+                     (edge_source, edge_target, edge_type, explicit, actor, created)
+                   SELECT source, target, type, 1, 'migration:v7', ?
+                   FROM m_edges WHERE type = 'supersedes'""",
+                (ts,),
+            )
     conn.execute(f"PRAGMA user_version = {USER_VERSION}")
     conn.commit()
     return USER_VERSION

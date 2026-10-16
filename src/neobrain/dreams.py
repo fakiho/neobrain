@@ -719,12 +719,14 @@ def _store_lesson(
             session_id="dream",
             dedupe=True,
         )
+    except mind.RememberRejected:
+        return None
     except Exception:  # noqa: BLE001 - a failed store must not stop the night
         return None
     atom_id = atom.get("id") if isinstance(atom, dict) else None
     if prior and atom_id:
         try:
-            mind.link(conn, str(atom_id), str(prior), "supersedes")
+            mind.link(conn, str(atom_id), str(prior), "supersedes", explicit=False)
         except Exception:  # noqa: BLE001
             pass
     return str(atom_id) if atom_id else None
@@ -1029,6 +1031,8 @@ def _reflect(conn: sqlite3.Connection, runtime: Any, *, now: Optional[datetime] 
             )
             if isinstance(atom, dict) and atom.get("id"):
                 stored.append(str(atom["id"]))
+        except mind.RememberRejected:
+            continue
         except Exception:  # noqa: BLE001 - recording a change is best-effort
             continue
 

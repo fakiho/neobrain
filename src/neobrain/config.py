@@ -66,6 +66,15 @@ class Settings(BaseSettings):
     # --- recall ---
     recall_alpha: float = 2.0
 
+    # --- memory writes (agent-facing quality gate) ---
+    # Generic conversation filler ("ok", "thanks", "done") is not a memory.
+    # "1" rejects it with a portable error before anything is written; "0"
+    # stores whatever the caller sent. Short durable facts still pass.
+    remember_quality: str = "1"
+    # Minimum significant characters (letters or digits) after stripping.
+    # Default is low on purpose: short facts like "use tabs" stay.
+    remember_min_chars: int = 3
+
     # --- rank (deterministic; SPEC §4.2/4.3 — the model has no discretion) ---
     # quality = feedback * decay(recency) * conn(connectivity); see rank.py.
     # Each factor is bounded in [floor, 1] so every one of them can push a
@@ -76,6 +85,11 @@ class Settings(BaseSettings):
     rank_prior_n: float = 10.0       # smoothing prior strength for feedback avg
     rank_ignore_below: float = 0.15  # quality under this = forgetting candidate
     rank_archive_exposure: int = 5   # exposure score over this + low quality -> archived
+    # How often the life loop refreshes quality and demotes forgotten atoms.
+    # Cadence lives in code + the events table, same as the other phases — not
+    # in an OS timer. Default is one day; ``unused`` is deliberately not a rank
+    # input (see rank.py), so this pass is what applies age and graph change.
+    rank_interval_minutes: int = 1440
 
     # --- LLM runtime (OpenAI-compatible) ---
     llm_base_url: str = "http://127.0.0.1:4000/v1"
