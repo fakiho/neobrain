@@ -176,3 +176,34 @@ def test_cli_remember_stores_real_memory(tmp_path, monkeypatch, capsys):
     code = cli.main(["remember", "Use tabs"])
     assert code == 0
     assert json.loads(capsys.readouterr().out)["id"].startswith("m_")
+
+
+SENTENCE_FILLER = [
+    "what would you like to do next",
+    "What would you like to do next?",
+    "the tool outputs show the command succeeded",
+    "Let me know if you need anything else",
+    "let me know if you need anything else!",
+    "Is there anything else you need?",
+    "Do you need anything else?",
+    "What's next?",
+]
+
+NEAR_MISS_REAL = [
+    "Let me know in #infra before changing the deploy window",
+    "Let me know if the deploy fails, then roll back to v2",
+    "The test results show the migration succeeded on staging only",
+    "Is there anything else in the cache dir? Only .lock files",
+    "What next step: run alembic upgrade head",
+]
+
+
+@pytest.mark.parametrize("text", SENTENCE_FILLER)
+def test_sentence_filler_is_rejected(text):
+    rej = mind.remember_rejection(text)
+    assert rej is not None and rej.code == "filler"
+
+
+@pytest.mark.parametrize("text", NEAR_MISS_REAL)
+def test_sentences_containing_filler_words_are_kept(text):
+    assert mind.remember_rejection(text) is None

@@ -205,17 +205,11 @@ The idea — audit memory quality with fixed cases — is adapted from published
 memory-evaluation practice. No external project's data, prompts or code are
 used; the cases here are written for this repository.
 
-### Known gaps in the write gate
+### Write gate coverage
 
-The gate matches filler by vocabulary, so full-sentence agent chatter that
-uses content words still gets through. These four strings are in the junk set,
-are **not** refused today, and are pinned in `tests/test_memory_eval.py`
-(`KNOWN_FILLER_GAPS`) so the gap is visible rather than hidden:
-
-- `what would you like to do next`
-- `the tool outputs show the command succeeded`
-- `Let me know if you need anything else`
-- `Is there anything else you need?`
-
-When the gate learns to refuse them, that test fails and the list should be
-emptied. The gate was deliberately not changed as part of the eval.
+Every filler sample in the golden junk set is refused, and none of the real
+short memories is. Besides vocabulary matching, the gate refuses a few
+full-sentence chatter shapes (closers such as "let me know if you need anything
+else", "what would you like to do next", and tool-status narration such as "the
+tool outputs show the command succeeded"). These patterns must match the whole
+text, so a real memory that merely contains such words is kept.
