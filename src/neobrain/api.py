@@ -22,7 +22,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from . import config, db, mind, persona, service, settings_store
+from . import config, db, maintenance, mind, persona, service, settings_store
 from .models import iso, new, now_ms, to_ms
 
 # PORT-NOTE: the old in-API ingest scheduler (INGEST_INTERVAL / _ingest_loop) is
@@ -598,6 +598,23 @@ def mind_consolidate(session: Optional[str] = None) -> dict:
     try:
         db.init_db(conn)
         return mind.consolidate(conn, session)
+    finally:
+        conn.close()
+
+
+@app.get("/api/mind/maintenance/source-cleanup")
+def mind_source_cleanup_plan(prefix: str = maintenance.DEFAULT_PREFIX,
+                             prune_empty_hubs: bool = False,
+                             sample: int = Query(maintenance.DEFAULT_SAMPLE, ge=0, le=200)) -> dict:
+    """Dry-run of provenance-scoped cleanup. Read-only; there is deliberately no
+    HTTP apply — the API is unauthenticated with open CORS, so deletion is CLI-only
+    (``neobrain maintain source-cleanup --apply``)."""
+    conn = _conn()
+    try:
+        return maintenance.plan_source_cleanup(
+            conn, prefix, prune_empty_hubs=prune_empty_hubs, sample=sample)
+    except maintenance.MaintenanceError as exc:
+        raise HTTPException(400, str(exc))
     finally:
         conn.close()
 

@@ -1,0 +1,125 @@
+# Memory model and maintenance
+
+How neoBrain stores memory, and how to audit or remove a batch of memories
+that came from somewhere else (today: an import whose `source` starts with
+`icm:`). This describes the code as it is; it does not change the frozen
+[SPEC](../SPEC.md).
+
+## The model
+
+Three tables, all in the single SQLite store (`neobrain.db`, schema in
+`src/neobrain/schema.py`):
+
+| Table | What it holds |
+|---|---|
+| `m_atoms` | One row per memory: id, label, type, text, `source`, tags, weight, hub, content hash, origin `session_id`. |
+| `m_hubs` | Named topics a memory can be about (`agent`, `dns`, …). |
+| `m_edges` | A typed link between two ids: `about`, `supersedes`, `caused-by`, `derived-from`, `consolidates`. |
+
+Around them:
+
+- `m_rank` — one row per atom (quality, how often it was served, forgetting
+  state). Deleted automatically with its atom (`ON DELETE CASCADE`).
+- `m_embeddings` — the local vector for hybrid recall. Deleted explicitly on
+  forget/cleanup (no foreign key there).
+- `m_feedback`, `m_ops` — append-only history of ratings and operations.
+  Deleting a memory does **not** delete its history; the rows stay and point
+  at an id that no longer exists. This matches `neobrain forget`.
+
+`source` is free text saying where a memory came from: the CLI, a doc path, a
+dream pass (`dream:consolidate`), or an import. A memory imported from another
+tool is marked with a **namespace prefix**, `icm:` (`icm:import:…`). That
+prefix is the only handle the cleanup below uses — it never matches on text.
+
+## Portability
+
+- The store is one SQLite file. Copying the file (or the backup the cleanup
+  writes) moves the whole memory with it; there is no server-side state.
+- Schema changes are additive `PRAGMA user_version` migrations (`schema.py`).
+  Maintenance reads `sqlite_master` and skips tables that are not there, so it
+  works on a store from before embeddings/rank existed.
+- Nothing here is tied to a machine, a cloud account, or a vector database.
+  Embeddings are a blob in the same file.
+
+## What was borrowed, and what was not
+
+The maintenance idea — *inspect a slice of memory, show what removing it
+touches, and only then delete it* — is the same shape as memory-maintenance
+flows popularised by tools such as mem0 (audit before mutate, scope a cleanup
+to one provenance). The implementation is not: no mem0 code, schema, API or
+wording is copied. neoBrain's version is ~300 lines over its own three tables,
+uses SQLite's own backup API, and refuses to delete without a token computed
+from the exact set of rows it would remove.
+
+## Maintenance: provenance-scoped cleanup
+
+```bash
+neobrain maintain source-cleanup                 # dry-run, default prefix icm:
+neobrain maintain source-cleanup --prefix icm:   # same, explicit
+neobrain maintain source-cleanup --apply --confirm delete-N-<hash>
+```
+
+**Dry-run is the default and is read-only** — the CLI opens the database with
+`mode=ro`, so a dry-run cannot write even if a bug asked it to. It prints:
+
+- how many atoms match, how many would remain, and a sample (id, label, source);
+- how many of the matched atoms are pinned directives;
+- edges that would be removed, including edges from a *kept* atom into a
+  matched one (those links are lost too);
+- embedding and rank rows that would go with them;
+- feedback/ops rows that would be left dangling (they are kept);
+- hubs that would be left with no atoms. They are **not** deleted unless you
+  pass `--prune-empty-hubs`.
+
+It also prints a `confirm_token` and the exact command to apply it.
+
+**Applying** needs that token. The token is a hash of the prefix, the prune
+flag and the sorted ids of every matched atom, recomputed against the live
+store at apply time — so a token from before someone stored another `icm:`
+memory is refused and nothing is deleted. There is no `--yes` shortcut.
+
+On apply, in order:
+
+1. **Backup**, unless `--no-backup`. neoBrain had no backup helper, so this one
+   is small and local: `sqlite3.Connection.backup()` (the standard library's
+   online backup API, which is consistent even while WAL is in use) into
+   `<data dir>/backups/neobrain-pre-cleanup-<timestamp>.db`. The copy is then
+   checked with `PRAGMA integrity_check` and an atom count against the live
+   store; a failed check deletes the copy and aborts before any row is touched.
+   This is a best-effort verified copy, not a general backup system — it does
+   not rotate old copies, and it cannot back up an in-memory database (those
+   must pass `backup=False` explicitly; the CLI cannot, because it always has a
+   file).
+2. **One transaction** (`BEGIN IMMEDIATE`): re-check the token under the write
+   lock, delete the matched edges, embeddings, rank rows and atoms, and — only
+   with `--prune-empty-hubs` — hubs that now have no atoms. Any error rolls the
+   whole thing back; the cleanup can be retried.
+3. One `m_ops` row recording that a cleanup ran.
+
+Matching is a case-sensitive literal prefix (`substr(source,1,n) = ?`), not SQL
+`LIKE`. `LIKE` is case-insensitive in SQLite and treats `%` and `_` as
+wildcards, which is the wrong behaviour for something that deletes. For the
+intended `icm:` prefix the two select the same rows except that `ICM:…` is
+left alone. The prefix must end in `:` and be at least two characters, so an
+empty or one-letter prefix cannot match half the store.
+
+### What it will not do
+
+- It will not run against a store you did not point it at. The CLI uses
+  `NEOBRAIN_DATA_DIR` like every other command and refuses to create a database
+  that does not exist yet.
+- The HTTP API exposes only the dry-run
+  (`GET /api/mind/maintenance/source-cleanup`). The API is unauthenticated and
+  allows any origin, so there is intentionally no endpoint that deletes.
+- It does not touch memories whose `source` lacks the prefix, and it does not
+  touch the event timeline, sessions, or settings.
+
+## Workflow
+
+1. Dry-run and read the counts. Check `pinned_selected` and
+   `edges.from_retained_to_selected` — those are the surprising losses.
+2. Keep the printed backup path once you apply.
+3. Apply with the token. If it says the token is stale, dry-run again; the
+   store changed.
+4. To undo, stop the daemon and replace `neobrain.db` (and its `-wal`/`-shm`
+   sidecars) with the backup file. There is no automatic restore command.

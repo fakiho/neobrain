@@ -235,6 +235,7 @@ would both inject and double-rate memories.
 | `dreams` | run a dream pass (`--phase light\|rem\|deep\|all`, `--replay YYYY-MM-DD`) |
 | `reflect` | run the weekly reflection pass (re-authors the persona docs) |
 | `forget` | delete a memory by id |
+| `maintain source-cleanup` | dry-run (default) or delete memories whose `source` starts with a prefix (default `icm:`); needs `--apply --confirm` |
 | `link` | wire two memories (`kind`: supersedes, derived-from, caused-by, consolidates, about) |
 | `consolidate` | dream pass on demand (merge hubs, promote patterns) |
 | `feedback` | record a quality signal (`used\|useful\|noise`) |
@@ -245,7 +246,9 @@ Read-mostly JSON; groups worth knowing (full schema at `/api/schema`):
 
 - `/api/mind/*` — `stats`, `graph`, `atom/{id}`, `activity`, `memories`,
   `recall`, `wakeup`, `directives`, `pin`, `remember`, `feedback`,
-  `consolidate`, `dreams`, `reader`, `import`. `POST /api/mind/remember`
+  `consolidate`, `dreams`, `reader`, `import`, and
+  `maintenance/source-cleanup` (dry-run only; see
+  [`docs/MEMORY.md`](./docs/MEMORY.md)). `POST /api/mind/remember`
   stores one atom for any client (no session required). Empty text and
   generic filler are refused with **422** and
   `{"stored": false, "rejected": true, "code": "empty"|"filler", "reason"}`;
@@ -294,8 +297,7 @@ continue.
 .venv/bin/python -m pytest -q
 ```
 
-117 tests passing (verified 2026-10-02), including rank calibration and
-parity tests against the old timeline oracle (`tests/parity/`). Ranking
+Ranking
 correctness is covered directly (`test_recall_rank.py`, `test_rank_*.py`).
 There is no published retrieval benchmark (recall@k / MRR) yet — until one
 exists, treat α as a starting point and tune it on your own store
