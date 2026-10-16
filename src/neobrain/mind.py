@@ -18,6 +18,7 @@ from pathlib import Path
 # schema migration is needed so any mind op upgrades a legacy store lazily.
 from . import config, embeddings, rank
 from .heuristics import classify_heading
+from .history import read_history, record_history
 from .models import content_hash, now_ms
 from .schema import SCHEMA, migrate as _schema_migrate
 
@@ -860,6 +861,7 @@ def remember(conn: sqlite3.Connection, text: str, *, atype: str = "observation",
     # PORT-NOTE: S4 — born with a rank row (active, quality 0.5) so exposure
     # counters and the forgetting state machine exist from the first serve.
     rank.ensure_row(conn, aid, now=now)
+    record_history(conn, aid, "add", new_text=text, actor=session_id or source, ts=now)
     _commit(conn)
     log_op(conn, "store", aid, lbl, None, session_id)
     # Best-effort: give the new atom a vector now so it is immediately
@@ -881,6 +883,10 @@ def link(conn: sqlite3.Connection, source_id: str, target_id: str, kind: str,
 
 def forget(conn: sqlite3.Connection, atom_id: str, session_id: str | None = None) -> dict:
     _ensure_schema(conn)
+    row = conn.execute("SELECT text FROM m_atoms WHERE id=?", (atom_id,)).fetchone()
+    if row is not None:
+        # Recorded BEFORE the delete, in the same transaction as it.
+        record_history(conn, atom_id, "delete", old_text=row[0], actor=session_id)
     conn.execute("DELETE FROM m_atoms WHERE id=?", (atom_id,))
     conn.execute("DELETE FROM m_edges WHERE source=? OR target=?", (atom_id, atom_id))
     try:
@@ -903,6 +909,12 @@ def forget(conn: sqlite3.Connection, atom_id: str, session_id: str | None = None
 # recall ranking, so relevance still dominates (see _feedback_multiplier).
 
 FEEDBACK_SIGNALS = ("used", "useful", "noise", "unused")
+
+
+def history(conn: sqlite3.Connection, atom_id: str) -> list[dict]:
+    """The atom's append-only history, oldest first. Read-only; works after the
+    atom itself was deleted."""
+    return read_history(conn, atom_id)
 
 
 def feedback(conn: sqlite3.Connection, atom_id: str, signal: str, *,

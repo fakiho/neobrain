@@ -448,6 +448,16 @@ def mind_atom(atom_id: str) -> dict:
     return a
 
 
+@app.get("/api/mind/history")
+def mind_history(atom_id: str) -> dict:
+    conn = _conn()
+    try:
+        events = mind.history(conn, atom_id)
+    finally:
+        conn.close()
+    return {"atom_id": atom_id, "count": len(events), "events": events}
+
+
 @app.get("/api/mind/activity")
 def mind_activity(limit: int = Query(60, le=200)) -> dict:
     conn = _conn()

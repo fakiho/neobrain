@@ -77,7 +77,7 @@ def test_fresh_init_is_current(tmp_path, monkeypatch):
     conn = db.connect(tmp_path / "fresh.db")
     db.init_db(conn)
     assert schema.user_version(conn) == schema.USER_VERSION
-    assert schema.USER_VERSION == 5
+    assert schema.USER_VERSION == 6
     assert conn.execute(
         "SELECT 1 FROM sqlite_master WHERE type='table' AND name='m_rank'").fetchone() is not None
     conn.close()

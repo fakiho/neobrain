@@ -26,7 +26,8 @@ from .models import now_ms
 # ``m_feedback.origin_session_id`` (so a rating records both the rater and the
 # memory's home session). v5 adds ``app_settings`` — the Observatory's runtime
 # settings overrides layered over the env defaults (see ``settings_store.py``).
-USER_VERSION = 5
+# v6 adds ``m_history`` — the append-only per-atom audit trail (see ``history.py``).
+USER_VERSION = 6
 
 #: Origin session ids embedded in legacy ``m_atoms.source`` strings
 #: ("session ses_…", "session:ses_…", …). Only real ``ses_`` ids are matched;
@@ -171,6 +172,20 @@ CREATE TABLE IF NOT EXISTS app_settings (
   value      TEXT NOT NULL,          -- JSON-encoded typed value
   updated_at INTEGER NOT NULL
 );
+
+-- Append-only atom history (v6): one row per state change, written in the same
+-- transaction as the change. No foreign key on purpose: rows outlive the atom.
+CREATE TABLE IF NOT EXISTS m_history (
+  id       INTEGER PRIMARY KEY AUTOINCREMENT,
+  ts       INTEGER NOT NULL,
+  atom_id  TEXT NOT NULL,
+  event    TEXT NOT NULL,            -- add | delete
+  old_text TEXT,
+  new_text TEXT,
+  actor    TEXT,
+  reason   TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_m_history_atom_ts ON m_history(atom_id, ts);
 """
 
 
@@ -235,6 +250,7 @@ def migrate(conn: sqlite3.Connection, now: int | None = None) -> int:
     ``ses_`` id embedded in ``m_atoms.source``.
     v4 -> v5 adds ``app_settings`` (runtime settings overrides); the DDL is in
     ``SCHEMA`` and ``CREATE ... IF NOT EXISTS``, so there is no data step.
+    v5 -> v6 adds ``m_history`` the same way (DDL only, no backfill).
     A fresh/unmigrated store is completed with the full schema first.
     Idempotent: once stamped, later calls are a no-op. Returns the version.
     """
@@ -264,6 +280,10 @@ def migrate(conn: sqlite3.Connection, now: int | None = None) -> int:
     if version < 5:
         # app_settings DDL is part of SCHEMA (CREATE ... IF NOT EXISTS), applied
         # by ``apply()``/``init_db`` before this runs — nothing to backfill.
+        pass
+    if version < 6:
+        # m_history DDL is part of SCHEMA too — nothing to backfill (history
+        # starts when the table appears).
         pass
     conn.execute(f"PRAGMA user_version = {USER_VERSION}")
     conn.commit()
