@@ -101,7 +101,7 @@ const IDX_LABEL = 100
 // when the user actually made one. Never guess a link from similar wording.
 const RATE_HINT =
   `If a recalled memory helped or was wrong, call memory_rate(id, "useful"|"noise"). ` +
-  `If the user corrected an earlier memory or a decision replaced one, call memory_link(new_id, old_id, "supersedes") — never guess from similar wording.`
+  `If the user corrected an earlier memory or a decision replaced one, set supersedes when calling memory_store, or use memory_link(old,new). Never guess from similar wording.`
 
 // Standing directives (pinned preferences): the must-follow rules re-injected on
 // EVERY model call, not just at wake-up — so time, drift and compaction cannot
@@ -386,6 +386,7 @@ async function registerTools(ctx: PluginContext, markUsed: (sid: string | undefi
               source: typeof input?.source === "string" ? input.source : undefined,
               label: typeof input?.label === "string" ? input.label : undefined,
               dedupe: input?.dedupe === true,
+              supersedes: typeof input?.supersedes === "string" ? input.supersedes : undefined,
               session: context?.sessionID, // origin session = this OpenCode session
             }),
             signal: context?.signal,
@@ -400,16 +401,9 @@ async function registerTools(ctx: PluginContext, markUsed: (sid: string | undefi
           }
           const hubStr = Array.isArray(a?.hubs) && a.hubs.length ? ` · ${a.hubs.join(",")}` : ""
           const dup = a?.deduped ? " (existing)" : ""
-          let stored = `memory_store: stored [${a?.id}] ${oneLine(a?.type)}${hubStr}${dup} — ${oneLine(a?.label) || text.slice(0, 60)}`
-          const prior = String(input?.supersedes ?? "").trim()
-          if (prior && a?.id) {
-            // The memory is already stored. A failed link is reported and does not undo it.
-            const linked = await postLink(a.id, prior, "supersedes", context?.sessionID, context?.signal)
-            stored += linked.ok
-              ? `\nmemory_link: ${a.id} --supersedes--> ${prior}`
-              : `\nmemory_link failed (memory kept): ${linked.error}`
+          return {
+            content: `memory_store: stored [${a?.id}] ${oneLine(a?.type)}${hubStr}${dup} — ${oneLine(a?.label) || text.slice(0, 60)}`,
           }
-          return { content: stored }
         } catch (err: any) {
           return { content: `memory_store: ${err?.message ?? err}` }
         }
