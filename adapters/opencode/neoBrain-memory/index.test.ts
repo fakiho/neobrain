@@ -101,6 +101,99 @@ describe("memory_store tool", () => {
     assert.match(out.content, /missing text/)
     assert.equal(calls.length, 0)
   })
+
+  it("describes supersedes as a user correction or a replaced decision, never a guess", async () => {
+    const { store } = await loadTools()
+    const d = (store.input.properties.supersedes?.description ?? "").toLowerCase()
+    assert.match(d, /correct/)
+    assert.match(d, /replac/)
+    assert.match(d, /never guess/)
+  })
+
+  it("stores first, then posts the supersedes link with the live session id", async () => {
+    const { store } = await loadTools()
+    const calls = mockFetch(200, { id: "m_new", type: "decision", hubs: ["agent"], label: "Use spaces" })
+    const out = await store.execute(
+      { text: "Use spaces", supersedes: "m_old" },
+      { sessionID: "ses_1" },
+    )
+    assert.equal(calls.length, 2)
+    assert.match(calls[0].url, /\/api\/mind\/remember$/)
+    assert.equal(calls[0].body.text, "Use spaces")
+    assert.equal(calls[0].body.session, "ses_1")
+    assert.match(calls[1].url, /\/api\/mind\/link$/)
+    assert.deepEqual(calls[1].body, {
+      source_id: "m_new",
+      target_id: "m_old",
+      kind: "supersedes",
+      session: "ses_1",
+    })
+    assert.match(out.content, /stored \[m_new\]/)
+  })
+
+  it("keeps the stored memory when the supersedes link fails", async () => {
+    const { store } = await loadTools()
+    const calls: { url: string; body?: any }[] = []
+    globalThis.fetch = (async (url: string, init?: { body?: string }) => {
+      const u = String(url)
+      calls.push({ url: u, body: init?.body ? JSON.parse(init.body) : undefined })
+      if (u.includes("/api/mind/link")) {
+        return new Response(JSON.stringify({ detail: "no such atom" }), {
+          status: 400,
+          headers: { "content-type": "application/json" },
+        })
+      }
+      return new Response(
+        JSON.stringify({ id: "m_new", type: "decision", hubs: ["agent"], label: "Use spaces" }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      )
+    }) as typeof fetch
+    const out = await store.execute(
+      { text: "Use spaces", supersedes: "m_old" },
+      { sessionID: "ses_1" },
+    )
+    assert.equal(calls.length, 2)
+    assert.match(out.content, /stored \[m_new\]/)
+    assert.match(out.content, /link failed/i)
+    assert.doesNotMatch(out.content, /not stored/)
+  })
+
+  it("posts no link when supersedes is absent", async () => {
+    const { store } = await loadTools()
+    const calls = mockFetch(200, { id: "m_abc", type: "preference", hubs: ["agent"], label: "Use tabs" })
+    await store.execute({ text: "Use tabs" }, { sessionID: "ses_1" })
+    assert.equal(calls.length, 1)
+    assert.match(calls[0].url, /\/api\/mind\/remember$/)
+    assert.ok(!calls.some((c) => c.url.includes("/api/mind/link")))
+  })
+})
+
+describe("memory_link tool", () => {
+  it("posts source, target and kind to /api/mind/link with the live session id", async () => {
+    const { link } = await loadTools()
+    const calls = mockFetch(200, {
+      source: "m_new",
+      target: "m_old",
+      type: "supersedes",
+      explicit: true,
+      created: true,
+    })
+    const out = await link.execute(
+      { source_id: "m_new", target_id: "m_old", kind: "supersedes" },
+      { sessionID: "ses_link" },
+    )
+    assert.equal(calls.length, 1)
+    assert.match(calls[0].url, /\/api\/mind\/link$/)
+    assert.deepEqual(calls[0].body, {
+      source_id: "m_new",
+      target_id: "m_old",
+      kind: "supersedes",
+      session: "ses_link",
+    })
+    assert.match(out.content, /m_new/)
+    assert.match(out.content, /m_old/)
+    assert.match(out.content, /supersedes/)
+  })
 })
 
 type Hook = (event: Record<string, unknown>) => void | Promise<void>
