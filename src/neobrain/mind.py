@@ -855,6 +855,11 @@ def remember(conn: sqlite3.Connection, text: str, *, atype: str = "observation",
     rejection = remember_rejection(text)
     if rejection is not None:
         raise rejection
+    # Validate before any insert. A bad replacement target must not leave a
+    # stored memory behind.
+    prior = (supersedes or "").strip()
+    if prior and not conn.execute("SELECT 1 FROM m_atoms WHERE id=?", (prior,)).fetchone():
+        raise ValueError(f"unknown atom: {prior}")
     if dedupe:
         row = conn.execute(
             "SELECT id,label,type,created FROM m_atoms WHERE hash=? AND source IS ? "
@@ -891,7 +896,6 @@ def remember(conn: sqlite3.Connection, text: str, *, atype: str = "observation",
     # written in this same transaction: a failed target stores nothing. The
     # older `links` dict stays non-explicit (callers must not get trust by
     # passing it). Empty string is treated as "not set".
-    prior = (supersedes or "").strip()
     if prior:
         # Same transaction as the atom. `commit=False` so a bad target raises
         # before anything is committed and the memory is not stored alone.

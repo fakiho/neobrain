@@ -31,17 +31,17 @@ def _meta(conn, source: str, target: str, kind: str = "supersedes"):
 
 
 def _ops(conn, source: str) -> list:
-    return list(conn.execute(
+    return [tuple(row) for row in conn.execute(
         "SELECT op, atom_id, label, query, session_id FROM m_ops WHERE atom_id=? ORDER BY id",
         (source,),
-    ))
+    )]
 
 
 def _history(conn, source: str) -> list:
-    return list(conn.execute(
+    return [tuple(row) for row in conn.execute(
         "SELECT event, new_text, actor, reason FROM m_history WHERE atom_id=? ORDER BY id",
         (source,),
-    ))
+    )]
 
 
 def test_explicit_link_stores_edge_meta_one_op_and_one_history(conn, add_atom):
@@ -114,7 +114,7 @@ def test_explicit_link_upgrades_a_guessed_edge(conn, add_atom):
     assert meta["actor"] == "ses_human"
     # upgrade is a real change: one more op and one more history row, not a no-op
     assert len(_ops(conn, "m_src")) == 2
-    assert [row["reason"] for row in _history(conn, "m_src")] == ["inferred", "explicit"]
+    assert [row[3] for row in _history(conn, "m_src")] == ["inferred", "explicit"]
 
 
 def test_guessed_link_does_not_downgrade_an_explicit_one(conn, add_atom):
@@ -133,7 +133,7 @@ def test_guessed_link_does_not_downgrade_an_explicit_one(conn, add_atom):
     # not an upgrade and not a new edge: a no-op, so provenance is untouched
     assert len(_ops(conn, "m_src")) == 1
     assert len(_history(conn, "m_src")) == 1
-    assert _history(conn, "m_src")[0]["reason"] == "explicit"
+    assert _history(conn, "m_src")[0][3] == "explicit"
 
 
 @pytest.mark.parametrize(
@@ -163,6 +163,29 @@ def test_bad_link_raises_and_writes_nothing(conn, add_atom, source, target, kind
     ).fetchone()[0] == 0
 
 
+def test_remember_supersedes_is_one_transaction(conn, add_atom):
+    add_atom("m_old", created=1)
+
+    stored = mind.remember(
+        conn, "gateway now uses tls", atype="decision", supersedes="m_old", session_id="ses_1",
+    )
+
+    assert _edges(conn, stored["id"], "m_old") == 1
+    assert _meta(conn, stored["id"], "m_old")["explicit"] == 1
+    other = mind.remember(conn, "related note", links={"caused-by": ["m_old"]}, session_id="ses_1")
+    assert _meta(conn, other["id"], "m_old", "caused-by") is None
+
+
+def test_remember_supersedes_bad_target_stores_nothing(conn):
+    before = conn.execute("SELECT COUNT(*) FROM m_atoms").fetchone()[0]
+
+    with pytest.raises(ValueError):
+        mind.remember(conn, "gateway now uses tls", supersedes="m_missing", session_id="ses_1")
+
+    assert conn.execute("SELECT COUNT(*) FROM m_atoms").fetchone()[0] == before
+    assert conn.execute("SELECT COUNT(*) FROM m_edges").fetchone()[0] == 0
+
+
 def test_forget_removes_the_edge_and_keeps_history(conn, add_atom):
     add_atom("m_src", created=1)
     add_atom("m_tgt", created=2)
@@ -176,6 +199,10 @@ def test_forget_removes_the_edge_and_keeps_history(conn, add_atom):
     ).fetchone()[0] == 0
     history = _history(conn, "m_src")
     assert ("link", "supersedes -> m_tgt", "ses_1", "explicit") in history
+    assert conn.execute(
+        "SELECT COUNT(*) FROM m_edge_meta WHERE edge_source=? OR edge_target=?",
+        ("m_src", "m_src"),
+    ).fetchone()[0] == 0
 
 
 # --- HTTP API ------------------------------------------------------------
