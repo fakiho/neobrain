@@ -8,8 +8,8 @@
 //   1. Bootstrap: identity + open loops + active areas, once per session.
 //   2. Per-turn recall: recall the user's message against the neoBrain mind and
 //      inject a compact ordered index (best hit expanded); escalated on intent.
-//   3. Tools: memory_store(text, …) / memory_open(id) / memory_search(query) /
-//      memory_rate(id, verdict).
+//   3. Tools: memory_store(text, …) / memory_link(source, target, kind) /
+//      memory_open(id) / memory_search(query) / memory_rate(id, verdict).
 //
 // Rating is in-turn and in-session: the recall block carries one advisory line
 // pointing at memory_rate. The atom whose text the block inlines is recorded as
@@ -97,7 +97,11 @@ const IDX_N = 10
 const IDX_CHARS = 2000
 const IDX_LABEL = 100
 // One advisory line, never a gate: the verdict stays the model's to give.
-const RATE_HINT = `If a recalled memory helped or was wrong, call memory_rate(id, "useful"|"noise").`
+// One advisory line, never a gate: rate what helped, and state a replacement only
+// when the user actually made one. Never guess a link from similar wording.
+const RATE_HINT =
+  `If a recalled memory helped or was wrong, call memory_rate(id, "useful"|"noise"). ` +
+  `If the user corrected an earlier memory or a decision replaced one, call memory_link(new_id, old_id, "supersedes") — never guess from similar wording.`
 
 // Standing directives (pinned preferences): the must-follow rules re-injected on
 // EVERY model call, not just at wake-up — so time, drift and compaction cannot
@@ -283,6 +287,34 @@ function formatAtom(a: RecallAtom & { source?: string; tags?: string[]; weight?:
   return lines.join("\n")
 }
 
+async function postLink(
+  sourceId: string,
+  targetId: string,
+  kind: string,
+  sessionId?: string,
+  signal?: AbortSignal,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  try {
+    const res = await fetch(`${API}/api/mind/link`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        source_id: sourceId,
+        target_id: targetId,
+        kind,
+        session: sessionId,
+      }),
+      signal,
+    })
+    if (res.ok) return { ok: true }
+    const body: any = await res.json().catch(() => ({}))
+    const detail = oneLine(typeof body?.detail === "string" ? body.detail : body?.message) || `HTTP ${res.status}`
+    return { ok: false, error: detail }
+  } catch (err: any) {
+    return { ok: false, error: String(err?.message ?? err) }
+  }
+}
+
 // Pull tools (open/search/rate) plus a store tool. Best effort: a registration
 // failure must never break the push lanes, so the caller wraps this in try/catch.
 // `markUsed` records the atoms a turn actually touched, so the caller can infer
@@ -301,6 +333,8 @@ async function registerTools(ctx: PluginContext, markUsed: (sid: string | undefi
         '("ok", "thanks", "got it", "done", "continuing", "I will…"). ' +
         "Do not store task progress, tool output, or something already in the repo. " +
         "The server rejects filler and returns stored:false — do not retry the same text. " +
+        "Set supersedes only when the user corrected an earlier memory or a decision replaced one. " +
+        "Never guess it from similar wording. " +
         "Prefer this over the CLI: the origin session is recorded automatically.",
       input: {
         type: "object",
@@ -324,6 +358,12 @@ async function registerTools(ctx: PluginContext, markUsed: (sid: string | undefi
           source: { type: "string", description: "Optional provenance, e.g. a file path or 'session:<id>'." },
           label: { type: "string", description: "Optional short label (defaults to the first words of text)." },
           dedupe: { type: "boolean", description: "Return an existing identical atom instead of storing a duplicate." },
+          supersedes: {
+            type: "string",
+            description:
+              "Atom id this new memory replaces. Set only when the user corrected that memory " +
+              "or a decision replaced it. Never guess from similar wording.",
+          },
         },
         required: ["text"],
         additionalProperties: false,
@@ -360,12 +400,51 @@ async function registerTools(ctx: PluginContext, markUsed: (sid: string | undefi
           }
           const hubStr = Array.isArray(a?.hubs) && a.hubs.length ? ` · ${a.hubs.join(",")}` : ""
           const dup = a?.deduped ? " (existing)" : ""
-          return {
-            content: `memory_store: stored [${a?.id}] ${oneLine(a?.type)}${hubStr}${dup} — ${oneLine(a?.label) || text.slice(0, 60)}`,
+          let stored = `memory_store: stored [${a?.id}] ${oneLine(a?.type)}${hubStr}${dup} — ${oneLine(a?.label) || text.slice(0, 60)}`
+          const prior = String(input?.supersedes ?? "").trim()
+          if (prior && a?.id) {
+            // The memory is already stored. A failed link is reported and does not undo it.
+            const linked = await postLink(a.id, prior, "supersedes", context?.sessionID, context?.signal)
+            stored += linked.ok
+              ? `\nmemory_link: ${a.id} --supersedes--> ${prior}`
+              : `\nmemory_link failed (memory kept): ${linked.error}`
           }
+          return { content: stored }
         } catch (err: any) {
           return { content: `memory_store: ${err?.message ?? err}` }
         }
+      },
+    })
+
+    editor.add({
+      name: "link",
+      description:
+        "State a typed link between two memories the user already related. " +
+        "Use kind \"supersedes\" only when the user corrected an earlier memory or a decision replaced one. " +
+        "Never guess a link from similar wording.",
+      input: {
+        type: "object",
+        properties: {
+          source_id: { type: "string", description: "Atom id of the newer or stating memory, e.g. m_ab12cd34ef56" },
+          target_id: { type: "string", description: "Atom id of the memory it points at" },
+          kind: {
+            type: "string",
+            enum: ["about", "supersedes", "caused-by", "derived-from", "consolidates"],
+            description: "Typed relation. supersedes means source replaces target.",
+          },
+        },
+        required: ["source_id", "target_id", "kind"],
+        additionalProperties: false,
+      },
+      options: { namespace: "memory", codemode: true },
+      execute: async (input, context) => {
+        const source = String(input?.source_id ?? "").trim()
+        const target = String(input?.target_id ?? "").trim()
+        const kind = String(input?.kind ?? "").trim()
+        if (!source || !target || !kind) return { content: "memory_link: needs source_id, target_id and kind" }
+        const linked = await postLink(source, target, kind, context?.sessionID, context?.signal)
+        if (!linked.ok) return { content: `memory_link: ${linked.error}` }
+        return { content: `memory_link: ${source} --${kind}--> ${target}` }
       },
     })
 
@@ -757,7 +836,7 @@ export default {
       })()
     }
 
-    // 3) memory tools (memory_store / memory_open / memory_search / memory_rate)
+    // 3) memory tools (memory_store / memory_link / memory_open / memory_search / memory_rate)
     try {
       if (ctx.tool?.transform) await registerTools(ctx, markUsed)
     } catch (err: any) {

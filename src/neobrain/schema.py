@@ -27,7 +27,9 @@ from .models import now_ms
 # memory's home session). v5 adds ``app_settings`` — the Observatory's runtime
 # settings overrides layered over the env defaults (see ``settings_store.py``).
 # v6 adds ``m_history`` — the append-only per-atom audit trail (see ``history.py``).
-USER_VERSION = 6
+# v7 adds ``m_edge_meta`` — provenance for a typed edge (explicit vs guessed).
+# ``m_edges`` has no room for it (its primary key is source/target/type).
+USER_VERSION = 7
 
 #: Origin session ids embedded in legacy ``m_atoms.source`` strings
 #: ("session ses_…", "session:ses_…", …). Only real ``ses_`` ids are matched;
@@ -186,6 +188,19 @@ CREATE TABLE IF NOT EXISTS m_history (
   reason   TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_m_history_atom_ts ON m_history(atom_id, ts);
+
+-- Edge provenance (v7): whether a caller stated the link, or a guesser wrote it.
+-- No foreign key: forgetting an atom deletes the edge and may leave this row,
+-- same as ``m_feedback``.
+CREATE TABLE IF NOT EXISTS m_edge_meta (
+  edge_source TEXT NOT NULL,
+  edge_target TEXT NOT NULL,
+  edge_type   TEXT NOT NULL,
+  explicit    INTEGER NOT NULL DEFAULT 0,
+  actor       TEXT,
+  created     INTEGER NOT NULL,
+  PRIMARY KEY (edge_source, edge_target, edge_type)
+);
 """
 
 
@@ -251,6 +266,7 @@ def migrate(conn: sqlite3.Connection, now: int | None = None) -> int:
     v4 -> v5 adds ``app_settings`` (runtime settings overrides); the DDL is in
     ``SCHEMA`` and ``CREATE ... IF NOT EXISTS``, so there is no data step.
     v5 -> v6 adds ``m_history`` the same way (DDL only, no backfill).
+    v6 -> v7 adds ``m_edge_meta`` the same way (DDL only, no backfill).
     A fresh/unmigrated store is completed with the full schema first.
     Idempotent: once stamped, later calls are a no-op. Returns the version.
     """
@@ -284,6 +300,10 @@ def migrate(conn: sqlite3.Connection, now: int | None = None) -> int:
     if version < 6:
         # m_history DDL is part of SCHEMA too — nothing to backfill (history
         # starts when the table appears).
+        pass
+    if version < 7:
+        # m_edge_meta DDL is part of SCHEMA too — nothing to backfill (existing
+        # guessed edges stay unmarked until a caller states them).
         pass
     conn.execute(f"PRAGMA user_version = {USER_VERSION}")
     conn.commit()

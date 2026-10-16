@@ -895,14 +895,68 @@ def remember(conn: sqlite3.Connection, text: str, *, atype: str = "observation",
 
 
 def link(conn: sqlite3.Connection, source_id: str, target_id: str, kind: str,
-         session_id: str | None = None) -> dict:
+         session_id: str | None = None, *, explicit: bool = False) -> dict:
+    """Wire two atoms. ``explicit=True`` is a caller stating the link.
+
+    A guessed call (``explicit=False``) never downgrades an explicit edge.
+    A repeat of the same triple writes nothing: no second ``m_ops`` row and no
+    history. Validation failures write nothing.
+    """
     _ensure_schema(conn)
     if kind not in LINK_TYPES:
         raise ValueError(f"unknown link type: {kind}")
-    conn.execute("INSERT OR IGNORE INTO m_edges(source,target,type) VALUES(?,?,?)", (source_id, target_id, kind))
-    _commit(conn)
-    log_op(conn, "link", source_id, target_id, kind, session_id)
-    return {"source": source_id, "target": target_id, "type": kind}
+    if source_id == target_id:
+        raise ValueError("a memory cannot link to itself")
+    missing = [
+        aid for aid in (source_id, target_id)
+        if not conn.execute("SELECT 1 FROM m_atoms WHERE id=?", (aid,)).fetchone()
+    ]
+    if missing:
+        raise ValueError(f"unknown atom: {missing[0]}")
+    now = now_ms()
+    edge = conn.execute(
+        "SELECT 1 FROM m_edges WHERE source=? AND target=? AND type=?",
+        (source_id, target_id, kind),
+    ).fetchone()
+    meta = conn.execute(
+        "SELECT explicit FROM m_edge_meta WHERE edge_source=? AND edge_target=? AND edge_type=?",
+        (source_id, target_id, kind),
+    ).fetchone()
+    already_explicit = bool(meta and meta[0])
+    created = edge is None
+    upgraded = explicit and not already_explicit and not created
+    if created or upgraded:
+        conn.execute(
+            "INSERT OR IGNORE INTO m_edges(source,target,type) VALUES(?,?,?)",
+            (source_id, target_id, kind),
+        )
+        # explicit=1 only when the caller stated it; a later explicit link
+        # upgrades a guess, a guess never clears the flag.
+        conn.execute(
+            """INSERT INTO m_edge_meta(edge_source,edge_target,edge_type,explicit,actor,created)
+               VALUES(?,?,?,?,?,?)
+               ON CONFLICT(edge_source,edge_target,edge_type) DO UPDATE SET
+                 explicit = MAX(m_edge_meta.explicit, excluded.explicit),
+                 actor = CASE WHEN excluded.explicit = 1 AND m_edge_meta.explicit = 0
+                              THEN excluded.actor ELSE m_edge_meta.actor END""",
+            (source_id, target_id, kind, 1 if explicit else 0, session_id, now),
+        )
+        record_history(
+            conn, source_id, "link",
+            new_text=f"{kind} -> {target_id}",
+            actor=session_id,
+            reason="explicit" if explicit else "inferred",
+            ts=now,
+        )
+        _commit(conn)
+        log_op(conn, "link", source_id, target_id, kind, session_id)
+    return {
+        "source": source_id,
+        "target": target_id,
+        "type": kind,
+        "explicit": already_explicit or explicit,
+        "created": created,
+    }
 
 
 def forget(conn: sqlite3.Connection, atom_id: str, session_id: str | None = None) -> dict:
@@ -1766,7 +1820,23 @@ def _add_supersessions(conn: sqlite3.Connection) -> int:
             if not (len(spec) >= 2 or any(df[t] <= 2 for t in spec)):
                 continue
             if (a[0], b[0]) not in existing:
-                conn.execute("INSERT OR IGNORE INTO m_edges(source,target,type) VALUES(?,?,?)", (a[0], b[0], "supersedes"))
+                # Guessed, never explicit. Matching logic is unchanged; the meta
+                # row is written here (explicit=0) so this pass still commits once.
+                conn.execute(
+                    "INSERT OR IGNORE INTO m_edges(source,target,type) VALUES(?,?,?)",
+                    (a[0], b[0], "supersedes"),
+                )
+                conn.execute(
+                    """INSERT INTO m_edge_meta(edge_source,edge_target,edge_type,explicit,actor,created)
+                       VALUES(?,?,?,0,NULL,?)
+                       ON CONFLICT(edge_source,edge_target,edge_type) DO NOTHING""",
+                    (a[0], b[0], "supersedes", now_ms()),
+                )
+                record_history(
+                    conn, a[0], "link",
+                    new_text=f"supersedes -> {b[0]}",
+                    reason="inferred",
+                )
                 existing.add((a[0], b[0]))
                 added += 1
             break

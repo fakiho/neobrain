@@ -527,6 +527,34 @@ def mind_remember(body: RememberBody) -> dict:
         conn.close()
 
 
+class LinkBody(BaseModel):
+    source_id: str
+    target_id: str
+    kind: str
+    session: Optional[str] = None
+
+
+@app.post("/api/mind/link")
+def mind_link(body: LinkBody) -> dict:
+    """State a link. Always explicit: a caller saying it is the definition.
+
+    A bad kind, a missing atom, or a self-link is 400 with the ValueError
+    message. Nothing is written in those cases.
+    """
+    conn = db.connect()
+    try:
+        db.init_db(conn)
+        try:
+            return mind.link(
+                conn, body.source_id, body.target_id, body.kind,
+                session_id=body.session, explicit=True,
+            )
+        except ValueError as exc:
+            raise HTTPException(400, str(exc))
+    finally:
+        conn.close()
+
+
 class FeedbackBody(BaseModel):
     atom_id: str
     signal: str

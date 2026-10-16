@@ -726,7 +726,7 @@ def _store_lesson(
     atom_id = atom.get("id") if isinstance(atom, dict) else None
     if prior and atom_id:
         try:
-            mind.link(conn, str(atom_id), str(prior), "supersedes")
+            mind.link(conn, str(atom_id), str(prior), "supersedes", explicit=False)
         except Exception:  # noqa: BLE001
             pass
     return str(atom_id) if atom_id else None
