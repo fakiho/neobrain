@@ -512,7 +512,7 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--json", action="store_true")
     sp.add_argument("--lexical", action="store_true", help="force lexical-only ranking")
     sp.add_argument("--include-superseded", action="store_true",
-                    help="also return memories superseded by a newer active one (hidden by default)")
+                    help="also return memories a caller explicitly marked superseded by a newer active one (only those are hidden by default)")
     sp.add_argument("--session")
     sp.set_defaults(func=cmd_recall)
 

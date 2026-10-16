@@ -205,7 +205,7 @@ def test_mind_recall_include_superseded_param(client):
     old = client.post("/api/mind/remember", json={"text": "zebrafish gateway uses plaintext", "hubs": ["neobrain"]}).json()
     new = client.post("/api/mind/remember", json={
         "text": "zebrafish gateway now uses tls", "hubs": ["neobrain"],
-        "links": {"supersedes": [old["id"]]}}).json()
+        "supersedes": old["id"]}).json()
 
     def ids(**p):
         pack = client.get("/api/mind/recall", params={"q": "zebrafish gateway", **p}).json()
