@@ -755,6 +755,29 @@ _FILLER_GLUE = frozenset({
     "problem", "worries", "welcome", "point", "lot", "many", "just", "then",
     "and", "or", "but", "well", "also", "too", "here", "there", "not", "be",
 })
+# Full-sentence agent chatter: closers, "what next" prompts and tool-status
+# narration. These use content words, so the vocabulary rule cannot see them.
+# Each pattern must match the WHOLE normalised text (``fullmatch`` on the
+# lowercase, punctuation-free key), so a real memory that merely contains
+# "let me know" or "the command succeeded" is never refused.
+_FILLER_SENTENCE_PATTERNS = tuple(re.compile(p) for p in (
+    # "what would you like to do next", "so what do you want me to do now"
+    r"(?:(?:ok|okay|so|and) )?what (?:would|do|should|shall) (?:you|we|i) "
+    r"(?:like|want|need)?(?: ?(?:me |us )?to)? ?do(?: (?:next|now|from here))?",
+    r"(?:(?:ok|okay|so|and) )?what(?: is|s)? next|what now",
+    # "let me know if you need anything else", "feel free to ask if you have questions"
+    r"(?:(?:please|just|and) )?(?:let me know|feel free to (?:ask|reach out))"
+    r"(?: (?:if|whether|when))? (?:you|there)(?: \w+){0,3}"
+    r" (?:anything|something|questions?|more|else|help|further)(?: \w+){0,2}",
+    # "is there anything else you need", "do you need anything else"
+    r"(?:is|are) there (?:anything|something) else(?: (?:you|i|we)(?: \w+){1,3})?",
+    r"(?:do|would|can|could) (?:you|i) (?:need|want)(?: \w+){0,2} (?:anything|something) else",
+    # "the tool outputs show the command succeeded"
+    r"(?:(?:the|this|that) )?(?:(?:tool|command|script|build|test) )?"
+    r"(?:outputs?|results?|logs?) (?:shows?|showed|indicates?|confirms?|confirmed)"
+    r" (?:that )?(?:(?:the|this|that|it) )?(?:\w+ )?"
+    r"(?:succeeded|worked|passed|completed|finished|ran successfully)",
+))
 _FILLER_MAX_WORDS = 8
 _WORD_RE = re.compile(r"[a-z0-9]+(?:'[a-z]+)?", re.IGNORECASE)
 _SIGNIFICANT_RE = re.compile(r"[^\W_]", re.UNICODE)
@@ -799,6 +822,7 @@ def remember_rejection(text: str) -> RememberRejected | None:
     if (
         key in _FILLER_EXACT
         or key in _FILLER_PHRASES
+        or any(p.fullmatch(key) for p in _FILLER_SENTENCE_PATTERNS)
         or (0 < len(words) <= _FILLER_MAX_WORDS and all(w in vocab for w in words))
     ):
         return RememberRejected(

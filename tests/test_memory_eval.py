@@ -10,17 +10,6 @@ import pytest
 
 from neobrain import cli, config, db, eval as memory_eval, mind
 
-# Filler the write gate does not refuse yet. Pinned so the gap stays visible
-# (documented in docs/MEMORY.md); when the gate learns them, this test fails
-# and the set below must shrink.
-KNOWN_FILLER_GAPS = {
-    "what would you like to do next",
-    "the tool outputs show the command succeeded",
-    "Let me know if you need anything else",
-    "Is there anything else you need?",
-}
-
-
 @pytest.fixture
 def store(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "DATA_DIR", tmp_path)
@@ -57,9 +46,9 @@ def test_junk_gate(store):
     junk = memory_eval.run(store)["junk"]
     assert junk["real_rejected"] == 0, junk["real_wrongly_rejected"]
     assert junk["real_total"] >= 10 and junk["filler_total"] >= 10
-    # everything the gate is expected to handle is rejected ...
-    assert set(junk["filler_accepted"]) == KNOWN_FILLER_GAPS
-    assert junk["filler_rejected"] == junk["filler_total"] - len(KNOWN_FILLER_GAPS)
+    # every golden filler sample is refused
+    assert junk["filler_accepted"] == []
+    assert junk["filler_rejected"] == junk["filler_total"]
 
 
 def test_run_refuses_a_non_empty_store(store):
