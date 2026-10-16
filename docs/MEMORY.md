@@ -34,6 +34,15 @@ dream pass (`dream:consolidate`), or an import. A memory imported from another
 tool is marked with a **namespace prefix**, `icm:` (`icm:import:…`). That
 prefix is the only handle the cleanup below uses — it never matches on text.
 
+## Superseded memories
+
+Default recall hides an atom when a `supersedes` edge points at it from an
+*active* atom (an atom with no rank row counts as active). If the superseding
+atom is ignored or archived, the older one is shown again. This is a read-time
+SQL filter only: nothing is deleted or rewritten. Pass `include_superseded=true`
+(API query param), `include_superseded=True` (`mind.recall`) or
+`neobrain recall --include-superseded` to get both.
+
 ## History
 
 `m_history` is the audit trail of explicit memory writes and deletes. One row

@@ -7,7 +7,7 @@ Usage:
   neobrain service install|uninstall|status|restart
                                        # supervise the daemon (launchd / systemd --user)
   neobrain remember "…" --type lesson --hubs a,b
-  neobrain recall "…" [--json] [--lexical]
+  neobrain recall "…" [--json] [--lexical] [--include-superseded]
   neobrain wakeup
   neobrain link <src> <target> <kind>
   neobrain forget <atom_id>
@@ -301,7 +301,8 @@ def cmd_recall(args: argparse.Namespace) -> int:
     conn = db.connect()
     db.init_db(conn)
     pack = mind.recall(conn, args.query, limit=args.limit, session_id=_session(args),
-                       semantic=not args.lexical)
+                       semantic=not args.lexical,
+                       include_superseded=args.include_superseded)
     if args.json:
         print(json.dumps(pack, indent=2))
         return 0
@@ -507,6 +508,8 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--limit", type=int, default=8)
     sp.add_argument("--json", action="store_true")
     sp.add_argument("--lexical", action="store_true", help="force lexical-only ranking")
+    sp.add_argument("--include-superseded", action="store_true",
+                    help="also return memories superseded by a newer active one (hidden by default)")
     sp.add_argument("--session")
     sp.set_defaults(func=cmd_recall)
 
