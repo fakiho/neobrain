@@ -700,6 +700,113 @@ def log_op(conn: sqlite3.Connection, op: str, atom_id: str | None = None,
             pass
 
 
+class RememberRejected(ValueError):
+    """A memory write was refused before anything was stored.
+
+    ``code`` is a stable machine token (``empty`` or ``filler``). ``reason`` is
+    a short portable explanation. Neither depends on a host, a client, or a
+    personal name. The store is unchanged.
+    """
+
+    def __init__(self, code: str, reason: str) -> None:
+        self.code = code
+        self.reason = reason
+        super().__init__(reason)
+
+    def as_dict(self) -> dict:
+        return {"stored": False, "rejected": True, "code": self.code, "reason": self.reason}
+
+
+# Conversation filler: acknowledgements, closers, and status pings that carry
+# no durable fact. Matched on the whole stripped text (punctuation ignored),
+# never as a substring, so "ok to ship the fix" is not filler. English-shaped
+# on purpose — this is a chatter filter, not a language detector.
+_FILLER_EXACT = frozenset({
+    "ok", "okay", "k", "kk", "yes", "yeah", "yep", "yup", "no", "nope", "nah",
+    "sure", "fine", "cool", "great", "nice", "good", "alright", "right",
+    "thanks", "thank", "thx", "ty", "please", "pls", "sorry", "np",
+    "done", "did", "fixed", "works", "working", "noted", "ack", "acknowledged",
+    "lol", "lmao", "haha", "hmm", "hm", "uh", "um", "oh", "ah", "wow",
+    "hi", "hello", "hey", "bye", "goodbye",
+    "continue", "continuing", "proceed", "next", "go", "wait", "stop",
+    "true", "false", "none", "null", "nil", "n/a", "na", "tbd", "todo",
+    "same", "ditto", "agreed", "exactly", "correct", "incorrect",
+    "updating", "updated", "looking", "checking", "testing", "running",
+})
+_FILLER_PHRASES = frozenset({
+    "ok thanks", "okay thanks", "thanks ok", "thank you", "thanks so much",
+    "got it", "gotcha", "sounds good", "sounds great", "looks good", "looks great",
+    "all good", "all set", "no problem", "no worries", "you are welcome", "youre welcome",
+    "will do", "on it", "let me know", "as discussed", "as requested",
+    "see above", "see below", "same as above", "same as before",
+    "done now", "all done", "task done", "its done", "it is done",
+    "i see", "i understand", "understood", "makes sense", "that works",
+    "good point", "fair enough", "of course", "never mind", "nevermind",
+    "one moment", "just a moment", "be right back",
+    "lgtm", "ship it", "looks fine",
+})
+# Glue words that appear in chatter. A SHORT text made only of filler words and
+# glue words ("ok thanks so much for that") is filler; one content word saves it.
+_FILLER_GLUE = frozenset({
+    "a", "an", "the", "i", "you", "it", "its", "is", "are", "was", "that", "this",
+    "so", "very", "much", "for", "to", "me", "my", "we", "all", "now", "again",
+    "will", "ill", "let", "know", "got", "sounds", "looks", "thank", "thanks",
+    "problem", "worries", "welcome", "point", "lot", "many", "just", "then",
+    "and", "or", "but", "well", "also", "too", "here", "there", "not", "be",
+})
+_FILLER_MAX_WORDS = 8
+_WORD_RE = re.compile(r"[a-z0-9]+(?:'[a-z]+)?", re.IGNORECASE)
+_SIGNIFICANT_RE = re.compile(r"[^\W_]", re.UNICODE)
+
+
+def _remember_flag(name: str, default: str = "1") -> bool:
+    raw = getattr(config.settings, name, default)
+    return str(raw).strip().lower() not in ("0", "false", "no", "off")
+
+
+def _filler_key(text: str) -> str:
+    words = [w.lower().replace("'", "") for w in _WORD_RE.findall(text)]
+    return " ".join(words)
+
+
+def remember_rejection(text: str) -> RememberRejected | None:
+    """Return a rejection for empty or filler text, else None.
+
+    Disabled when ``remember_quality`` is off. Length uses significant
+    characters (letters or digits), so a short fact is not dropped for being
+    terse and a long string of punctuation still fails.
+    """
+    cleaned = (text or "").strip()
+    if not cleaned:
+        return RememberRejected("empty", "memory text is empty")
+    if not _remember_flag("remember_quality"):
+        return None
+    significant = len(_SIGNIFICANT_RE.findall(cleaned))
+    try:
+        minimum = int(getattr(config.settings, "remember_min_chars", 3) or 3)
+    except (TypeError, ValueError):
+        minimum = 3
+    minimum = max(1, minimum)
+    if significant < minimum:
+        return RememberRejected(
+            "filler",
+            f"memory is too short to keep ({significant} significant characters; need {minimum})",
+        )
+    key = _filler_key(cleaned)
+    words = key.split()
+    vocab = _FILLER_EXACT | _FILLER_GLUE | {w for p in _FILLER_PHRASES for w in p.split()}
+    if (
+        key in _FILLER_EXACT
+        or key in _FILLER_PHRASES
+        or (0 < len(words) <= _FILLER_MAX_WORDS and all(w in vocab for w in words))
+    ):
+        return RememberRejected(
+            "filler",
+            "memory is conversation filler, not a durable fact",
+        )
+    return None
+
+
 def remember(conn: sqlite3.Connection, text: str, *, atype: str = "observation",
              hubs: list[str] | None = None, links: dict[str, list[str]] | None = None,
              source: str | None = None, session_id: str | None = None,
@@ -711,10 +818,17 @@ def remember(conn: sqlite3.Connection, text: str, *, atype: str = "observation",
     content hash and source already exists, it is returned unchanged (no new
     atom, no store op). The nightly deep phase uses this so re-running it cannot
     duplicate a lesson it already stored. Matching is exact text, not semantic.
+
+    Empty text and generic conversation filler are refused with
+    ``RememberRejected`` before any write. Set ``NEOBRAIN_REMEMBER_QUALITY=0``
+    to store them anyway. A rejected call leaves the store unchanged.
     """
     _ensure_schema(conn)
     now = now_ms()
-    text = text.strip()
+    text = (text or "").strip()
+    rejection = remember_rejection(text)
+    if rejection is not None:
+        raise rejection
     if dedupe:
         row = conn.execute(
             "SELECT id,label,type,created FROM m_atoms WHERE hash=? AND source IS ? "

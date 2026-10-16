@@ -365,6 +365,10 @@ class LifeLoop:
                     source="life:perceive",
                 )
                 remembered.append(str(atom.get("id")))
+            except mind.RememberRejected as exc:
+                # A probe note that is itself filler is not a memory. Skip it;
+                # the perceive event still records the failure.
+                results[name]["remember_rejected"] = exc.code
             except Exception as exc:  # noqa: BLE001 - memory of a failure is best-effort
                 results[name]["remember_error"] = str(exc)
 
@@ -465,15 +469,18 @@ class LifeLoop:
             source_ids = [a["id"] for a in atoms if a.get("id")]
             if source_ids:
                 links["derived-from"] = source_ids
-            atom = mind.remember(
-                conn,
-                thought,
-                atype="observation",
-                hubs=["neobrain", "life"],
-                source="life:act",
-                links=links,
-            )
-            atom_id = str(atom.get("id"))
+            try:
+                atom = mind.remember(
+                    conn,
+                    thought,
+                    atype="observation",
+                    hubs=["neobrain", "life"],
+                    source="life:act",
+                    links=links,
+                )
+            except mind.RememberRejected:
+                atom = None
+            atom_id = str(atom.get("id")) if isinstance(atom, dict) and atom.get("id") else None
 
         summary = thought[:200] if thought else (f"no thought produced ({error})" if error else "empty thought")
         self._emit(

@@ -116,6 +116,12 @@ REGISTRY: tuple[Setting, ...] = (
     Setting("recall_alpha", "Recall vector weight", "float", "memory",
             "score = lexical + alpha·cosine. Higher leans on embeddings.",
             minimum=0.0, maximum=10.0),
+    Setting("remember_quality", "Reject filler writes", "bool", "memory",
+            "Refuse generic chatter (ok, thanks, done) instead of storing it. "
+            "Short durable facts still pass."),
+    Setting("remember_min_chars", "Minimum memory length", "int", "memory",
+            "Significant characters (letters or digits) a new memory must have.",
+            minimum=1, maximum=500),
     Setting("rank_half_life_days", "Forgetting half-life", "float", "memory",
             "Days for recency decay to halve.", minimum=0.5, maximum=365.0, suffix="d"),
     Setting("rank_decay_floor", "Recency floor", "float", "memory",

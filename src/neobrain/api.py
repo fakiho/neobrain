@@ -496,14 +496,23 @@ class RememberBody(BaseModel):
 
 @app.post("/api/mind/remember")
 def mind_remember(body: RememberBody) -> dict:
+    """Store one memory. Filler and empty text are 422, store unchanged.
+
+    The body is ``{"stored": false, "rejected": true, "code", "reason"}``.
+    ``code`` is ``empty`` or ``filler``. Other clients can keep calling this
+    route; a rejected write is not an HTTP 500 and does not require OpenCode.
+    """
     conn = db.connect()
     try:
         db.init_db(conn)
-        return mind.remember(
-            conn, body.text, atype=body.type, hubs=body.hubs, links=body.links,
-            source=body.source, session_id=body.session, label=body.label,
-            dedupe=body.dedupe,
-        )
+        try:
+            return mind.remember(
+                conn, body.text, atype=body.type, hubs=body.hubs, links=body.links,
+                source=body.source, session_id=body.session, label=body.label,
+                dedupe=body.dedupe,
+            )
+        except mind.RememberRejected as exc:
+            raise HTTPException(422, exc.as_dict())
     finally:
         conn.close()
 

@@ -27,6 +27,7 @@ ln -s /path/to/neobrain/adapters/opencode/neoBrain-memory ~/.opencode/plugins/ne
 ```
 
 Typecheck: `cd adapters/opencode/neoBrain-memory && npx tsc --noEmit` (config in `tsconfig.json`).
+Tests: `node --test index.test.ts` (Node 22.6+ with type stripping; no dependencies, no running daemon).
 
 ## Environment
 
@@ -42,6 +43,19 @@ Typecheck: `cd adapters/opencode/neoBrain-memory && npx tsc --noEmit` (config in
 - Ratings are recorded against the rater's session *and* the memory's origin session (`m_atoms.session_id`, `m_feedback.origin_session_id`), so provenance is preserved on both ends.
 
 ## Store with origin session
+
+`memory_store` is for **one durable fact** — a decision, preference, correction,
+or lesson worth recalling later. The tool description tells the agent not to
+call it for chatter or status ("ok", "thanks", "got it", "done", "continuing")
+and not to retry a text the server refused.
+
+The server enforces that rule (`POST /api/mind/remember` → 422, see the repo
+README's "Memory writes"). The tool surfaces it as
+`memory_store: not stored (filler) — <reason>` rather than a bare HTTP status,
+so the agent can tell a rejection from a daemon failure. A down daemon is still
+reported as an error and never crashes the session.
+
+
 
 - `memory_store(text, type?, hubs?, source?, label?, dedupe?)` POSTs `/api/mind/remember` with `session` = the live OpenCode sessionID, so the atom's `m_atoms.session_id` records **which session it came from**.
 - Prefer this over the CLI for agent saves: a `neobrain remember` from the shell lands as `session_id="cli"` unless `--session <ses_id>` is passed (the origin link was previously near-empty for exactly this reason).
