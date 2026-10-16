@@ -8,7 +8,7 @@ import sqlite3
 import pytest
 from fastapi.testclient import TestClient
 
-from neobrain import cli, config, db, maintenance, mind
+from neobrain import cli, config, db, maintenance, mind, schema
 from neobrain.api import app
 
 
@@ -121,7 +121,7 @@ def test_v5_store_gains_history_table(tmp_path, monkeypatch):
     c.commit()
     assert mind.history(c, "m_x") == []  # tolerates the missing table
     db.init_db(c)
-    assert c.execute("PRAGMA user_version").fetchone()[0] == 6
+    assert c.execute("PRAGMA user_version").fetchone()[0] == schema.USER_VERSION
     assert c.execute("SELECT COUNT(*) FROM m_history").fetchone()[0] == 0
     c.close()
 

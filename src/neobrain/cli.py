@@ -328,7 +328,10 @@ def cmd_wakeup(args: argparse.Namespace) -> int:
 def cmd_link(args: argparse.Namespace) -> int:
     conn = db.connect()
     _retry(db.init_db, conn)
-    print(json.dumps(_retry(mind.link, conn, args.source, args.target, args.kind, _session(args)), indent=2))
+    print(json.dumps(
+        _retry(mind.link, conn, args.source, args.target, args.kind, _session(args), explicit=True),
+        indent=2,
+    ))
     return 0
 
 
