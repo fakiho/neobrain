@@ -546,8 +546,21 @@ def atom_detail(conn: sqlite3.Connection, atom_id: str) -> dict | None:
     r = conn.execute("SELECT id,label,type,created,text,source,tags,weight,hub FROM m_atoms WHERE id=?", (atom_id,)).fetchone()
     if not r:
         return None
-    links = [{"source": a, "target": b, "type": t} for a, b, t in conn.execute(
-        "SELECT source,target,type FROM m_edges WHERE source=? OR target=?", (atom_id, atom_id))]
+    links = []
+    for a, b, t in conn.execute(
+        "SELECT source,target,type FROM m_edges WHERE source=? OR target=?", (atom_id, atom_id)
+    ):
+        meta = conn.execute(
+            "SELECT explicit, actor FROM m_edge_meta WHERE edge_source=? AND edge_target=? AND edge_type=?",
+            (a, b, t),
+        ).fetchone()
+        links.append({
+            "source": a,
+            "target": b,
+            "type": t,
+            "explicit": bool(meta and meta[0] == 1),
+            "actor": meta[1] if meta else None,
+        })
     return {
         "id": r[0], "label": r[1], "type": r[2], "created": r[3], "text": r[4], "source": r[5],
         "tags": [t for t in (r[6] or "").split(",") if t], "weight": r[7], "hub": r[8], "links": links,

@@ -7,7 +7,7 @@ import { Bug } from 'lucide-react'
 // state), /api/debug/requests and /api/debug/injections (rolling traces).
 //
 // Layout: a status-first ribbon (derived health) on top, an attention queue, and
-// a tiled 3x3 board of nine equal cards that fits one screen. Each card scrolls
+// a tiled board of equal cards that fits one screen. Each card scrolls
 // internally; the raw streams peek at the last few calls until expanded. The
 // board's height is pinned to the viewport budget in JS, so opening the config
 // card below it grows the page instead of squeezing the cards above.
@@ -79,6 +79,24 @@ type Overview = {
     doc_counts: { doc_path: string; versions: number; last_ts: number }[]
     preferences: { id: string; label: string; created: number }[]
   }
+  links: {
+    total: number
+    explicit: number
+    guessed: number
+    unmarked: number
+    supersedes_explicit: number
+    hidden: number
+  }
+  link_feed: {
+    source: string
+    target: string
+    type: string
+    source_label: string | null
+    target_label: string | null
+    explicit: boolean
+    actor: string | null
+    created: number | null
+  }[]
   config: Record<string, string | number | boolean>
 }
 
@@ -160,6 +178,11 @@ const latColor = (ms: number) => (ms < 50 ? 'var(--ok)' : ms < 200 ? 'var(--warn
 
 // Which producer made this call — the OpenCode plugin (wakeup/recall/feedback),
 // the dashboard itself (graph/activity polling), or something else (CLI, tests).
+const linkBadge = (item: Overview['link_feed'][number]) => {
+  if (item.actor?.startsWith('migration:')) return 'migrated'
+  return item.explicit ? 'explicit' : 'guessed'
+}
+
 const laneTag = (r: Req) =>
   r.path.startsWith('/api/mind/wakeup') || r.path.startsWith('/api/mind/recall') || r.path === '/api/mind/feedback'
     ? 'plugin'
@@ -313,7 +336,7 @@ function sparkBars(reqs: Req[]) {
 }
 
 // Pin the board to exactly fill the space left after the header/ribbon/attention,
-// so the nine cards are equal and fit one screen. The board's height is fixed to
+// so the board's cards are equal and fit one screen. The board's height is fixed to
 // the viewport budget (independent of the config card below it), so expanding
 // config adds page height and scrolls — it never squeezes the cards above.
 function fitBoard() {
@@ -347,7 +370,7 @@ export function DebugView() {
   const [err, setErr] = useState(false)
   const [paused, setPaused] = useState(false)
 
-  // Only Effective config collapses; the nine board cards are always open.
+  // Only Effective config collapses; the board cards are always open.
   const [configOpen, setConfigOpen] = useState(false)
   const [filter, setFilter] = useState<'all' | 'plugin' | 'dashboard' | 'other'>('all')
   const [errorsOnly, setErrorsOnly] = useState(false)
@@ -508,7 +531,12 @@ export function DebugView() {
               <div className="dbg-summary">
                 <span><b>{ov.counts.atoms}</b> atoms</span>
                 <span><b>{ov.counts.hubs}</b> hubs</span>
-                <span><b>{ov.counts.edges}</b> links</span>
+                <span>
+                  <b>{ov.links.total}</b> links
+                  {' '}· <b>{ov.links.explicit}</b> explicit
+                  {' '}· <b>{ov.links.guessed}</b> guessed
+                  {' '}· <b>{ov.links.hidden}</b> hidden
+                </span>
                 <span><b>{ov.counts.ops_today}</b> ops today</span>
                 <span className="sep">|</span>
                 <span>{h.callsPerMin.toFixed(1)} calls/min</span>
@@ -864,6 +892,35 @@ export function DebugView() {
                           ))
                         : <div className="dbg-kvrow muted">no preference atoms</div>}
                     </div>
+                  </div>
+                </div>
+              </section>
+
+              {/* ---- link provenance ---- */}
+              <section className="dbg-card" id="dbg-card-links">
+                <h5>
+                  <span className="dbg-dot" style={{ background: 'var(--info)' }} /> Links
+                  <span className="dbg-tag">{ov.links.hidden} hidden · {ov.links.unmarked} unmarked</span>
+                </h5>
+                <div className="dbg-body">
+                  <div className="dbg-scroll" tabIndex={0}>
+                    <table className="dbg-table">
+                      <thead>
+                        <tr><th>from</th><th>type</th><th>to</th><th>trust</th><th>when</th></tr>
+                      </thead>
+                      <tbody>
+                        {ov.link_feed.map((item) => (
+                          <tr key={`${item.source}-${item.target}-${item.type}`}>
+                            <td>{trunc(item.source_label || item.source, 36)}</td>
+                            <td className="mono muted">{item.type}</td>
+                            <td>{trunc(item.target_label || item.target, 36)}</td>
+                            <td><span className="dbg-lane">{linkBadge(item)}</span></td>
+                            <td className="muted">{ago(item.created)}</td>
+                          </tr>
+                        ))}
+                        {ov.link_feed.length === 0 && <tr><td colSpan={5} className="muted">no links yet</td></tr>}
+                      </tbody>
+                    </table>
                   </div>
                 </div>
               </section>
