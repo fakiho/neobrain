@@ -26,7 +26,8 @@ Durable memory for AI agents, built as a mind model rather than a log:
 - **Memory** — atoms + hubs + typed edges in SQLite. Hybrid recall (lexical +
   cosine vectors, local Ollama embeddings by default); top-K by relevance
   within a token budget — never the whole store, and forgotten atoms are
-  never candidates. See [Hybrid recall](#hybrid-recall).
+  never candidates, and memories superseded by a newer active one are hidden
+  by default (opt in with `--include-superseded`). See [Hybrid recall](#hybrid-recall).
 - **Rank** — deterministic, no model discretion:
   `quality = clamp01(feedback · decay · conn)`. Feedback (`used | useful |
   noise`) is the only factor that can reach zero; the inferred `unused`
@@ -227,7 +228,7 @@ would both inject and double-rate memories.
 | `ui` | print and open the dashboard URL |
 | `ingest` | run ingest adapters one-shot (`--source`, default all) |
 | `remember` | store a memory (`--type --hubs --link kind:target --label --dedupe`); filler exits 2 |
-| `recall` | recall a relevant subgraph (`--limit --json --lexical`) |
+| `recall` | recall a relevant subgraph (`--limit --json --lexical --include-superseded`) |
 | `wakeup` | compact wake-up pack (identity + open loops + recent) |
 | `pin` | pin/unpin an atom as a standing directive (`--off`) |
 | `directives` | show the standing directives re-injected every turn |

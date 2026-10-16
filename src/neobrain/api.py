@@ -552,11 +552,13 @@ def mind_feedback(body: FeedbackBody) -> dict:
 
 
 @app.get("/api/mind/recall")
-def mind_recall(q: str, limit: int = Query(8, le=50), session: Optional[str] = None) -> dict:
+def mind_recall(q: str, limit: int = Query(8, le=50), session: Optional[str] = None,
+                include_superseded: bool = False) -> dict:
     conn = db.connect()
     try:
         db.init_db(conn)
-        return mind.recall(conn, q, limit=limit, session_id=session)
+        return mind.recall(conn, q, limit=limit, session_id=session,
+                           include_superseded=include_superseded)
     finally:
         conn.close()
 
