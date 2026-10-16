@@ -25,8 +25,14 @@ Around them:
 - `m_feedback`, `m_ops` — append-only history of ratings and operations.
   Deleting a memory does **not** delete its history; the rows stay and point
   at an id that no longer exists. This matches `neobrain forget`.
+- `m_edge_meta` — provenance for one typed edge: whether a caller stated it
+  (`explicit=1`) or a guesser wrote it (`explicit=0`), plus who and when. Its
+  key is the same triple as `m_edges` (`edge_source`, `edge_target`,
+  `edge_type`). No foreign key: the row is deleted in the same transaction as
+  the edge, so a recreated link cannot inherit a stale trust bit. Missing meta
+  means not explicit. See [Explicit links](#explicit-links).
 - `m_history` — append-only record of each state change of an atom (`add`,
-  `delete`), with the text involved, who did it, and why. See
+  `delete`, `link`), with the text involved, who did it, and why. See
   [History](#history).
 
 `source` is free text saying where a memory came from: the CLI, a doc path, a
@@ -38,20 +44,65 @@ prefix is the only handle the cleanup below uses — it never matches on text.
 
 Default recall hides an atom only when an explicit `supersedes` edge points
 at it from an *active* atom (an atom with no rank row counts as active).
-Edges that already existed when a store upgrades to v7 are marked explicit,
-so an upgrade does not un-hide memories that were already hidden. A guessed
-edge created after that, or one with no provenance, does not hide. If the
+A guessed edge, or one with no provenance, does not hide. If the
 superseding atom is ignored or archived, the older one is shown again. This is
 a read-time SQL filter only: nothing is deleted or rewritten. Pass `include_superseded=true`
 (API query param), `include_superseded=True` (`mind.recall`) or
 `neobrain recall --include-superseded` to get both.
 
+**Upgrade (schema v7).** A store that already has `supersedes` edges is not
+left to un-hide them. The v6 → v7 migration inserts one `m_edge_meta` row per
+existing `supersedes` edge with `explicit=1`, so recall keeps hiding what it
+already hid. Those rows carry `actor='migration:v7'`. That is a label for the
+upgrade, not a statement that a caller created the link. Edges created after
+the upgrade are not backfilled: a new guess stays unmarked and does not hide.
+A fresh store has no edges yet, so the migration writes nothing there.
+
+## Explicit links
+
+A link is explicit only when a caller stated it. Four paths do that:
+
+- `mind.link(..., explicit=True)` — `explicit` is keyword-only.
+- `POST /api/mind/link` — always explicit, because a caller saying it is the
+  definition. A bad kind, a missing atom, or a self-link is 400 and writes
+  nothing.
+- `neobrain link` — a person typed it, so it is explicit. No new flag.
+- `remember(supersedes=…)` and `POST /api/mind/remember` with a `supersedes`
+  id — the new atom, the `supersedes` edge and the `explicit=1` meta row are
+  written in one transaction. A bad target raises `ValueError` and stores
+  nothing.
+
+These do **not** mark a link explicit: `remember(links=…)`,
+`neobrain remember --link`, the keyword guesser (`_add_supersessions`), dream
+lessons (`dreams.py` calls `mind.link` with `explicit=False`), and import.
+Import writes edges and deletes stale doc-derived meta; it does not set
+`explicit=1`.
+
+Rules:
+
+- A guessed pass never downgrades a stated link. An existing explicit edge is
+  not changed by a guess: `mind.link` leaves that meta row's `explicit`,
+  `actor`, and `created` alone (`mind.py` link upsert). A guess on a triple
+  with no meta row inserts a new meta row, with the guesser's actor and a new
+  `created` timestamp. A later explicit link upgrades a guess to `explicit=1`.
+- `_add_supersessions` skips an edge whose meta is `explicit=1` when it prunes
+  `derived-from` pairs. A missing meta row is not explicit, so older guessed
+  edges are still pruned.
+- Meta is deleted with the edge. `forget`, provenance cleanup, and the other
+  edge-delete paths remove the matching `m_edge_meta` row in the same
+  transaction. A recreated triple starts unmarked.
+
+The OpenCode adapter is an optional client, not part of the library. It
+exposes `memory_link` (posts `/api/mind/link`) and a `supersedes` argument on
+`memory_store` (sent in the remember body, one request). Other clients use the
+API directly.
+
 ## History
 
-`m_history` is the audit trail of explicit memory writes and deletes. One row
-per change (see the known gaps below):
-`ts`, `atom_id`, `event` (`add` or `delete`), `old_text`, `new_text`, `actor`
-and `reason`.
+`m_history` is the audit trail of explicit memory writes, deletes, and links.
+One row per change (see the known gaps below):
+`ts`, `atom_id`, `event` (`add`, `delete`, or `link`), `old_text`, `new_text`,
+`actor` and `reason`.
 
 - **Append-only.** Rows are only ever inserted; nothing updates or removes
   them.
@@ -62,20 +113,32 @@ and `reason`.
   of a forgotten atom stays readable, including the text it had (`old_text`).
 - What is recorded today: `remember` writes `add` (actor = session id, else
   source); `forget` writes `delete` with the old text; a source cleanup writes
-  one `delete` per removed atom (actor `maintenance`, reason = the prefix). An
-  exact re-store skipped by `dedupe` changes nothing and writes nothing.
+  one `delete` per removed atom (actor `maintenance`, reason = the prefix). A
+  new or upgraded link writes `link` on the **source** atom: `new_text` is
+  `"<kind> -> <target_id>"` and `reason` is `explicit` or `inferred`. That
+  includes a caller-stated link. A guessed `supersedes` edge writes history
+  too: `_add_supersessions` (`mind.py` ~1880–1894) inserts into `m_edges` and
+  `m_edge_meta` (`explicit=0`) directly and calls `record_history` directly
+  (`event='link'`, `reason='inferred'`), while dream lessons (`dreams.py` ~729)
+  call `mind.link(..., explicit=False)`, which also writes a `link` history row
+  (event `link`, not `add`) with reason `inferred`. The dream lesson stays not
+  explicit. An exact re-store skipped by `dedupe`, and a repeat of the same
+  link, change nothing and write nothing.
 - Stores created before schema v6 start with an empty history; nothing is
   backfilled.
-- **Not recorded (known gaps).** History covers explicit agent/user writes and
-  deletes, not machine-regenerated atoms or rank state:
+- **Not recorded (known gaps).** History covers explicit writes, deletes, and
+  both explicit and inferred link events (reason `explicit` or `inferred`).
+  Text edits and rank changes are still not recorded. It does not cover
+  machine-regenerated atoms or rank state:
   - Derived atoms that are rebuilt wholesale on each pass are deleted and
     recreated without history rows: doc-derived atoms on re-import, the
     `dream:consolidate` atoms, and promoted `m_pd_*` atoms dropped on refresh.
     Logging them would write a full copy on every run.
   - Forgetting-state changes (`active` → `ignored`/`archived`) made by the life
     loop live in `m_rank`, not in `m_history`.
-  - Text edits and `supersedes` links are not yet recorded; the `event` column
-    is free text, so adding them needs no migration.
+  - Text edits are still not recorded. `supersedes` links are: each new or
+    upgraded one is a `link` event on the source atom, as above. The `event`
+    column is free text, so that needed no migration.
 
 Read it with `neobrain history <atom_id>` (oldest first, JSON),
 `GET /api/mind/history?atom_id=…`, or `mind.history(conn, atom_id)`. All are

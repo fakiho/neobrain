@@ -956,6 +956,7 @@ def debug_overview() -> dict:
         ("perceive", s.life_perceive_interval_minutes),
         ("reflect", s.life_reflect_interval_minutes),
         ("act", s.life_act_interval_minutes),
+        ("evict", s.rank_interval_minutes),
     ):
         row = conn.execute(
             "SELECT ts, detail FROM events WHERE actor='agent:neobrain' AND category='life' AND title=? ORDER BY ts DESC LIMIT 1",
@@ -1034,6 +1035,68 @@ def debug_overview() -> dict:
         )
     ]
 
+    # Link provenance: explicit (caller stated), guessed, or unmarked (no meta).
+    # Counts join meta onto m_edges so a dangling meta row (no foreign key) is
+    # not counted. `hidden` copies recall's supersession predicate, including the
+    # target's own active check, so the count cannot disagree with recall.
+    links = {
+        "total": one("SELECT COUNT(*) FROM m_edges"),
+        "explicit": one(
+            "SELECT COUNT(*) FROM m_edges e JOIN m_edge_meta em"
+            " ON em.edge_source = e.source AND em.edge_target = e.target AND em.edge_type = e.type"
+            " WHERE em.explicit = 1"
+        ),
+        "guessed": one(
+            "SELECT COUNT(*) FROM m_edges e JOIN m_edge_meta em"
+            " ON em.edge_source = e.source AND em.edge_target = e.target AND em.edge_type = e.type"
+            " WHERE em.explicit = 0"
+        ),
+        "unmarked": one(
+            "SELECT COUNT(*) FROM m_edges e WHERE NOT EXISTS ("
+            "SELECT 1 FROM m_edge_meta em WHERE em.edge_source = e.source"
+            " AND em.edge_target = e.target AND em.edge_type = e.type)"
+        ),
+        "supersedes_explicit": one(
+            "SELECT COUNT(*) FROM m_edges e JOIN m_edge_meta em"
+            " ON em.edge_source = e.source AND em.edge_target = e.target AND em.edge_type = e.type"
+            " WHERE e.type = 'supersedes' AND em.explicit = 1"
+        ),
+        "hidden": one(
+            "SELECT COUNT(*) FROM m_atoms a WHERE NOT EXISTS ("
+            "  SELECT 1 FROM m_rank r WHERE r.atom_id = a.id AND r.state <> 'active')"
+            " AND EXISTS ("
+            "  SELECT 1 FROM m_edges e"
+            "  JOIN m_atoms s ON s.id = e.source"
+            "  JOIN m_edge_meta em ON em.edge_source = e.source"
+            "    AND em.edge_target = e.target AND em.edge_type = e.type"
+            "    AND em.explicit = 1"
+            "  WHERE e.type = 'supersedes' AND e.target = a.id AND e.source <> a.id"
+            "  AND NOT EXISTS ("
+            "    SELECT 1 FROM m_rank sr WHERE sr.atom_id = s.id AND sr.state <> 'active'))"
+        ),
+    }
+    link_feed = []
+    for r in conn.execute(
+        "SELECT e.source, e.target, e.type, sa.label, ta.label, em.explicit, em.actor, em.created "
+        "FROM m_edges e "
+        "LEFT JOIN m_atoms sa ON sa.id = e.source "
+        "LEFT JOIN m_atoms ta ON ta.id = e.target "
+        "LEFT JOIN m_edge_meta em ON em.edge_source = e.source "
+        "  AND em.edge_target = e.target AND em.edge_type = e.type "
+        "WHERE e.type <> 'about' "
+        "ORDER BY em.created IS NULL, em.created DESC LIMIT 15"
+    ):
+        link_feed.append({
+            "source": r[0],
+            "target": r[1],
+            "type": r[2],
+            "source_label": r[3],
+            "target_label": r[4],
+            "explicit": r[5] == 1,
+            "actor": r[6],
+            "created": r[7],
+        })
+
     config_view = {
         "life_enabled": _life_enabled(),
         "quiet_hours": f"{s.life_quiet_start:02d}:00–{s.life_quiet_end:02d}:00",
@@ -1063,6 +1126,8 @@ def debug_overview() -> dict:
         "quiet_now": quiet_now,
         "last_dream": dict(last_dream) if last_dream else None,
         "self_trace": {"docs": self_docs, "doc_counts": self_doc_counts, "preferences": prefs},
+        "links": links,
+        "link_feed": link_feed,
         "config": config_view,
     }
 
