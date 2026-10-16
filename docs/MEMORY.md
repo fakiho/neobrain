@@ -36,7 +36,8 @@ prefix is the only handle the cleanup below uses — it never matches on text.
 
 ## History
 
-`m_history` is the audit trail of every memory. One row per state change:
+`m_history` is the audit trail of explicit memory writes and deletes. One row
+per change (see the known gaps below):
 `ts`, `atom_id`, `event` (`add` or `delete`), `old_text`, `new_text`, `actor`
 and `reason`.
 
@@ -53,6 +54,16 @@ and `reason`.
   exact re-store skipped by `dedupe` changes nothing and writes nothing.
 - Stores created before schema v6 start with an empty history; nothing is
   backfilled.
+- **Not recorded (known gaps).** History covers explicit agent/user writes and
+  deletes, not machine-regenerated atoms or rank state:
+  - Derived atoms that are rebuilt wholesale on each pass are deleted and
+    recreated without history rows: doc-derived atoms on re-import, the
+    `dream:consolidate` atoms, and promoted `m_pd_*` atoms dropped on refresh.
+    Logging them would write a full copy on every run.
+  - Forgetting-state changes (`active` → `ignored`/`archived`) made by the life
+    loop live in `m_rank`, not in `m_history`.
+  - Text edits and `supersedes` links are not yet recorded; the `event` column
+    is free text, so adding them needs no migration.
 
 Read it with `neobrain history <atom_id>` (oldest first, JSON),
 `GET /api/mind/history?atom_id=…`, or `mind.history(conn, atom_id)`. All are
