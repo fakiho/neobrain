@@ -29,7 +29,9 @@ Durable memory for AI agents, built as a mind model rather than a log:
   never candidates. See [Hybrid recall](#hybrid-recall).
 - **Rank** — deterministic, no model discretion:
   `quality = clamp01(feedback · decay · conn)`. Feedback (`used | useful |
-  noise`) is the only factor that can reach zero; knobs live in `config.py`.
+  noise`) is the only factor that can reach zero; the inferred `unused`
+  hint is a recall drag, not a verdict, so it does not move quality. Knobs
+  live in `config.py`.
 - **Forgetting** — rank-based only. Low rank + low exposure → *ignored*
   (never surfaced, never deleted); low rank + high exposure → *archived*
   (unretrievable but recoverable). Nothing is deleted by the economy;
@@ -42,7 +44,9 @@ Durable memory for AI agents, built as a mind model rather than a log:
   red lines are immutable.
 - **Life loop** — an in-process state machine in the daemon:
   perceive (ingest + health probes) → reflect (consolidate) → act (one
-  internal thought, stored) → rest (dreams at night). Cadence lives in code
+  internal thought, stored) → rest (dreams at night). The same loop
+  recomputes rank and demotes forgotten atoms once a day
+  (`NEOBRAIN_RANK_INTERVAL_MINUTES`, default 1440). Cadence lives in code
   and the DB, not in OS timers.
 
 ## Architecture

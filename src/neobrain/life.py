@@ -10,7 +10,7 @@ is recorded as a ``life: <phase>`` event, and "is this phase due?" is just
 scheduling state — phases are simply due again once their interval has elapsed.
 
 Quiet hours (``life_quiet_start`` … ``life_quiet_end``, local time) run only
-``perceive``; ``act`` never runs then (SPEC open question #5 default: the agent
+``perceive`` and the due rank pass; ``act`` never runs then (SPEC open question #5 default: the agent
 does not initiate contact — v0 stores a private observation and messages no
 one). During rest, if the local hour equals ``life_dream_hour`` the loop invokes
 ``neobrain.dreams.run(conn, runtime)`` once per night, or emits a single
@@ -21,7 +21,10 @@ runs the ingest adapters via ``ingest.runner.run_all`` when a workspace or
 OpenCode DB is configured. Once a day at ``rating_watch_hour`` the loop also
 records a **rating-volume snapshot** (``mind.rating_volume``) and pings the
 local notifier when agent ratings have stalled — a bounded observation of the
-memory-feedback loop, still with no OS timer.
+memory-feedback loop, still with no OS timer. Once a day (``rank_interval_minutes``)
+the same loop recomputes every atom's quality and demotes forgotten ones
+(``rank.recompute`` then ``rank.run_eviction``). That is the only caller of the
+batch rank pass, so decay actually happens; it deletes nothing.
 """
 from __future__ import annotations
 
@@ -38,14 +41,14 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, Optional
 
-from . import config, db, mind
+from . import config, db, mind, rank
 from .models import Event, event_id, now_ms
 
 SOURCE = "life"
 LANE = "notice"
 CATEGORY = "life"
 ACTOR = "agent:neobrain"
-PHASES = ("perceive", "reflect", "act")
+PHASES = ("perceive", "reflect", "act", "evict")
 
 # The query used to pull the recent atoms that seed an `act` thought. It is
 # intentionally broad: recall ranks whatever the mind currently holds as most
@@ -307,6 +310,7 @@ class LifeLoop:
             "perceive": s.life_perceive_interval_minutes,
             "reflect": s.life_reflect_interval_minutes,
             "act": s.life_act_interval_minutes,
+            "evict": s.rank_interval_minutes,
         }[phase]
 
     def _due(self, conn: sqlite3.Connection, phase: str, when_ms: int) -> bool:
@@ -564,6 +568,42 @@ class LifeLoop:
             )
         return snap
 
+    # --- rank maintenance (decay + demotion; never deletes) -------------------
+
+    def _evict(self, conn: sqlite3.Connection, when: int) -> dict[str, Any]:
+        """Refresh quality, then demote forgotten atoms. Best-effort.
+
+        Order matters: eviction classifies the quality already stored, so a
+        recompute has to land first or age never moves a score. Neither call
+        deletes a row. A failure is an event, not a crashed loop.
+        """
+        summary = "rank maintenance failed"
+        severity = "error"
+        extra: dict[str, Any] = {}
+        try:
+            scored = rank.recompute(conn, now=when)
+            evicted = rank.run_eviction(conn, now=when)
+            extra = {"scored": scored.get("scored", 0), **evicted}
+            summary = (
+                f"rank: {extra['scored']} scored, "
+                f"{evicted.get('ignored', 0)} ignored, "
+                f"{evicted.get('archived', 0)} archived"
+            )
+            severity = "info"
+        except Exception as exc:  # noqa: BLE001 - rank maintenance must not stop the loop
+            extra = {"error": f"{type(exc).__name__}: {exc}"}
+            summary = f"rank maintenance failed: {extra['error']}"
+        self._emit(
+            conn,
+            "evict",
+            when_ms=when,
+            next_due_ms=self._next_due(when, "evict"),
+            summary=summary,
+            severity=severity,
+            extra=extra,
+        )
+        return extra
+
     def _rest(self, conn: sqlite3.Connection, now: datetime, when: int) -> list[str]:
         if now.hour != config.settings.life_dream_hour:
             return []
@@ -687,6 +727,13 @@ class LifeLoop:
             if _flag_enabled(config.settings.act_enabled) and self._due(conn, "act", when):
                 self._act(conn, when)
                 ran.append("act")
+
+        # Rank maintenance is due-based like the other phases, so it runs in
+        # quiet hours too (decay should not wait for someone to be awake) and
+        # survives a restart. It never deletes.
+        if self._due(conn, "evict", when):
+            self._evict(conn, when)
+            ran.append("evict")
 
         # Rating watch: one snapshot a day, at a waking hour (so a stall alert
         # is not a 2am ping). Rides this loop — no OS timer.

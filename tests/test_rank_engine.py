@@ -19,6 +19,23 @@ def _rank_rows(conn):
     ]
 
 
+def test_unused_does_not_move_quality(conn, add_atom):
+    """Inferred non-answers are a recall drag, not a verdict (SPEC §4.2)."""
+    add_atom("pushed", created=T)
+    rank.recompute(conn, now=T)
+    before = conn.execute("SELECT quality FROM m_rank WHERE atom_id='pushed'").fetchone()[0]
+    for _ in range(40):
+        conn.execute(
+            "INSERT INTO m_feedback(ts,atom_id,signal,source) VALUES(?,?,?,?)",
+            (T, "pushed", "unused", "test"),
+        )
+    conn.commit()
+    rank.recompute(conn, now=T)
+    after = conn.execute("SELECT quality FROM m_rank WHERE atom_id='pushed'").fetchone()[0]
+    assert after == pytest.approx(before)
+    assert rank.run_eviction(conn, now=T)["ignored"] == 0
+
+
 def test_recompute_is_deterministic(conn, add_atom):
     add_atom("a1", created=T)
     add_atom("a2", created=T - 30 * DAY)
