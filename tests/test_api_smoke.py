@@ -199,3 +199,26 @@ def test_restart_endpoint_is_honest_for_an_orphan(client, monkeypatch):
     monkeypatch.setattr(service, "manager", lambda: "launchd")
     body = client.post("/api/settings/restart").json()
     assert body["ok"] is False and "service install" in body["error"]
+
+
+def test_mind_recall_include_superseded_param(client):
+    old = client.post("/api/mind/remember", json={"text": "zebrafish gateway uses plaintext", "hubs": ["neobrain"]}).json()
+    new = client.post("/api/mind/remember", json={
+        "text": "zebrafish gateway now uses tls", "hubs": ["neobrain"],
+        "supersedes": old["id"]}).json()
+
+    def ids(**p):
+        pack = client.get("/api/mind/recall", params={"q": "zebrafish gateway", **p}).json()
+        return {a["id"] for a in pack["atoms"]}
+
+    assert ids() == {new["id"]}
+    assert ids(include_superseded="true") == {old["id"], new["id"]}
+
+    # The older links dict is not a stated replacement, so it must not hide.
+    # Both texts share "zebrafish gateway" or lexical ranking can drop one.
+    guessed_old = client.post("/api/mind/remember", json={
+        "text": "zebrafish gateway allows icmp", "hubs": ["neobrain"]}).json()
+    client.post("/api/mind/remember", json={
+        "text": "zebrafish gateway rate-limits icmp", "hubs": ["neobrain"],
+        "links": {"supersedes": [guessed_old["id"]]}}).json()
+    assert guessed_old["id"] in ids()

@@ -9,7 +9,7 @@ Two independent axes, both stored per atom in ``m_rank``:
       decay   = decay_floor + (1 - decay_floor)·recency
       conn    = conn_floor  + (1 - conn_floor)·connectivity
 
-  with ``feedback`` the smoothed mean of the recorded signals
+  with ``feedback`` the smoothed mean of the recorded verdicts
   (``useful=1.0``, ``used=0.6``, ``noise=0.0``) against a ``0.5`` prior over
   ``rank_prior_n`` pseudo-counts, ``recency = 0.5 ** (age_days /
   rank_half_life_days)`` from the latest of creation / last feedback / last
@@ -60,7 +60,14 @@ log = logging.getLogger(__name__)
 
 # --- locked constants (SPEC §4.2 / m_2d90e7f99e54) ----------------------
 
-#: Feedback signal -> quality in [0, 1].
+#: Verdict signal -> quality in [0, 1].
+#:
+#: ``unused`` is intentionally absent. It is an inferred, high-volume attention
+#: hint ("pushed, neither opened nor rated"), not a verdict the agent gave.
+#: Folding it into quality would let a pile of non-answers forget a memory the
+#: same way ``noise`` does, which SPEC §4.2 reserves for recorded feedback.
+#: Recall already applies it as a small capped drag (``mind._feedback_multiplier``);
+#: the nightly recompute still applies age and connectivity to every atom.
 SIGNAL_VALUE: dict[str, float] = {"useful": 1.0, "used": 0.6, "noise": 0.0}
 #: Neutral value for an unexpected signal (should not occur; keeps the mean well defined).
 _DEFAULT_SIGNAL = 0.5

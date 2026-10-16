@@ -26,10 +26,13 @@ Durable memory for AI agents, built as a mind model rather than a log:
 - **Memory** — atoms + hubs + typed edges in SQLite. Hybrid recall (lexical +
   cosine vectors, local Ollama embeddings by default); top-K by relevance
   within a token budget — never the whole store, and forgotten atoms are
-  never candidates. See [Hybrid recall](#hybrid-recall).
+  never candidates, and memories superseded by a newer active one are hidden
+  by default (opt in with `--include-superseded`). See [Hybrid recall](#hybrid-recall).
 - **Rank** — deterministic, no model discretion:
   `quality = clamp01(feedback · decay · conn)`. Feedback (`used | useful |
-  noise`) is the only factor that can reach zero; knobs live in `config.py`.
+  noise`) is the only factor that can reach zero; the inferred `unused`
+  hint is a recall drag, not a verdict, so it does not move quality. Knobs
+  live in `config.py`.
 - **Forgetting** — rank-based only. Low rank + low exposure → *ignored*
   (never surfaced, never deleted); low rank + high exposure → *archived*
   (unretrievable but recoverable). Nothing is deleted by the economy;
@@ -42,7 +45,9 @@ Durable memory for AI agents, built as a mind model rather than a log:
   red lines are immutable.
 - **Life loop** — an in-process state machine in the daemon:
   perceive (ingest + health probes) → reflect (consolidate) → act (one
-  internal thought, stored) → rest (dreams at night). Cadence lives in code
+  internal thought, stored) → rest (dreams at night). The same loop
+  recomputes rank and demotes forgotten atoms once a day
+  (`NEOBRAIN_RANK_INTERVAL_MINUTES`, default 1440). Cadence lives in code
   and the DB, not in OS timers.
 
 ## Architecture
@@ -149,7 +154,11 @@ same mind for **pull**:
   so persona + wake-up re-inject next turn.
 - **Pull tools** — `memory_store(text, type?, hubs?, source?, label?, dedupe?)`
   (records the origin session), `memory_open(id)`, `memory_search(query)`,
-  `memory_rate(id, useful | noise)`.
+  `memory_rate(id, useful | noise)`. `memory_store` is for one durable fact
+  (a decision, preference, correction, or lesson). The tool description tells
+  the agent not to store chatter or status ("ok", "thanks", "done"); the
+  server enforces the same rule and the tool reports a rejection as
+  `not stored` instead of a bare HTTP error.
 - **Injection logging** — every lane POSTs what it pushed to
   `/api/debug/injections`; the Debug page renders the daemon's one blind spot.
 
@@ -218,8 +227,8 @@ would both inject and double-rate memories.
 | `start` | run the daemon (API + dashboard + life loop) |
 | `ui` | print and open the dashboard URL |
 | `ingest` | run ingest adapters one-shot (`--source`, default all) |
-| `remember` | store a memory (`--type --hubs --link kind:target --label --dedupe`) |
-| `recall` | recall a relevant subgraph (`--limit --json --lexical`) |
+| `remember` | store a memory (`--type --hubs --link kind:target --label --dedupe`); filler exits 2 |
+| `recall` | recall a relevant subgraph (`--limit --json --lexical --include-superseded`) |
 | `wakeup` | compact wake-up pack (identity + open loops + recent) |
 | `pin` | pin/unpin an atom as a standing directive (`--off`) |
 | `directives` | show the standing directives re-injected every turn |
@@ -227,6 +236,7 @@ would both inject and double-rate memories.
 | `dreams` | run a dream pass (`--phase light\|rem\|deep\|all`, `--replay YYYY-MM-DD`) |
 | `reflect` | run the weekly reflection pass (re-authors the persona docs) |
 | `forget` | delete a memory by id |
+| `maintain source-cleanup` | dry-run (default) or delete memories whose `source` starts with a prefix (default `icm:`); needs `--apply --confirm` |
 | `link` | wire two memories (`kind`: supersedes, derived-from, caused-by, consolidates, about) |
 | `consolidate` | dream pass on demand (merge hubs, promote patterns) |
 | `feedback` | record a quality signal (`used\|useful\|noise`) |
@@ -237,7 +247,14 @@ Read-mostly JSON; groups worth knowing (full schema at `/api/schema`):
 
 - `/api/mind/*` — `stats`, `graph`, `atom/{id}`, `activity`, `memories`,
   `recall`, `wakeup`, `directives`, `pin`, `remember`, `feedback`,
-  `consolidate`, `dreams`, `reader`, `import`.
+  `consolidate`, `dreams`, `reader`, `import`, and
+  `maintenance/source-cleanup` (dry-run only; see
+  [`docs/MEMORY.md`](./docs/MEMORY.md)). `POST /api/mind/remember`
+  stores one atom for any client (no session required). Empty text and
+  generic filler are refused with **422** and
+  `{"stored": false, "rejected": true, "code": "empty"|"filler", "reason"}`;
+  nothing is written. Disable with `NEOBRAIN_REMEMBER_QUALITY=0`. See
+  [Memory writes](#memory-writes).
 - `/api/debug/*` — `requests` (rolling trace of every `/api` call),
   `injections` (plugin lane pushes, GET/POST), `logs` (on-demand journal tail),
   `overview` (rank states, mind ops, feedback, ingest runs, life phases,
@@ -248,14 +265,40 @@ Read-mostly JSON; groups worth knowing (full schema at `/api/schema`):
 - Plus `/api/health`, `/api/stats`, `/api/events`, `/api/sessions`,
   `/api/search`, `/api/docs`, `/api/ingest/run`.
 
+## Memory writes
+
+`mind.remember` (and therefore the API, the CLI, and every adapter) refuses a
+write that is not a memory, before anything is stored:
+
+- **empty** — blank text. Always refused.
+- **filler** — generic conversation chatter ("ok", "thanks", "got it",
+  "done", "sounds good"), a string of punctuation, or text shorter than
+  `NEOBRAIN_REMEMBER_MIN_CHARS` significant characters (letters or digits;
+  default 3).
+
+A refusal raises `RememberRejected` (`code`, `reason`). The HTTP route turns
+that into 422 with a stable JSON body; the CLI prints the same body and exits
+2. The store, including the ops log, is unchanged.
+
+The match is on the **whole** text, so a real sentence that merely starts with
+an acknowledgement ("ok to ship the fix once CI passes") is stored, and short
+durable facts ("Use tabs", "API key rotated") pass the default length. The
+filler list is an explicit, English-shaped chatter list — not a language
+detector and not a blocklist of names, paths, or hosts.
+
+`NEOBRAIN_REMEMBER_QUALITY=0` stores filler anyway (empty text still fails).
+Both knobs are also on the Settings tab (`remember_quality`,
+`remember_min_chars`) and apply live. Callers that must not crash on a
+refusal — the life loop and the dream/reflect passes — skip that one write and
+continue.
+
 ## Testing
 
 ```bash
 .venv/bin/python -m pytest -q
 ```
 
-117 tests passing (verified 2026-10-02), including rank calibration and
-parity tests against the old timeline oracle (`tests/parity/`). Ranking
+Ranking
 correctness is covered directly (`test_recall_rank.py`, `test_rank_*.py`).
 There is no published retrieval benchmark (recall@k / MRR) yet — until one
 exists, treat α as a starting point and tune it on your own store

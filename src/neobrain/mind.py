@@ -18,6 +18,7 @@ from pathlib import Path
 # schema migration is needed so any mind op upgrades a legacy store lazily.
 from . import config, embeddings, rank
 from .heuristics import classify_heading
+from .history import read_history, record_history
 from .models import content_hash, now_ms
 from .schema import SCHEMA, migrate as _schema_migrate
 
@@ -420,6 +421,7 @@ def import_mind(conn: sqlite3.Connection) -> dict:
     # transport and may be cleaned up as they grow
     conn.execute("DELETE FROM m_atoms WHERE id NOT LIKE 'm_%' AND id NOT LIKE 'd_%'")
     conn.execute("DELETE FROM m_edges WHERE source NOT LIKE 'm_%' AND source NOT LIKE 'd_%'")
+    conn.execute("DELETE FROM m_edge_meta WHERE edge_source NOT LIKE 'm_%' AND edge_source NOT LIKE 'd_%'")
 
     atoms: dict[str, dict] = {}
     edges: set[tuple[str, str, str]] = set()
@@ -544,8 +546,21 @@ def atom_detail(conn: sqlite3.Connection, atom_id: str) -> dict | None:
     r = conn.execute("SELECT id,label,type,created,text,source,tags,weight,hub FROM m_atoms WHERE id=?", (atom_id,)).fetchone()
     if not r:
         return None
-    links = [{"source": a, "target": b, "type": t} for a, b, t in conn.execute(
-        "SELECT source,target,type FROM m_edges WHERE source=? OR target=?", (atom_id, atom_id))]
+    links = []
+    for a, b, t in conn.execute(
+        "SELECT source,target,type FROM m_edges WHERE source=? OR target=?", (atom_id, atom_id)
+    ):
+        meta = conn.execute(
+            "SELECT explicit, actor FROM m_edge_meta WHERE edge_source=? AND edge_target=? AND edge_type=?",
+            (a, b, t),
+        ).fetchone()
+        links.append({
+            "source": a,
+            "target": b,
+            "type": t,
+            "explicit": bool(meta and meta[0] == 1),
+            "actor": meta[1] if meta else None,
+        })
     return {
         "id": r[0], "label": r[1], "type": r[2], "created": r[3], "text": r[4], "source": r[5],
         "tags": [t for t in (r[6] or "").split(",") if t], "weight": r[7], "hub": r[8], "links": links,
@@ -700,21 +715,164 @@ def log_op(conn: sqlite3.Connection, op: str, atom_id: str | None = None,
             pass
 
 
+class RememberRejected(ValueError):
+    """A memory write was refused before anything was stored.
+
+    ``code`` is a stable machine token (``empty`` or ``filler``). ``reason`` is
+    a short portable explanation. Neither depends on a host, a client, or a
+    personal name. The store is unchanged.
+    """
+
+    def __init__(self, code: str, reason: str) -> None:
+        self.code = code
+        self.reason = reason
+        super().__init__(reason)
+
+    def as_dict(self) -> dict:
+        return {"stored": False, "rejected": True, "code": self.code, "reason": self.reason}
+
+
+# Conversation filler: acknowledgements, closers, and status pings that carry
+# no durable fact. Matched on the whole stripped text (punctuation ignored),
+# never as a substring, so "ok to ship the fix" is not filler. English-shaped
+# on purpose — this is a chatter filter, not a language detector.
+_FILLER_EXACT = frozenset({
+    "ok", "okay", "k", "kk", "yes", "yeah", "yep", "yup", "no", "nope", "nah",
+    "sure", "fine", "cool", "great", "nice", "good", "alright", "right",
+    "thanks", "thank", "thx", "ty", "please", "pls", "sorry", "np",
+    "done", "did", "fixed", "works", "working", "noted", "ack", "acknowledged",
+    "lol", "lmao", "haha", "hmm", "hm", "uh", "um", "oh", "ah", "wow",
+    "hi", "hello", "hey", "bye", "goodbye",
+    "continue", "continuing", "proceed", "next", "go", "wait", "stop",
+    "true", "false", "none", "null", "nil", "n/a", "na", "tbd", "todo",
+    "same", "ditto", "agreed", "exactly", "correct", "incorrect",
+    "updating", "updated", "looking", "checking", "testing", "running",
+})
+_FILLER_PHRASES = frozenset({
+    "ok thanks", "okay thanks", "thanks ok", "thank you", "thanks so much",
+    "got it", "gotcha", "sounds good", "sounds great", "looks good", "looks great",
+    "all good", "all set", "no problem", "no worries", "you are welcome", "youre welcome",
+    "will do", "on it", "let me know", "as discussed", "as requested",
+    "see above", "see below", "same as above", "same as before",
+    "done now", "all done", "task done", "its done", "it is done",
+    "i see", "i understand", "understood", "makes sense", "that works",
+    "good point", "fair enough", "of course", "never mind", "nevermind",
+    "one moment", "just a moment", "be right back",
+    "lgtm", "ship it", "looks fine",
+})
+# Glue words that appear in chatter. A SHORT text made only of filler words and
+# glue words ("ok thanks so much for that") is filler; one content word saves it.
+_FILLER_GLUE = frozenset({
+    "a", "an", "the", "i", "you", "it", "its", "is", "are", "was", "that", "this",
+    "so", "very", "much", "for", "to", "me", "my", "we", "all", "now", "again",
+    "will", "ill", "let", "know", "got", "sounds", "looks", "thank", "thanks",
+    "problem", "worries", "welcome", "point", "lot", "many", "just", "then",
+    "and", "or", "but", "well", "also", "too", "here", "there", "not", "be",
+})
+# Full-sentence agent chatter: closers, "what next" prompts and tool-status
+# narration. These use content words, so the vocabulary rule cannot see them.
+# Each pattern must match the WHOLE normalised text (``fullmatch`` on the
+# lowercase, punctuation-free key), so a real memory that merely contains
+# "let me know" or "the command succeeded" is never refused.
+_FILLER_SENTENCE_PATTERNS = tuple(re.compile(p) for p in (
+    # "what would you like to do next", "so what do you want me to do now"
+    r"(?:(?:ok|okay|so|and) )?what (?:would|do|should|shall) (?:you|we|i) "
+    r"(?:like|want|need)?(?: ?(?:me |us )?to)? ?do(?: (?:next|now|from here))?",
+    r"(?:(?:ok|okay|so|and) )?what(?: is|s)? next|what now",
+    # "let me know if you need anything else", "feel free to ask if you have questions"
+    r"(?:(?:please|just|and) )?(?:let me know|feel free to (?:ask|reach out))"
+    r"(?: (?:if|whether|when))? (?:you|there)(?: \w+){0,3}"
+    r" (?:anything|something|questions?|more|else|help|further)(?: \w+){0,2}",
+    # "is there anything else you need", "do you need anything else"
+    r"(?:is|are) there (?:anything|something) else(?: (?:you|i|we)(?: \w+){1,3})?",
+    r"(?:do|would|can|could) (?:you|i) (?:need|want)(?: \w+){0,2} (?:anything|something) else",
+    # "the tool outputs show the command succeeded"
+    r"(?:(?:the|this|that) )?(?:(?:tool|command|script|build|test) )?"
+    r"(?:outputs?|results?|logs?) (?:shows?|showed|indicates?|confirms?|confirmed)"
+    r" (?:that )?(?:(?:the|this|that|it) )?(?:\w+ )?"
+    r"(?:succeeded|worked|passed|completed|finished|ran successfully)",
+))
+_FILLER_MAX_WORDS = 8
+_WORD_RE = re.compile(r"[a-z0-9]+(?:'[a-z]+)?", re.IGNORECASE)
+_SIGNIFICANT_RE = re.compile(r"[^\W_]", re.UNICODE)
+
+
+def _remember_flag(name: str, default: str = "1") -> bool:
+    raw = getattr(config.settings, name, default)
+    return str(raw).strip().lower() not in ("0", "false", "no", "off")
+
+
+def _filler_key(text: str) -> str:
+    words = [w.lower().replace("'", "") for w in _WORD_RE.findall(text)]
+    return " ".join(words)
+
+
+def remember_rejection(text: str) -> RememberRejected | None:
+    """Return a rejection for empty or filler text, else None.
+
+    Disabled when ``remember_quality`` is off. Length uses significant
+    characters (letters or digits), so a short fact is not dropped for being
+    terse and a long string of punctuation still fails.
+    """
+    cleaned = (text or "").strip()
+    if not cleaned:
+        return RememberRejected("empty", "memory text is empty")
+    if not _remember_flag("remember_quality"):
+        return None
+    significant = len(_SIGNIFICANT_RE.findall(cleaned))
+    try:
+        minimum = int(getattr(config.settings, "remember_min_chars", 3) or 3)
+    except (TypeError, ValueError):
+        minimum = 3
+    minimum = max(1, minimum)
+    if significant < minimum:
+        return RememberRejected(
+            "filler",
+            f"memory is too short to keep ({significant} significant characters; need {minimum})",
+        )
+    key = _filler_key(cleaned)
+    words = key.split()
+    vocab = _FILLER_EXACT | _FILLER_GLUE | {w for p in _FILLER_PHRASES for w in p.split()}
+    if (
+        key in _FILLER_EXACT
+        or key in _FILLER_PHRASES
+        or any(p.fullmatch(key) for p in _FILLER_SENTENCE_PATTERNS)
+        or (0 < len(words) <= _FILLER_MAX_WORDS and all(w in vocab for w in words))
+    ):
+        return RememberRejected(
+            "filler",
+            "memory is conversation filler, not a durable fact",
+        )
+    return None
+
+
 def remember(conn: sqlite3.Connection, text: str, *, atype: str = "observation",
              hubs: list[str] | None = None, links: dict[str, list[str]] | None = None,
              source: str | None = None, session_id: str | None = None,
              label: str | None = None, weight: float | None = None,
-             dedupe: bool = False) -> dict:
+             dedupe: bool = False, supersedes: str | None = None) -> dict:
     """Store a memory atom, wire its edges, and log the store.
 
     ``dedupe=True`` makes an exact re-store idempotent: if an atom with the same
     content hash and source already exists, it is returned unchanged (no new
     atom, no store op). The nightly deep phase uses this so re-running it cannot
     duplicate a lesson it already stored. Matching is exact text, not semantic.
+
+    Empty text and generic conversation filler are refused with
+    ``RememberRejected`` before any write. Set ``NEOBRAIN_REMEMBER_QUALITY=0``
+    to store them anyway. A rejected call leaves the store unchanged.
     """
     _ensure_schema(conn)
     now = now_ms()
-    text = text.strip()
+    text = (text or "").strip()
+    rejection = remember_rejection(text)
+    if rejection is not None:
+        raise rejection
+    # Validate before any insert. A bad replacement target must not leave a
+    # stored memory behind.
+    prior = (supersedes or "").strip()
+    if prior and not conn.execute("SELECT 1 FROM m_atoms WHERE id=?", (prior,)).fetchone():
+        raise ValueError(f"unknown atom: {prior}")
     if dedupe:
         row = conn.execute(
             "SELECT id,label,type,created FROM m_atoms WHERE hash=? AND source IS ? "
@@ -746,6 +904,15 @@ def remember(conn: sqlite3.Connection, text: str, *, atype: str = "observation",
     # PORT-NOTE: S4 — born with a rank row (active, quality 0.5) so exposure
     # counters and the forgetting state machine exist from the first serve.
     rank.ensure_row(conn, aid, now=now)
+    record_history(conn, aid, "add", new_text=text, actor=session_id or source, ts=now)
+    # `supersedes` is a caller stating a replacement, so it is explicit and is
+    # written in this same transaction: a failed target stores nothing. The
+    # older `links` dict stays non-explicit (callers must not get trust by
+    # passing it). Empty string is treated as "not set".
+    if prior:
+        # Same transaction as the atom. `commit=False` so a bad target raises
+        # before anything is committed and the memory is not stored alone.
+        link(conn, aid, prior, "supersedes", session_id, explicit=True, commit=False)
     _commit(conn)
     log_op(conn, "store", aid, lbl, None, session_id)
     # Best-effort: give the new atom a vector now so it is immediately
@@ -755,20 +922,90 @@ def remember(conn: sqlite3.Connection, text: str, *, atype: str = "observation",
 
 
 def link(conn: sqlite3.Connection, source_id: str, target_id: str, kind: str,
-         session_id: str | None = None) -> dict:
+         session_id: str | None = None, *, explicit: bool = False,
+         commit: bool = True) -> dict:
+    """Wire two atoms. ``explicit=True`` is a caller stating the link.
+
+    A guessed call (``explicit=False``) never downgrades an explicit edge.
+    A repeat of the same triple writes nothing: no second ``m_ops`` row and no
+    history. Validation failures write nothing.
+    """
     _ensure_schema(conn)
     if kind not in LINK_TYPES:
         raise ValueError(f"unknown link type: {kind}")
-    conn.execute("INSERT OR IGNORE INTO m_edges(source,target,type) VALUES(?,?,?)", (source_id, target_id, kind))
-    _commit(conn)
-    log_op(conn, "link", source_id, target_id, kind, session_id)
-    return {"source": source_id, "target": target_id, "type": kind}
+    source_id = (source_id or "").strip()
+    target_id = (target_id or "").strip()
+    if not source_id or not target_id:
+        raise ValueError("link ids must not be empty")
+    if source_id == target_id:
+        raise ValueError("a memory cannot link to itself")
+    missing = [
+        aid for aid in (source_id, target_id)
+        if not conn.execute("SELECT 1 FROM m_atoms WHERE id=?", (aid,)).fetchone()
+    ]
+    if missing:
+        raise ValueError(f"unknown atom: {missing[0]}")
+    now = now_ms()
+    edge = conn.execute(
+        "SELECT 1 FROM m_edges WHERE source=? AND target=? AND type=?",
+        (source_id, target_id, kind),
+    ).fetchone()
+    meta = conn.execute(
+        "SELECT explicit FROM m_edge_meta WHERE edge_source=? AND edge_target=? AND edge_type=?",
+        (source_id, target_id, kind),
+    ).fetchone()
+    already_explicit = bool(meta and meta[0])
+    created = edge is None
+    upgraded = explicit and not already_explicit and not created
+    if created or upgraded:
+        conn.execute(
+            "INSERT OR IGNORE INTO m_edges(source,target,type) VALUES(?,?,?)",
+            (source_id, target_id, kind),
+        )
+        # explicit=1 only when the caller stated it; a later explicit link
+        # upgrades a guess, a guess never clears the flag.
+        conn.execute(
+            """INSERT INTO m_edge_meta(edge_source,edge_target,edge_type,explicit,actor,created)
+               VALUES(?,?,?,?,?,?)
+               ON CONFLICT(edge_source,edge_target,edge_type) DO UPDATE SET
+                 explicit = MAX(m_edge_meta.explicit, excluded.explicit),
+                 actor = CASE WHEN excluded.explicit = 1 AND m_edge_meta.explicit = 0
+                              THEN excluded.actor ELSE m_edge_meta.actor END""",
+            (source_id, target_id, kind, 1 if explicit else 0, session_id, now),
+        )
+        record_history(
+            conn, source_id, "link",
+            new_text=f"{kind} -> {target_id}",
+            actor=session_id,
+            reason="explicit" if explicit else "inferred",
+            ts=now,
+        )
+        if commit:
+            _commit(conn)
+            log_op(conn, "link", source_id, target_id, kind, session_id)
+    return {
+        "source": source_id,
+        "target": target_id,
+        "type": kind,
+        "explicit": already_explicit or explicit,
+        "created": created,
+    }
 
 
 def forget(conn: sqlite3.Connection, atom_id: str, session_id: str | None = None) -> dict:
     _ensure_schema(conn)
+    row = conn.execute("SELECT text FROM m_atoms WHERE id=?", (atom_id,)).fetchone()
+    if row is not None:
+        # Recorded BEFORE the delete, in the same transaction as it.
+        record_history(conn, atom_id, "delete", old_text=row[0], actor=session_id)
     conn.execute("DELETE FROM m_atoms WHERE id=?", (atom_id,))
     conn.execute("DELETE FROM m_edges WHERE source=? OR target=?", (atom_id, atom_id))
+    # The trust bit dies with the edge. A recreated triple must not inherit
+    # explicit=1 from a memory that was deleted.
+    conn.execute(
+        "DELETE FROM m_edge_meta WHERE edge_source=? OR edge_target=?",
+        (atom_id, atom_id),
+    )
     try:
         embeddings.ensure_schema(conn)
         conn.execute("DELETE FROM m_embeddings WHERE atom_id=?", (atom_id,))
@@ -789,6 +1026,12 @@ def forget(conn: sqlite3.Connection, atom_id: str, session_id: str | None = None
 # recall ranking, so relevance still dominates (see _feedback_multiplier).
 
 FEEDBACK_SIGNALS = ("used", "useful", "noise", "unused")
+
+
+def history(conn: sqlite3.Connection, atom_id: str) -> list[dict]:
+    """The atom's append-only history, oldest first. Read-only; works after the
+    atom itself was deleted."""
+    return read_history(conn, atom_id)
 
 
 def feedback(conn: sqlite3.Connection, atom_id: str, signal: str, *,
@@ -828,10 +1071,11 @@ def feedback(conn: sqlite3.Connection, atom_id: str, signal: str, *,
         # PORT-NOTE: S4 — keep the deterministic rank store in step with the
         # feedback log: count the interaction, promote an ignored/archived atom
         # that just proved value (useful/used), and refresh its quality.
-        # `unused` is skipped: it is high-volume and soft (the recall multiplier
-        # reads it directly), and a per-atom rank recompute is a full-graph scan
-        # that a per-turn inferred signal must not trigger.
-        # Best-effort — rank bookkeeping must never turn a ping into an error.
+        # `unused` stays out of the rank store on purpose. It is inferred, not
+        # a verdict, and high-volume: counting it as feedback would let a pile
+        # of non-answers forget a memory (SPEC §4.2 reserves that for noise).
+        # Recall already reads it as a small capped drag, and the life loop's
+        # rank pass is what applies age. Best-effort either way.
         if signal != "unused":
             try:
                 rank.on_feedback(conn, atom_id, signal)
@@ -1112,8 +1356,13 @@ def _score_atoms(atoms: list[dict], query: str,
 
 def recall(conn: sqlite3.Connection, query: str, *, limit: int = 8,
            session_id: str | None = None, semantic: bool = True,
-           alpha: float | None = None) -> dict:
+           alpha: float | None = None, include_superseded: bool = False) -> dict:
     """Return a compact, relevant subgraph for a query, and log the recall.
+
+    Atoms superseded by a newer *active* atom are hidden by default only when
+    the caller stated that replacement (an explicit ``supersedes`` edge). A
+    guessed edge, or one with no provenance, does not hide.
+    ``include_superseded=True`` returns them too. Nothing is deleted.
 
     Ranking is **hybrid** (lexical + local semantic cosine) when embeddings
     exist and Ollama answers; otherwise it falls back to the lexical scorer.
@@ -1123,10 +1372,25 @@ def recall(conn: sqlite3.Connection, query: str, *, limit: int = 8,
     # PORT-NOTE: S4 — atoms the rank engine forgot (state != 'active') are never
     # recall candidates. An atom with no rank row counts as active, so an empty
     # or all-active m_rank reproduces the pre-S4 candidate set byte-for-byte.
-    rows = list(conn.execute(
-        "SELECT a.id, a.label, a.type, a.created, a.text, a.source, a.tags, a.weight, a.hub "
-        "FROM m_atoms a WHERE NOT EXISTS ("
-        "  SELECT 1 FROM m_rank r WHERE r.atom_id = a.id AND r.state <> 'active')"))
+    # Supersession is a read-time filter only: an atom is hidden only when it is
+    # the target of an explicit `supersedes` edge (matching m_edge_meta.explicit
+    # = 1) whose source atom exists and is itself active. Missing meta, or
+    # explicit = 0, does not hide. A superseder that is ignored/archived (or
+    # gone) hides nothing.
+    sql = ("SELECT a.id, a.label, a.type, a.created, a.text, a.source, a.tags, a.weight, a.hub "
+           "FROM m_atoms a WHERE NOT EXISTS ("
+           "  SELECT 1 FROM m_rank r WHERE r.atom_id = a.id AND r.state <> 'active')")
+    if not include_superseded:
+        sql += (" AND NOT EXISTS ("
+                "  SELECT 1 FROM m_edges e"
+                "  JOIN m_atoms s ON s.id = e.source"
+                "  JOIN m_edge_meta em ON em.edge_source = e.source"
+                "    AND em.edge_target = e.target AND em.edge_type = e.type"
+                "    AND em.explicit = 1"
+                "  WHERE e.type = 'supersedes' AND e.target = a.id AND e.source <> a.id"
+                "  AND NOT EXISTS ("
+                "    SELECT 1 FROM m_rank sr WHERE sr.atom_id = s.id AND sr.state <> 'active'))")
+    rows = list(conn.execute(sql))
     candidates = [
         {"id": r[0], "label": r[1], "type": r[2], "created": r[3], "text": r[4],
          "source": r[5], "tags": r[6] or "", "weight": r[7], "hub": r[8]}
@@ -1257,8 +1521,12 @@ def _normalize_hubs(conn: sqlite3.Connection) -> int:
         for col in ("source", "target"):
             try:
                 conn.execute(f"UPDATE m_edges SET {col}=? WHERE {col}=?", (c, hid))
+                meta_col = "edge_source" if col == "source" else "edge_target"
+                conn.execute(f"UPDATE m_edge_meta SET {meta_col}=? WHERE {meta_col}=?", (c, hid))
             except sqlite3.IntegrityError:
                 conn.execute(f"DELETE FROM m_edges WHERE {col}=?", (hid,))
+                meta_col = "edge_source" if col == "source" else "edge_target"
+                conn.execute(f"DELETE FROM m_edge_meta WHERE {meta_col}=?", (hid,))
         conn.execute("DELETE FROM m_hubs WHERE id=?", (hid,))
         changed += 1
     # agents may have stored non-canonical hub ids directly
@@ -1407,6 +1675,7 @@ def _promote_daily_notes(conn: sqlite3.Connection, cap: int = PROMOTE_CAP,
             continue
         conn.execute("DELETE FROM m_atoms WHERE id=?", (aid,))
         conn.execute("DELETE FROM m_edges WHERE source=? OR target=?", (aid, aid))
+        conn.execute("DELETE FROM m_edge_meta WHERE edge_source=? OR edge_target=?", (aid, aid))
         try:
             embeddings.ensure_schema(conn)
             conn.execute("DELETE FROM m_embeddings WHERE atom_id=?", (aid,))
@@ -1443,6 +1712,7 @@ def _promote_daily_notes(conn: sqlite3.Connection, cap: int = PROMOTE_CAP,
             continue  # beyond this pass's cap
         # (re)wire provenance + hub for every atom we own
         conn.execute("DELETE FROM m_edges WHERE source=?", (d["id"],))
+        conn.execute("DELETE FROM m_edge_meta WHERE edge_source=?", (d["id"],))
         for h in [t for t in (d["tags"] or "").split(",") if t] or [d["hub"]]:
             _ensure_hub(conn, _canon(h))
             conn.execute("INSERT OR IGNORE INTO m_edges(source,target,type) VALUES(?,?,?)",
@@ -1491,6 +1761,7 @@ def _consolidate_inner(conn: sqlite3.Connection, session_id: str | None = None) 
 
     # regenerate from scratch so the pass is idempotent and tunable
     conn.execute("DELETE FROM m_edges WHERE source IN (SELECT id FROM m_atoms WHERE source='dream:consolidate')")
+    conn.execute("DELETE FROM m_edge_meta WHERE edge_source IN (SELECT id FROM m_atoms WHERE source='dream:consolidate')")
     conn.execute("DELETE FROM m_atoms WHERE source='dream:consolidate'")
     _commit(conn)
 
@@ -1584,8 +1855,22 @@ def _add_supersessions(conn: sqlite3.Connection) -> int:
         derived.add((x, y))
         derived.add((y, x))
     for x, y in list(conn.execute("SELECT source,target FROM m_edges WHERE type='supersedes'")):
-        if (x, y) in derived:
-            conn.execute("DELETE FROM m_edges WHERE source=? AND target=? AND type='supersedes'", (x, y))
+        if (x, y) not in derived:
+            continue
+        # A caller-stated link is not a guess. This pass must not delete it
+        # just because a derived-from edge also exists. No meta row means not
+        # explicit, so older guessed edges are still pruned.
+        stated = conn.execute(
+            "SELECT explicit FROM m_edge_meta WHERE edge_source=? AND edge_target=? AND edge_type='supersedes'",
+            (x, y),
+        ).fetchone()
+        if stated and stated[0]:
+            continue
+        conn.execute("DELETE FROM m_edges WHERE source=? AND target=? AND type='supersedes'", (x, y))
+        conn.execute(
+            "DELETE FROM m_edge_meta WHERE edge_source=? AND edge_target=? AND edge_type='supersedes'",
+            (x, y),
+        )
     existing = {(a, b) for a, b in conn.execute("SELECT source,target FROM m_edges WHERE type='supersedes'")}
     added = 0
     for i, a in enumerate(rows):
@@ -1603,7 +1888,23 @@ def _add_supersessions(conn: sqlite3.Connection) -> int:
             if not (len(spec) >= 2 or any(df[t] <= 2 for t in spec)):
                 continue
             if (a[0], b[0]) not in existing:
-                conn.execute("INSERT OR IGNORE INTO m_edges(source,target,type) VALUES(?,?,?)", (a[0], b[0], "supersedes"))
+                # Guessed, never explicit. Matching logic is unchanged; the meta
+                # row is written here (explicit=0) so this pass still commits once.
+                conn.execute(
+                    "INSERT OR IGNORE INTO m_edges(source,target,type) VALUES(?,?,?)",
+                    (a[0], b[0], "supersedes"),
+                )
+                conn.execute(
+                    """INSERT INTO m_edge_meta(edge_source,edge_target,edge_type,explicit,actor,created)
+                       VALUES(?,?,?,0,NULL,?)
+                       ON CONFLICT(edge_source,edge_target,edge_type) DO NOTHING""",
+                    (a[0], b[0], "supersedes", now_ms()),
+                )
+                record_history(
+                    conn, a[0], "link",
+                    new_text=f"supersedes -> {b[0]}",
+                    reason="inferred",
+                )
                 existing.add((a[0], b[0]))
                 added += 1
             break

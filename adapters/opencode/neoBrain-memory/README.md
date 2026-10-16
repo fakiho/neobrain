@@ -1,7 +1,7 @@
 # neoBrain-memory (OpenCode adapter)
 
 Thin OpenCode plugin: session wakeup injection, per-turn recall lane, the
-`memory_store` / `memory_open` / `memory_search` / `memory_rate` tools, and the persona lane —
+`memory_store` / `memory_link` / `memory_open` / `memory_search` / `memory_rate` tools, and the persona lane —
 injects `SOUL.md` / `IDENTITY.md` / `USER.md` into the system prompt once per
 session (caps 20k chars/file, 60k total, USER.md 4k).
 `USER.md` is compacted before the cap applies — the header/format explainer,
@@ -27,6 +27,7 @@ ln -s /path/to/neobrain/adapters/opencode/neoBrain-memory ~/.opencode/plugins/ne
 ```
 
 Typecheck: `cd adapters/opencode/neoBrain-memory && npx tsc --noEmit` (config in `tsconfig.json`).
+Tests: `node --test index.test.ts` (Node 22.6+ with type stripping; no dependencies, no running daemon).
 
 ## Environment
 
@@ -36,12 +37,29 @@ Typecheck: `cd adapters/opencode/neoBrain-memory && npx tsc --noEmit` (config in
 
 ## In-turn rating (SPEC §5)
 
-- The recall block asks the agent to rate, with `memory_rate(id, "useful" \| "noise")`, **only the memories it actually used**, as it finishes its reply. Unused entries are left unrated.
+- The recall block carries one advisory line: call `memory_rate(id, "useful" \| "noise")` when a recalled memory helped or was wrong. It is a hint, never a gate, and useful/noise verdicts are never inferred — they stay the model's.
+- It also carries one advisory line for `memory_link`: state a `supersedes` link only when the user corrected an earlier memory or a decision replaced one. Never guess from similar wording. It is a hint, never a gate.
+- The recall block inlines the text of the top hit. That atom (and only that one — atoms merely listed by id do not count) is posted as `used` automatically, best effort and once per turn, and is excluded from the `unused` inference. A failed post never affects injection.
 - Rating is in-session and by the agent that used the memory: there is no cross-session state and no blocking gate. The former "unrated protocol" (a global pending ledger that blocked mind calls until rated) was removed — it forced a session to rate atoms another session had surfaced, and drove ratings to a near-constant `useful`.
 - Objective usage is still automatic: `memory_open(id)` posts a `used` signal on success.
 - Ratings are recorded against the rater's session *and* the memory's origin session (`m_atoms.session_id`, `m_feedback.origin_session_id`), so provenance is preserved on both ends.
 
 ## Store with origin session
 
-- `memory_store(text, type?, hubs?, source?, label?, dedupe?)` POSTs `/api/mind/remember` with `session` = the live OpenCode sessionID, so the atom's `m_atoms.session_id` records **which session it came from**.
+`memory_store` is for **one durable fact** — a decision, preference, correction,
+or lesson worth recalling later. The tool description tells the agent not to
+call it for chatter or status ("ok", "thanks", "got it", "done", "continuing")
+and not to retry a text the server refused.
+
+The server enforces that rule (`POST /api/mind/remember` → 422, see the repo
+README's "Memory writes"). The tool surfaces it as
+`memory_store: not stored (filler) — <reason>` rather than a bare HTTP status,
+so the agent can tell a rejection from a daemon failure. A down daemon is still
+reported as an error and never crashes the session.
+
+
+
+- `memory_store(text, type?, hubs?, source?, label?, dedupe?, supersedes?)` POSTs `/api/mind/remember` with `session` = the live OpenCode sessionID, so the atom's `m_atoms.session_id` records **which session it came from**.
+- `supersedes` is an atom id this new memory replaces. Set it only when the user corrected that memory or a decision replaced it — never from similar wording. After a successful store the tool POSTs `/api/mind/link` with kind `supersedes`. A failed link is reported in the tool result and does **not** undo the stored memory.
+- `memory_link(source_id, target_id, kind)` POSTs `/api/mind/link` with the live session id. The server always records the link as explicit.
 - Prefer this over the CLI for agent saves: a `neobrain remember` from the shell lands as `session_id="cli"` unless `--session <ses_id>` is passed (the origin link was previously near-empty for exactly this reason).

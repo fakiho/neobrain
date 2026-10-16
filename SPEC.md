@@ -65,7 +65,13 @@ reachable. (An additive blend cannot: recency/connectivity then act as
 irreducible floors — verified numerically and fixed before commit.) Exposure
 (`served + 3·interacted`) is the second axis and never raises quality. Knobs:
 `rank_decay_floor`, `rank_conn_floor`, `rank_half_life_days`, `rank_prior_n`,
-`rank_ignore_below`, `rank_archive_exposure` in `config.py`.
+`rank_ignore_below`, `rank_archive_exposure` in `config.py`. The inferred
+`unused` hint is not a score input: it is not a verdict, and counting it would
+let non-answers forget a memory. Recall applies it as a small capped drag.
+The life loop is the batch caller: once per `rank_interval_minutes` (default
+one day, due-based, quiet hours included) it runs `rank.recompute` then
+`rank.run_eviction` and records a `life: evict` event. Eviction still never
+deletes.
 
 ### 4.3 Forgetting (rank-based only)
 - low rank + low exposure → **ignored forever**: never surfaced, zero cost, never deleted

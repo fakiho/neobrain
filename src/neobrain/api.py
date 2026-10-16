@@ -22,7 +22,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from . import config, db, mind, persona, service, settings_store
+from . import config, db, maintenance, mind, persona, service, settings_store
 from .models import iso, new, now_ms, to_ms
 
 # PORT-NOTE: the old in-API ingest scheduler (INGEST_INTERVAL / _ingest_loop) is
@@ -448,6 +448,16 @@ def mind_atom(atom_id: str) -> dict:
     return a
 
 
+@app.get("/api/mind/history")
+def mind_history(atom_id: str) -> dict:
+    conn = _conn()
+    try:
+        events = mind.history(conn, atom_id)
+    finally:
+        conn.close()
+    return {"atom_id": atom_id, "count": len(events), "events": events}
+
+
 @app.get("/api/mind/activity")
 def mind_activity(limit: int = Query(60, le=200)) -> dict:
     conn = _conn()
@@ -492,18 +502,60 @@ class RememberBody(BaseModel):
     session: Optional[str] = None
     label: Optional[str] = None
     dedupe: bool = False
+    supersedes: Optional[str] = None
 
 
 @app.post("/api/mind/remember")
 def mind_remember(body: RememberBody) -> dict:
+    """Store one memory. Filler and empty text are 422, store unchanged.
+
+    The body is ``{"stored": false, "rejected": true, "code", "reason"}``.
+    ``code`` is ``empty`` or ``filler``. Other clients can keep calling this
+    route; a rejected write is not an HTTP 500 and does not require OpenCode.
+    """
     conn = db.connect()
     try:
         db.init_db(conn)
-        return mind.remember(
-            conn, body.text, atype=body.type, hubs=body.hubs, links=body.links,
-            source=body.source, session_id=body.session, label=body.label,
-            dedupe=body.dedupe,
-        )
+        try:
+            return mind.remember(
+                conn, body.text, atype=body.type, hubs=body.hubs, links=body.links,
+                source=body.source, session_id=body.session, label=body.label,
+                dedupe=body.dedupe, supersedes=body.supersedes,
+            )
+        except mind.RememberRejected as exc:
+            raise HTTPException(422, exc.as_dict())
+        except ValueError as exc:
+            # A bad `supersedes` target stores nothing (remember raises before
+            # its commit). `links` stays non-explicit and is not this path.
+            raise HTTPException(400, str(exc))
+    finally:
+        conn.close()
+
+
+class LinkBody(BaseModel):
+    source_id: str
+    target_id: str
+    kind: str
+    session: Optional[str] = None
+
+
+@app.post("/api/mind/link")
+def mind_link(body: LinkBody) -> dict:
+    """State a link. Always explicit: a caller saying it is the definition.
+
+    A bad kind, a missing atom, or a self-link is 400 with the ValueError
+    message. Nothing is written in those cases.
+    """
+    conn = db.connect()
+    try:
+        db.init_db(conn)
+        try:
+            return mind.link(
+                conn, body.source_id, body.target_id, body.kind,
+                session_id=body.session, explicit=True,
+            )
+        except ValueError as exc:
+            raise HTTPException(400, str(exc))
     finally:
         conn.close()
 
@@ -533,11 +585,13 @@ def mind_feedback(body: FeedbackBody) -> dict:
 
 
 @app.get("/api/mind/recall")
-def mind_recall(q: str, limit: int = Query(8, le=50), session: Optional[str] = None) -> dict:
+def mind_recall(q: str, limit: int = Query(8, le=50), session: Optional[str] = None,
+                include_superseded: bool = False) -> dict:
     conn = db.connect()
     try:
         db.init_db(conn)
-        return mind.recall(conn, q, limit=limit, session_id=session)
+        return mind.recall(conn, q, limit=limit, session_id=session,
+                           include_superseded=include_superseded)
     finally:
         conn.close()
 
@@ -589,6 +643,23 @@ def mind_consolidate(session: Optional[str] = None) -> dict:
     try:
         db.init_db(conn)
         return mind.consolidate(conn, session)
+    finally:
+        conn.close()
+
+
+@app.get("/api/mind/maintenance/source-cleanup")
+def mind_source_cleanup_plan(prefix: str = maintenance.DEFAULT_PREFIX,
+                             prune_empty_hubs: bool = False,
+                             sample: int = Query(maintenance.DEFAULT_SAMPLE, ge=0, le=200)) -> dict:
+    """Dry-run of provenance-scoped cleanup. Read-only; there is deliberately no
+    HTTP apply — the API is unauthenticated with open CORS, so deletion is CLI-only
+    (``neobrain maintain source-cleanup --apply``)."""
+    conn = _conn()
+    try:
+        return maintenance.plan_source_cleanup(
+            conn, prefix, prune_empty_hubs=prune_empty_hubs, sample=sample)
+    except maintenance.MaintenanceError as exc:
+        raise HTTPException(400, str(exc))
     finally:
         conn.close()
 
@@ -885,6 +956,7 @@ def debug_overview() -> dict:
         ("perceive", s.life_perceive_interval_minutes),
         ("reflect", s.life_reflect_interval_minutes),
         ("act", s.life_act_interval_minutes),
+        ("evict", s.rank_interval_minutes),
     ):
         row = conn.execute(
             "SELECT ts, detail FROM events WHERE actor='agent:neobrain' AND category='life' AND title=? ORDER BY ts DESC LIMIT 1",
@@ -963,6 +1035,68 @@ def debug_overview() -> dict:
         )
     ]
 
+    # Link provenance: explicit (caller stated), guessed, or unmarked (no meta).
+    # Counts join meta onto m_edges so a dangling meta row (no foreign key) is
+    # not counted. `hidden` copies recall's supersession predicate, including the
+    # target's own active check, so the count cannot disagree with recall.
+    links = {
+        "total": one("SELECT COUNT(*) FROM m_edges"),
+        "explicit": one(
+            "SELECT COUNT(*) FROM m_edges e JOIN m_edge_meta em"
+            " ON em.edge_source = e.source AND em.edge_target = e.target AND em.edge_type = e.type"
+            " WHERE em.explicit = 1"
+        ),
+        "guessed": one(
+            "SELECT COUNT(*) FROM m_edges e JOIN m_edge_meta em"
+            " ON em.edge_source = e.source AND em.edge_target = e.target AND em.edge_type = e.type"
+            " WHERE em.explicit = 0"
+        ),
+        "unmarked": one(
+            "SELECT COUNT(*) FROM m_edges e WHERE NOT EXISTS ("
+            "SELECT 1 FROM m_edge_meta em WHERE em.edge_source = e.source"
+            " AND em.edge_target = e.target AND em.edge_type = e.type)"
+        ),
+        "supersedes_explicit": one(
+            "SELECT COUNT(*) FROM m_edges e JOIN m_edge_meta em"
+            " ON em.edge_source = e.source AND em.edge_target = e.target AND em.edge_type = e.type"
+            " WHERE e.type = 'supersedes' AND em.explicit = 1"
+        ),
+        "hidden": one(
+            "SELECT COUNT(*) FROM m_atoms a WHERE NOT EXISTS ("
+            "  SELECT 1 FROM m_rank r WHERE r.atom_id = a.id AND r.state <> 'active')"
+            " AND EXISTS ("
+            "  SELECT 1 FROM m_edges e"
+            "  JOIN m_atoms s ON s.id = e.source"
+            "  JOIN m_edge_meta em ON em.edge_source = e.source"
+            "    AND em.edge_target = e.target AND em.edge_type = e.type"
+            "    AND em.explicit = 1"
+            "  WHERE e.type = 'supersedes' AND e.target = a.id AND e.source <> a.id"
+            "  AND NOT EXISTS ("
+            "    SELECT 1 FROM m_rank sr WHERE sr.atom_id = s.id AND sr.state <> 'active'))"
+        ),
+    }
+    link_feed = []
+    for r in conn.execute(
+        "SELECT e.source, e.target, e.type, sa.label, ta.label, em.explicit, em.actor, em.created "
+        "FROM m_edges e "
+        "LEFT JOIN m_atoms sa ON sa.id = e.source "
+        "LEFT JOIN m_atoms ta ON ta.id = e.target "
+        "LEFT JOIN m_edge_meta em ON em.edge_source = e.source "
+        "  AND em.edge_target = e.target AND em.edge_type = e.type "
+        "WHERE e.type <> 'about' "
+        "ORDER BY em.created IS NULL, em.created DESC LIMIT 15"
+    ):
+        link_feed.append({
+            "source": r[0],
+            "target": r[1],
+            "type": r[2],
+            "source_label": r[3],
+            "target_label": r[4],
+            "explicit": r[5] == 1,
+            "actor": r[6],
+            "created": r[7],
+        })
+
     config_view = {
         "life_enabled": _life_enabled(),
         "quiet_hours": f"{s.life_quiet_start:02d}:00–{s.life_quiet_end:02d}:00",
@@ -992,6 +1126,8 @@ def debug_overview() -> dict:
         "quiet_now": quiet_now,
         "last_dream": dict(last_dream) if last_dream else None,
         "self_trace": {"docs": self_docs, "doc_counts": self_doc_counts, "preferences": prefs},
+        "links": links,
+        "link_feed": link_feed,
         "config": config_view,
     }
 
