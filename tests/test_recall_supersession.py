@@ -1,4 +1,4 @@
-"""Recall hides atoms superseded by a newer active atom (read-time, append-only)."""
+"""Recall hides atoms a caller explicitly superseded with a newer active atom (read-time, append-only)."""
 from __future__ import annotations
 
 from neobrain import mind
@@ -13,6 +13,11 @@ def _pair(conn, add_atom):
     add_atom("new", created=T + 1000, label="openwrt firewall nftables",
              text="openwrt firewall nftables replaced iptables")
     conn.execute("INSERT INTO m_edges(source,target,type) VALUES('new','old','supersedes')")
+    conn.execute(
+        "INSERT INTO m_edge_meta(edge_source,edge_target,edge_type,explicit,actor,created) "
+        "VALUES('new','old','supersedes',1,NULL,?)",
+        (T,),
+    )
     conn.commit()
 
 

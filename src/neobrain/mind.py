@@ -1346,8 +1346,10 @@ def recall(conn: sqlite3.Connection, query: str, *, limit: int = 8,
            alpha: float | None = None, include_superseded: bool = False) -> dict:
     """Return a compact, relevant subgraph for a query, and log the recall.
 
-    Atoms superseded by a newer *active* atom (a ``supersedes`` edge) are hidden
-    by default; ``include_superseded=True`` returns them too. Nothing is deleted.
+    Atoms superseded by a newer *active* atom are hidden by default only when
+    the caller stated that replacement (an explicit ``supersedes`` edge). A
+    guessed edge, or one with no provenance, does not hide.
+    ``include_superseded=True`` returns them too. Nothing is deleted.
 
     Ranking is **hybrid** (lexical + local semantic cosine) when embeddings
     exist and Ollama answers; otherwise it falls back to the lexical scorer.
@@ -1357,15 +1359,21 @@ def recall(conn: sqlite3.Connection, query: str, *, limit: int = 8,
     # PORT-NOTE: S4 — atoms the rank engine forgot (state != 'active') are never
     # recall candidates. An atom with no rank row counts as active, so an empty
     # or all-active m_rank reproduces the pre-S4 candidate set byte-for-byte.
-    # Supersession is a read-time filter only: an atom that is the target of a
-    # `supersedes` edge whose source atom exists and is itself active is hidden.
-    # A superseder that is ignored/archived (or gone) hides nothing.
+    # Supersession is a read-time filter only: an atom is hidden only when it is
+    # the target of an explicit `supersedes` edge (matching m_edge_meta.explicit
+    # = 1) whose source atom exists and is itself active. Missing meta, or
+    # explicit = 0, does not hide. A superseder that is ignored/archived (or
+    # gone) hides nothing.
     sql = ("SELECT a.id, a.label, a.type, a.created, a.text, a.source, a.tags, a.weight, a.hub "
            "FROM m_atoms a WHERE NOT EXISTS ("
            "  SELECT 1 FROM m_rank r WHERE r.atom_id = a.id AND r.state <> 'active')")
     if not include_superseded:
         sql += (" AND NOT EXISTS ("
-                "  SELECT 1 FROM m_edges e JOIN m_atoms s ON s.id = e.source"
+                "  SELECT 1 FROM m_edges e"
+                "  JOIN m_atoms s ON s.id = e.source"
+                "  JOIN m_edge_meta em ON em.edge_source = e.source"
+                "    AND em.edge_target = e.target AND em.edge_type = e.type"
+                "    AND em.explicit = 1"
                 "  WHERE e.type = 'supersedes' AND e.target = a.id AND e.source <> a.id"
                 "  AND NOT EXISTS ("
                 "    SELECT 1 FROM m_rank sr WHERE sr.atom_id = s.id AND sr.state <> 'active'))")
