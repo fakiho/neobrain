@@ -37,7 +37,8 @@ Tests: `node --test index.test.ts` (Node 22.6+ with type stripping; no dependenc
 
 ## In-turn rating (SPEC §5)
 
-- The recall block asks the agent to rate, with `memory_rate(id, "useful" \| "noise")`, **only the memories it actually used**, as it finishes its reply. Unused entries are left unrated.
+- The recall block carries one advisory line: call `memory_rate(id, "useful" \| "noise")` when a recalled memory helped or was wrong. It is a hint, never a gate, and useful/noise verdicts are never inferred — they stay the model's.
+- The recall block inlines the text of the top hit. That atom (and only that one — atoms merely listed by id do not count) is posted as `used` automatically, best effort and once per turn, and is excluded from the `unused` inference. A failed post never affects injection.
 - Rating is in-session and by the agent that used the memory: there is no cross-session state and no blocking gate. The former "unrated protocol" (a global pending ledger that blocked mind calls until rated) was removed — it forced a session to rate atoms another session had surfaced, and drove ratings to a near-constant `useful`.
 - Objective usage is still automatic: `memory_open(id)` posts a `used` signal on success.
 - Ratings are recorded against the rater's session *and* the memory's origin session (`m_atoms.session_id`, `m_feedback.origin_session_id`), so provenance is preserved on both ends.

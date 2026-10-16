@@ -102,3 +102,88 @@ describe("memory_store tool", () => {
     assert.equal(calls.length, 0)
   })
 })
+
+type Hook = (event: Record<string, unknown>) => void | Promise<void>
+
+async function loadHooks(): Promise<Record<string, Hook>> {
+  const hooks: Record<string, Hook> = {}
+  const ctx = { session: { hook: async (name: string, fn: Hook) => void (hooks[name] = fn) } }
+  await (plugin as { setup: (c: unknown) => Promise<unknown> }).setup(ctx)
+  return hooks
+}
+
+const ATOMS = [
+  { id: "m_top", type: "decision", hub: "neobrain", label: "Ship adapters weekly", text: "Ship adapters weekly on Tuesday." },
+  { id: "m_two", type: "lesson", hub: "neobrain", label: "Adapters need tests", text: "Adapters need tests before shipping." },
+]
+
+// Route by URL: recall returns ATOMS, everything else is recorded (and may fail).
+function mockDaemon(feedbackFails = false) {
+  const calls: { url: string; body?: any }[] = []
+  globalThis.fetch = (async (url: string, init?: { body?: string }) => {
+    const u = String(url)
+    calls.push({ url: u, body: init?.body ? JSON.parse(init.body) : undefined })
+    if (u.includes("/api/mind/recall"))
+      return new Response(JSON.stringify({ atoms: ATOMS }), { status: 200, headers: { "content-type": "application/json" } })
+    if (u.includes("/api/mind/feedback") && feedbackFails) throw new Error("connect ECONNREFUSED")
+    return new Response("{}", { status: 200, headers: { "content-type": "application/json" } })
+  }) as typeof fetch
+  return calls
+}
+
+async function runTurn(hooks: Record<string, Hook>, sid: string, prompt: string) {
+  const system: { type: "text"; text: string }[] = []
+  await hooks.prompt({ sessionID: sid, prompt: { text: prompt } })
+  await hooks.context({ sessionID: sid, system })
+  await new Promise((r) => setTimeout(r, 0)) // let fire-and-forget posts settle
+  return system.map((s) => s.text).join("\n")
+}
+
+const feedback = (calls: { url: string; body?: any }[]) => calls.filter((c) => c.url.includes("/api/mind/feedback"))
+
+describe("recall `used` signal", () => {
+  it("posts `used` exactly once for the inlined top hit", async () => {
+    const hooks = await loadHooks()
+    const calls = mockDaemon()
+    await runTurn(hooks, "ses_used", "when do we ship adapters?")
+    const fb = feedback(calls)
+    assert.equal(fb.length, 1)
+    assert.deepEqual(fb[0].body, { atom_id: "m_top", signal: "used", source: "plugin", session: "ses_used" })
+  })
+
+  it("posts nothing for recalled atoms that were only listed by id", async () => {
+    const hooks = await loadHooks()
+    const calls = mockDaemon()
+    const text = await runTurn(hooks, "ses_listed", "when do we ship adapters?")
+    assert.match(text, /\[m_two\]/) // listed in the index...
+    assert.ok(!feedback(calls).some((c) => c.body.atom_id === "m_two")) // ...but never reported
+  })
+
+  it("does not mark the inlined atom `unused` at the turn boundary", async () => {
+    const hooks = await loadHooks()
+    const calls = mockDaemon()
+    await runTurn(hooks, "ses_next", "when do we ship adapters?")
+    await runTurn(hooks, "ses_next", "something unrelated xyz")
+    const signals = feedback(calls).map((c) => `${c.body.signal}:${c.body.atom_id}`)
+    assert.deepEqual(signals.filter((s) => s.endsWith(":m_top")), ["used:m_top"])
+    assert.ok(signals.includes("unused:m_two"))
+  })
+
+  it("does not throw or lose the injection when the feedback post fails", async () => {
+    const hooks = await loadHooks()
+    const calls = mockDaemon(true)
+    const text = await runTurn(hooks, "ses_fail", "when do we ship adapters?")
+    assert.match(text, /Top hit \[m_top\]/)
+    assert.equal(feedback(calls).length, 1)
+  })
+
+  it("adds one advisory rating hint and no blocking protocol", async () => {
+    const hooks = await loadHooks()
+    mockDaemon()
+    const text = await runTurn(hooks, "ses_hint", "when do we ship adapters?")
+    const hintLines = text.split("\n").filter((l) => l.includes("memory_rate"))
+    assert.equal(hintLines.length, 1)
+    assert.match(hintLines[0], /memory_rate\(id, "useful"\|"noise"\)/)
+    assert.doesNotMatch(text, /before you finish|must rate|required/i)
+  })
+})

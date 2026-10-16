@@ -11,8 +11,9 @@
 //   3. Tools: memory_store(text, …) / memory_open(id) / memory_search(query) /
 //      memory_rate(id, verdict).
 //
-// Rating is in-turn and in-session: the recall block asks the agent to rate,
-// via memory_rate, only the atoms it actually used, as it finishes its reply.
+// Rating is in-turn and in-session: the recall block carries one advisory line
+// pointing at memory_rate. The atom whose text the block inlines is recorded as
+// `used` automatically (it was shown); useful/noise verdicts stay the model's.
 // Nothing is gated or blocked, and no cross-session state is kept — a session
 // can only ever rate what it surfaced and used itself. (The former blocking
 // "unrated protocol" was removed: it forced a session to rate atoms another
@@ -95,6 +96,8 @@ const STOP = new Set([
 const IDX_N = 10
 const IDX_CHARS = 2000
 const IDX_LABEL = 100
+// One advisory line, never a gate: the verdict stays the model's to give.
+const RATE_HINT = `If a recalled memory helped or was wrong, call memory_rate(id, "useful"|"noise").`
 
 // Standing directives (pinned preferences): the must-follow rules re-injected on
 // EVERY model call, not just at wake-up — so time, drift and compaction cannot
@@ -154,6 +157,9 @@ type RecallAtom = { id?: string; type?: string; hub?: string; label?: string; te
 // Push a compact, rank-ordered index instead of up to 3 full atoms: a header,
 // one line per hit (`[id] type · hub — label`), the #1 hit's full text (truncated
 // to fit the budget) and a footer telling the agent how to pull more. No summaries.
+// Returns the block plus the ids whose TEXT it actually inlined (only the #1 hit,
+// and only if some of its text survived the budget) — those, and only those, were
+// genuinely shown to the model. Atoms merely listed by id are not included.
 function renderRecall(atoms: RecallAtom[], query: string, escalated: boolean) {
   if (!atoms || !atoms.length) return null
   const head = "# Memory (neoBrain) — relevant to this message"
@@ -166,7 +172,7 @@ function renderRecall(atoms: RecallAtom[], query: string, escalated: boolean) {
   const top = atoms[0]
   const topHead = `Top hit [${top.id}] ${oneLine(top.type)} · ${oneLine(top.hub)} — ${oneLine(top.label).slice(0, IDX_LABEL)}`
   const topText = oneLine(top.text)
-  const hint = `Before you finish, rate only the memories you actually used: memory_rate(id, "useful") if one helped, "noise" if it misled you. Leave the rest unrated.`
+  const hint = RATE_HINT
   const footer = `showing ${entries.length} of ${atoms.length} — open one with memory_open(id), or memory_search(query) for more.`
 
   // Reserve the fixed lines, give the remaining budget to the #1 hit's text.
@@ -174,7 +180,8 @@ function renderRecall(atoms: RecallAtom[], query: string, escalated: boolean) {
   const room = Math.max(0, IDX_CHARS - fixed - 1)
   const body = topText.length > room ? topText.slice(0, Math.max(0, room - 1)).trimEnd() + "…" : topText
 
-  return [head, sub, ...entries, topHead, body, hint, footer].join("\n")
+  const inlined = top.id && body.replace(/…$/, "").trim() ? [top.id] : []
+  return { text: [head, sub, ...entries, topHead, body, hint, footer].join("\n"), inlined }
 }
 
 type DirectiveAtom = { id?: string; label?: string; text?: string; type?: string }
@@ -680,11 +687,19 @@ export default {
           const hay = oneLine(`${a.label} ${a.text}`).toLowerCase()
           return want.some((t) => hay.includes(t))
         })
-        const text = renderRecall(atoms, query, escalated)
-        if (text) {
+        const rendered = renderRecall(atoms, query, escalated)
+        if (rendered) {
+          const { text, inlined } = rendered
           sys.push({ type: "text", text })
           const pushed = atoms.slice(0, IDX_N).map((a) => a.id).filter((id): id is string => !!id)
           pushedTurn.set(sid, pushed)
+          // The inlined top hit was genuinely shown: record `used` (best effort,
+          // once per atom per turn) and keep it out of the `unused` inference.
+          for (const id of inlined) {
+            if (usedTurn.get(sid)?.has(id)) continue
+            reportFeedback(id, "used", sid)
+            markUsed(sid, id)
+          }
           dbg(`${sidShort(sid)} recall "${oneLine(query).slice(0, 60)}" escalated=${escalated} → ${Math.min(atoms.length, IDX_N)} hits injected`)
           reportInjection("recall", "context", text.length, sid, escalated ? "deep" : undefined, pushed)
         } else {
