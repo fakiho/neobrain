@@ -502,6 +502,7 @@ class RememberBody(BaseModel):
     session: Optional[str] = None
     label: Optional[str] = None
     dedupe: bool = False
+    supersedes: Optional[str] = None
 
 
 @app.post("/api/mind/remember")
@@ -519,10 +520,14 @@ def mind_remember(body: RememberBody) -> dict:
             return mind.remember(
                 conn, body.text, atype=body.type, hubs=body.hubs, links=body.links,
                 source=body.source, session_id=body.session, label=body.label,
-                dedupe=body.dedupe,
+                dedupe=body.dedupe, supersedes=body.supersedes,
             )
         except mind.RememberRejected as exc:
             raise HTTPException(422, exc.as_dict())
+        except ValueError as exc:
+            # A bad `supersedes` target stores nothing (remember raises before
+            # its commit). `links` stays non-explicit and is not this path.
+            raise HTTPException(400, str(exc))
     finally:
         conn.close()
 

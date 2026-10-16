@@ -358,6 +358,13 @@ def apply_source_cleanup(
             deleted["edges"] = conn.execute(
                 f"DELETE FROM m_edges WHERE source IN ({sel}) OR target IN ({sel})", sp + sp
             ).rowcount
+        # Same transaction as the edge: a recreated triple must not inherit the
+        # trust bit of a memory this cleanup removed.
+        if _has_table(conn, "m_edge_meta"):
+            conn.execute(
+                f"DELETE FROM m_edge_meta WHERE edge_source IN ({sel}) OR edge_target IN ({sel})",
+                sp + sp,
+            )
         if _has_table(conn, "m_embeddings"):
             deleted["embeddings"] = conn.execute(
                 f"DELETE FROM m_embeddings WHERE atom_id IN ({sel})", sp
