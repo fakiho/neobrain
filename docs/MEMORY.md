@@ -7,7 +7,7 @@ that came from somewhere else (today: an import whose `source` starts with
 
 ## The model
 
-Three tables, all in the single SQLite store (`neobrain.db`, schema in
+Three core tables, all in the single SQLite store (`neobrain.db`, schema in
 `src/neobrain/schema.py`):
 
 | Table | What it holds |
@@ -25,11 +25,38 @@ Around them:
 - `m_feedback`, `m_ops` — append-only history of ratings and operations.
   Deleting a memory does **not** delete its history; the rows stay and point
   at an id that no longer exists. This matches `neobrain forget`.
+- `m_history` — append-only record of each state change of an atom (`add`,
+  `delete`), with the text involved, who did it, and why. See
+  [History](#history).
 
 `source` is free text saying where a memory came from: the CLI, a doc path, a
 dream pass (`dream:consolidate`), or an import. A memory imported from another
 tool is marked with a **namespace prefix**, `icm:` (`icm:import:…`). That
 prefix is the only handle the cleanup below uses — it never matches on text.
+
+## History
+
+`m_history` is the audit trail of every memory. One row per state change:
+`ts`, `atom_id`, `event` (`add` or `delete`), `old_text`, `new_text`, `actor`
+and `reason`.
+
+- **Append-only.** Rows are only ever inserted; nothing updates or removes
+  them.
+- **Same transaction.** The row is written inside the transaction that makes
+  the change, before it commits, so the trail and the store cannot disagree: a
+  rolled-back change leaves no history row.
+- **Survives deletion.** There is no foreign key to `m_atoms`, so the history
+  of a forgotten atom stays readable, including the text it had (`old_text`).
+- What is recorded today: `remember` writes `add` (actor = session id, else
+  source); `forget` writes `delete` with the old text; a source cleanup writes
+  one `delete` per removed atom (actor `maintenance`, reason = the prefix). An
+  exact re-store skipped by `dedupe` changes nothing and writes nothing.
+- Stores created before schema v6 start with an empty history; nothing is
+  backfilled.
+
+Read it with `neobrain history <atom_id>` (oldest first, JSON),
+`GET /api/mind/history?atom_id=…`, or `mind.history(conn, atom_id)`. All are
+read-only.
 
 ## Portability
 

@@ -41,6 +41,7 @@ import sqlite3
 from pathlib import Path
 from typing import Any
 
+from .history import record_history
 from .models import now_ms
 
 #: Default provenance namespace this operation was built for.
@@ -341,6 +342,16 @@ def apply_source_cleanup(
         if again["confirm_token"] != confirm:
             raise MaintenanceError("store changed between plan and apply; nothing deleted")
         empty = list(again["hubs"]["will_prune"])
+
+        # Audit trail first, in this same transaction: one 'delete' row per atom
+        # about to go (so a rollback leaves no history either).
+        if _has_table(conn, "m_history"):
+            ts = now_ms()
+            for aid, text in conn.execute(
+                "SELECT a.id, a.text FROM m_atoms a WHERE substr(a.source, 1, ?) = ? ORDER BY a.id", sp
+            ).fetchall():
+                record_history(conn, aid, "delete", old_text=text, actor="maintenance",
+                               reason=prefix, ts=ts)
 
         # Dependents first, then the atoms themselves.
         if _has_table(conn, "m_edges"):

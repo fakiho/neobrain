@@ -11,6 +11,7 @@ Usage:
   neobrain wakeup
   neobrain link <src> <target> <kind>
   neobrain forget <atom_id>
+  neobrain history <atom_id>
   neobrain consolidate
   neobrain maintain source-cleanup [--prefix icm:] [--apply --confirm TOKEN]
   neobrain feedback <atom_id> used|useful|noise
@@ -335,6 +336,16 @@ def cmd_forget(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_history(args: argparse.Namespace) -> int:
+    conn = db.connect()
+    db.init_db(conn)  # additive migration only; this command writes no history
+    try:
+        print(json.dumps(mind.history(conn, args.atom_id), indent=2))
+    finally:
+        conn.close()
+    return 0
+
+
 def cmd_consolidate(args: argparse.Namespace) -> int:
     conn = db.connect()
     _retry(db.init_db, conn)
@@ -501,6 +512,10 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("atom_id")
     sp.add_argument("--session")
     sp.set_defaults(func=cmd_forget)
+
+    sp = sub.add_parser("history", help="show a memory's append-only history (read-only)")
+    sp.add_argument("atom_id")
+    sp.set_defaults(func=cmd_history)
 
     sp = sub.add_parser("consolidate", help="dream pass: merge hubs, promote patterns, resolve supersessions")
     sp.add_argument("--session")
