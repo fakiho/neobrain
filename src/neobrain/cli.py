@@ -12,6 +12,7 @@ Usage:
   neobrain link <src> <target> <kind>
   neobrain forget <atom_id>
   neobrain consolidate
+  neobrain maintain source-cleanup [--prefix icm:] [--apply --confirm TOKEN]
   neobrain feedback <atom_id> used|useful|noise
   neobrain embed [--force] [--limit N]
   neobrain dreams [--phase light|rem|deep|all] [--replay YYYY-MM-DD]
@@ -37,7 +38,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
-from . import config, db, embeddings, mind
+from . import config, db, embeddings, maintenance, mind
 
 # Repo root = parents[2] (src/neobrain/cli.py); adapters/ lives there.
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -365,6 +366,50 @@ def cmd_pin(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_maintain(args: argparse.Namespace) -> int:
+    """Provenance-scoped cleanup. Dry-run (read-only) unless ``--apply``."""
+    try:
+        if not args.apply:
+            if args.confirm:
+                print("error: --confirm only makes sense with --apply", file=sys.stderr)
+                return 2
+            if not config.DB_PATH.exists():
+                print(f"error: no store at {config.DB_PATH}", file=sys.stderr)
+                return 1
+            conn = db.connect(readonly=True)  # cannot write, by construction
+            try:
+                plan = maintenance.plan_source_cleanup(
+                    conn, args.prefix, prune_empty_hubs=args.prune_empty_hubs, sample=args.sample)
+            finally:
+                conn.close()
+            print(json.dumps(plan, indent=2))
+            if plan["confirm_token"]:
+                print(
+                    "\ndry-run only; nothing was changed. To delete, re-run with:\n"
+                    f"  neobrain maintain source-cleanup --prefix {args.prefix} "
+                    f"{'--prune-empty-hubs ' if args.prune_empty_hubs else ''}"
+                    f"--apply --confirm {plan['confirm_token']}",
+                    file=sys.stderr,
+                )
+            return 0
+        if not config.DB_PATH.exists():
+            print(f"error: no store at {config.DB_PATH}", file=sys.stderr)
+            return 1
+        conn = db.connect()
+        try:
+            res = maintenance.apply_source_cleanup(
+                conn, args.prefix, confirm=args.confirm, prune_empty_hubs=args.prune_empty_hubs,
+                backup=not args.no_backup, backup_dir=Path(args.backup_dir) if args.backup_dir else None)
+        finally:
+            conn.close()
+    except maintenance.MaintenanceError as exc:
+        print(f"refused: {exc}", file=sys.stderr)
+        return 1
+    res.pop("plan", None)  # the dry-run already showed it; keep the receipt short
+    print(json.dumps(res, indent=2))
+    return 0
+
+
 def cmd_embed(args: argparse.Namespace) -> int:
     conn = db.connect()
     db.init_db(conn)
@@ -477,6 +522,24 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--off", action="store_true", help="unpin instead of pin")
     sp.add_argument("--session")
     sp.set_defaults(func=cmd_pin)
+
+    sp = sub.add_parser("maintain", help="memory maintenance (dry-run by default)")
+    msub = sp.add_subparsers(dest="maintain_cmd", required=True)
+    mp = msub.add_parser(
+        "source-cleanup",
+        help="remove atoms whose source starts with a prefix (default icm:); dry-run unless --apply")
+    mp.add_argument("--prefix", default=maintenance.DEFAULT_PREFIX,
+                    help="provenance namespace ending in ':' (default %(default)s)")
+    mp.add_argument("--prune-empty-hubs", action="store_true",
+                    help="also delete hubs left with no atoms by this cleanup")
+    mp.add_argument("--sample", type=int, default=maintenance.DEFAULT_SAMPLE,
+                    help="how many selected atoms to list (default %(default)s)")
+    mp.add_argument("--apply", action="store_true", help="actually delete (needs --confirm)")
+    mp.add_argument("--confirm", help="confirm_token printed by the dry-run")
+    mp.add_argument("--no-backup", action="store_true",
+                    help="skip the pre-delete backup (not recommended)")
+    mp.add_argument("--backup-dir", help="where to write the backup (default <data dir>/backups)")
+    sp.set_defaults(func=cmd_maintain)
     return p
 
 
