@@ -76,6 +76,11 @@ class Settings(BaseSettings):
     rank_prior_n: float = 10.0       # smoothing prior strength for feedback avg
     rank_ignore_below: float = 0.15  # quality under this = forgetting candidate
     rank_archive_exposure: int = 5   # exposure score over this + low quality -> archived
+    # How often the life loop refreshes quality and demotes forgotten atoms.
+    # Cadence lives in code + the events table, same as the other phases — not
+    # in an OS timer. Default is one day; ``unused`` is deliberately not a rank
+    # input (see rank.py), so this pass is what applies age and graph change.
+    rank_interval_minutes: int = 1440
 
     # --- LLM runtime (OpenAI-compatible) ---
     llm_base_url: str = "http://127.0.0.1:4000/v1"

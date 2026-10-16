@@ -828,10 +828,11 @@ def feedback(conn: sqlite3.Connection, atom_id: str, signal: str, *,
         # PORT-NOTE: S4 — keep the deterministic rank store in step with the
         # feedback log: count the interaction, promote an ignored/archived atom
         # that just proved value (useful/used), and refresh its quality.
-        # `unused` is skipped: it is high-volume and soft (the recall multiplier
-        # reads it directly), and a per-atom rank recompute is a full-graph scan
-        # that a per-turn inferred signal must not trigger.
-        # Best-effort — rank bookkeeping must never turn a ping into an error.
+        # `unused` stays out of the rank store on purpose. It is inferred, not
+        # a verdict, and high-volume: counting it as feedback would let a pile
+        # of non-answers forget a memory (SPEC §4.2 reserves that for noise).
+        # Recall already reads it as a small capped drag, and the life loop's
+        # rank pass is what applies age. Best-effort either way.
         if signal != "unused":
             try:
                 rank.on_feedback(conn, atom_id, signal)

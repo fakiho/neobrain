@@ -85,10 +85,10 @@ def atoms_from(conn: sqlite3.Connection, source: str) -> list[sqlite3.Row]:
 def test_one_tick_runs_perceive_reflect_act_in_order(loop):
     instance, _clock, llm = loop
     result = instance.tick()
-    assert result["ran"] == ["perceive", "reflect", "act"]
+    assert result["ran"] == ["perceive", "reflect", "act", "evict"]
     assert result["quiet"] is False
     assert titles(instance.connect()) == [
-        "life: perceive", "life: reflect", "life: act",
+        "life: perceive", "life: reflect", "life: act", "life: evict",
     ]
     assert len(llm.calls) == 1
     assert llm.calls[0]["model"] == "strong"
@@ -132,7 +132,8 @@ def test_quiet_hours_run_only_perceive(loop, hour):
     clock.dt = clock.dt.replace(hour=hour)
     result = instance.tick()
     assert result["quiet"] is True
-    assert result["ran"] == ["perceive"]
+    # Evict is due-based, not hour-gated, so quiet hours still forget.
+    assert result["ran"] == ["perceive", "evict"]
     conn = instance.connect()
     assert "life: act" not in titles(conn)
     assert "life: reflect" not in titles(conn)
@@ -150,7 +151,7 @@ def test_non_quiet_hour_8_is_not_quiet(loop):
 
 def test_intervals_gate_reruns(loop):
     instance, clock, _llm = loop
-    assert instance.tick()["ran"] == ["perceive", "reflect", "act"]
+    assert instance.tick()["ran"] == ["perceive", "reflect", "act", "evict"]
 
     clock.advance(minutes=1)
     assert instance.tick()["ran"] == []  # nothing due yet
@@ -161,13 +162,13 @@ def test_intervals_gate_reruns(loop):
     clock.advance(minutes=15)  # 31 min: perceive + reflect due
     assert instance.tick()["ran"] == ["perceive", "reflect"]
 
-    clock.advance(minutes=300)  # everything due
+    clock.advance(minutes=300)  # perceive, reflect and act due; evict is daily
     assert instance.tick()["ran"] == ["perceive", "reflect", "act"]
 
 
 def test_state_is_derived_so_a_restart_loses_nothing(loop):
     instance, clock, _llm = loop
-    assert instance.tick()["ran"] == ["perceive", "reflect", "act"]
+    assert instance.tick()["ran"] == ["perceive", "reflect", "act", "evict"]
 
     # A fresh loop object over the same DB (simulating a daemon restart) must
     # see the phases as recently run and stay idle.
@@ -237,7 +238,7 @@ def test_dream_hook_runs_dreams_once_per_night(loop, monkeypatch):
     monkeypatch.setattr(config.settings, "reflect_weekdays", "6")  # keep reflect off this Wed clock
     clock.dt = clock.dt.replace(hour=2)  # dream hour, and quiet
     first = instance.tick()
-    assert first["ran"] == ["perceive", "dream"]
+    assert first["ran"] == ["perceive", "dream", "evict"]
     assert len(calls) == 1
 
     clock.advance(minutes=30)
@@ -254,7 +255,7 @@ def test_dream_hook_runs_dreams_once_per_night(loop, monkeypatch):
 def test_dream_hook_does_not_fire_outside_dream_hour(loop):
     instance, clock, _llm = loop
     clock.dt = clock.dt.replace(hour=3)  # quiet, but not life_dream_hour (2)
-    assert instance.tick()["ran"] == ["perceive"]
+    assert instance.tick()["ran"] == ["perceive", "evict"]
 
 
 # --- run_forever ------------------------------------------------------------
@@ -278,10 +279,57 @@ def test_act_failure_is_recorded_but_does_not_crash(loop):
 
     instance._runtime = BrokenRuntime()
     result = instance.tick()
-    assert result["ran"] == ["perceive", "reflect", "act"]
+    assert result["ran"] == ["perceive", "reflect", "act", "evict"]
     row = instance.connect().execute(
         "SELECT severity, detail FROM events WHERE title='life: act'"
     ).fetchone()
     assert row["severity"] == "warning"
     assert "gateway down" in json.loads(row["detail"])["summary"]
     assert atoms_from(instance.connect(), "life:act") == []
+
+
+def test_evict_demotes_a_forgotten_atom_and_spares_a_neutral_one(loop):
+    instance, clock, _llm = loop
+    conn = instance.connect()
+    when = int(clock.dt.timestamp() * 1000)
+    day = 86_400_000
+    conn.execute(
+        "INSERT INTO m_atoms(id,label,type,created,text,source,tags,weight,hub,hash) "
+        "VALUES('old','old','observation',?,'aged out','test','',0.5,'','h')",
+        (when - 400 * day,),
+    )
+    conn.execute(
+        "INSERT INTO m_atoms(id,label,type,created,text,source,tags,weight,hub,hash) "
+        "VALUES('fresh','fresh','observation',?,'just stored','test','',0.5,'','h')",
+        (when,),
+    )
+    conn.commit()
+
+    assert "evict" in instance.tick()["ran"]
+    states = dict(conn.execute("SELECT id, (SELECT state FROM m_rank WHERE atom_id=id) FROM m_atoms"))
+    assert states["old"] == "ignored"
+    assert states["fresh"] == "active"
+    # demotion keeps the row; forgetting is not deletion
+    assert conn.execute(
+        "SELECT COUNT(*) FROM m_atoms WHERE id IN ('old','fresh')"
+    ).fetchone()[0] == 2
+    detail = json.loads(conn.execute(
+        "SELECT detail FROM events WHERE title='life: evict'"
+    ).fetchone()[0])
+    assert detail["ignored"] == 1
+    assert detail["archived"] == 0
+    assert detail["scored"] >= 2
+
+    clock.advance(hours=12)
+    assert "evict" not in instance.tick()["ran"]
+    clock.advance(hours=13)
+    again = instance.tick()
+    assert "evict" in again["ran"]
+    # a second pass finds nothing new to demote
+    second = json.loads(conn.execute(
+        "SELECT detail FROM events WHERE title='life: evict' ORDER BY ts DESC LIMIT 1"
+    ).fetchone()[0])
+    assert second["ignored"] == 0
+    assert conn.execute(
+        "SELECT state FROM m_rank WHERE atom_id='old'"
+    ).fetchone()[0] == "ignored"
