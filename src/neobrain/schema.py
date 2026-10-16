@@ -190,8 +190,8 @@ CREATE TABLE IF NOT EXISTS m_history (
 CREATE INDEX IF NOT EXISTS idx_m_history_atom_ts ON m_history(atom_id, ts);
 
 -- Edge provenance (v7): whether a caller stated the link, or a guesser wrote it.
--- No foreign key: forgetting an atom deletes the edge and may leave this row,
--- same as ``m_feedback``.
+-- No foreign key. ``forget`` deletes the matching row in the same transaction
+-- as the edge, so a recreated triple cannot inherit a stale trust bit.
 CREATE TABLE IF NOT EXISTS m_edge_meta (
   edge_source TEXT NOT NULL,
   edge_target TEXT NOT NULL,

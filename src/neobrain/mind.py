@@ -421,6 +421,7 @@ def import_mind(conn: sqlite3.Connection) -> dict:
     # transport and may be cleaned up as they grow
     conn.execute("DELETE FROM m_atoms WHERE id NOT LIKE 'm_%' AND id NOT LIKE 'd_%'")
     conn.execute("DELETE FROM m_edges WHERE source NOT LIKE 'm_%' AND source NOT LIKE 'd_%'")
+    conn.execute("DELETE FROM m_edge_meta WHERE edge_source NOT LIKE 'm_%' AND edge_source NOT LIKE 'd_%'")
 
     atoms: dict[str, dict] = {}
     edges: set[tuple[str, str, str]] = set()
@@ -836,7 +837,7 @@ def remember(conn: sqlite3.Connection, text: str, *, atype: str = "observation",
              hubs: list[str] | None = None, links: dict[str, list[str]] | None = None,
              source: str | None = None, session_id: str | None = None,
              label: str | None = None, weight: float | None = None,
-             dedupe: bool = False) -> dict:
+             dedupe: bool = False, supersedes: str | None = None) -> dict:
     """Store a memory atom, wire its edges, and log the store.
 
     ``dedupe=True`` makes an exact re-store idempotent: if an atom with the same
@@ -886,6 +887,15 @@ def remember(conn: sqlite3.Connection, text: str, *, atype: str = "observation",
     # counters and the forgetting state machine exist from the first serve.
     rank.ensure_row(conn, aid, now=now)
     record_history(conn, aid, "add", new_text=text, actor=session_id or source, ts=now)
+    # `supersedes` is a caller stating a replacement, so it is explicit and is
+    # written in this same transaction: a failed target stores nothing. The
+    # older `links` dict stays non-explicit (callers must not get trust by
+    # passing it). Empty string is treated as "not set".
+    prior = (supersedes or "").strip()
+    if prior:
+        # Same transaction as the atom. `commit=False` so a bad target raises
+        # before anything is committed and the memory is not stored alone.
+        link(conn, aid, prior, "supersedes", session_id, explicit=True, commit=False)
     _commit(conn)
     log_op(conn, "store", aid, lbl, None, session_id)
     # Best-effort: give the new atom a vector now so it is immediately
@@ -895,7 +905,8 @@ def remember(conn: sqlite3.Connection, text: str, *, atype: str = "observation",
 
 
 def link(conn: sqlite3.Connection, source_id: str, target_id: str, kind: str,
-         session_id: str | None = None, *, explicit: bool = False) -> dict:
+         session_id: str | None = None, *, explicit: bool = False,
+         commit: bool = True) -> dict:
     """Wire two atoms. ``explicit=True`` is a caller stating the link.
 
     A guessed call (``explicit=False``) never downgrades an explicit edge.
@@ -905,6 +916,10 @@ def link(conn: sqlite3.Connection, source_id: str, target_id: str, kind: str,
     _ensure_schema(conn)
     if kind not in LINK_TYPES:
         raise ValueError(f"unknown link type: {kind}")
+    source_id = (source_id or "").strip()
+    target_id = (target_id or "").strip()
+    if not source_id or not target_id:
+        raise ValueError("link ids must not be empty")
     if source_id == target_id:
         raise ValueError("a memory cannot link to itself")
     missing = [
@@ -948,8 +963,9 @@ def link(conn: sqlite3.Connection, source_id: str, target_id: str, kind: str,
             reason="explicit" if explicit else "inferred",
             ts=now,
         )
-        _commit(conn)
-        log_op(conn, "link", source_id, target_id, kind, session_id)
+        if commit:
+            _commit(conn)
+            log_op(conn, "link", source_id, target_id, kind, session_id)
     return {
         "source": source_id,
         "target": target_id,
@@ -967,6 +983,12 @@ def forget(conn: sqlite3.Connection, atom_id: str, session_id: str | None = None
         record_history(conn, atom_id, "delete", old_text=row[0], actor=session_id)
     conn.execute("DELETE FROM m_atoms WHERE id=?", (atom_id,))
     conn.execute("DELETE FROM m_edges WHERE source=? OR target=?", (atom_id, atom_id))
+    # The trust bit dies with the edge. A recreated triple must not inherit
+    # explicit=1 from a memory that was deleted.
+    conn.execute(
+        "DELETE FROM m_edge_meta WHERE edge_source=? OR edge_target=?",
+        (atom_id, atom_id),
+    )
     try:
         embeddings.ensure_schema(conn)
         conn.execute("DELETE FROM m_embeddings WHERE atom_id=?", (atom_id,))
@@ -1474,8 +1496,12 @@ def _normalize_hubs(conn: sqlite3.Connection) -> int:
         for col in ("source", "target"):
             try:
                 conn.execute(f"UPDATE m_edges SET {col}=? WHERE {col}=?", (c, hid))
+                meta_col = "edge_source" if col == "source" else "edge_target"
+                conn.execute(f"UPDATE m_edge_meta SET {meta_col}=? WHERE {meta_col}=?", (c, hid))
             except sqlite3.IntegrityError:
                 conn.execute(f"DELETE FROM m_edges WHERE {col}=?", (hid,))
+                meta_col = "edge_source" if col == "source" else "edge_target"
+                conn.execute(f"DELETE FROM m_edge_meta WHERE {meta_col}=?", (hid,))
         conn.execute("DELETE FROM m_hubs WHERE id=?", (hid,))
         changed += 1
     # agents may have stored non-canonical hub ids directly
@@ -1624,6 +1650,7 @@ def _promote_daily_notes(conn: sqlite3.Connection, cap: int = PROMOTE_CAP,
             continue
         conn.execute("DELETE FROM m_atoms WHERE id=?", (aid,))
         conn.execute("DELETE FROM m_edges WHERE source=? OR target=?", (aid, aid))
+        conn.execute("DELETE FROM m_edge_meta WHERE edge_source=? OR edge_target=?", (aid, aid))
         try:
             embeddings.ensure_schema(conn)
             conn.execute("DELETE FROM m_embeddings WHERE atom_id=?", (aid,))
@@ -1660,6 +1687,7 @@ def _promote_daily_notes(conn: sqlite3.Connection, cap: int = PROMOTE_CAP,
             continue  # beyond this pass's cap
         # (re)wire provenance + hub for every atom we own
         conn.execute("DELETE FROM m_edges WHERE source=?", (d["id"],))
+        conn.execute("DELETE FROM m_edge_meta WHERE edge_source=?", (d["id"],))
         for h in [t for t in (d["tags"] or "").split(",") if t] or [d["hub"]]:
             _ensure_hub(conn, _canon(h))
             conn.execute("INSERT OR IGNORE INTO m_edges(source,target,type) VALUES(?,?,?)",
@@ -1708,6 +1736,7 @@ def _consolidate_inner(conn: sqlite3.Connection, session_id: str | None = None) 
 
     # regenerate from scratch so the pass is idempotent and tunable
     conn.execute("DELETE FROM m_edges WHERE source IN (SELECT id FROM m_atoms WHERE source='dream:consolidate')")
+    conn.execute("DELETE FROM m_edge_meta WHERE edge_source IN (SELECT id FROM m_atoms WHERE source='dream:consolidate')")
     conn.execute("DELETE FROM m_atoms WHERE source='dream:consolidate'")
     _commit(conn)
 
@@ -1801,8 +1830,22 @@ def _add_supersessions(conn: sqlite3.Connection) -> int:
         derived.add((x, y))
         derived.add((y, x))
     for x, y in list(conn.execute("SELECT source,target FROM m_edges WHERE type='supersedes'")):
-        if (x, y) in derived:
-            conn.execute("DELETE FROM m_edges WHERE source=? AND target=? AND type='supersedes'", (x, y))
+        if (x, y) not in derived:
+            continue
+        # A caller-stated link is not a guess. This pass must not delete it
+        # just because a derived-from edge also exists. No meta row means not
+        # explicit, so older guessed edges are still pruned.
+        stated = conn.execute(
+            "SELECT explicit FROM m_edge_meta WHERE edge_source=? AND edge_target=? AND edge_type='supersedes'",
+            (x, y),
+        ).fetchone()
+        if stated and stated[0]:
+            continue
+        conn.execute("DELETE FROM m_edges WHERE source=? AND target=? AND type='supersedes'", (x, y))
+        conn.execute(
+            "DELETE FROM m_edge_meta WHERE edge_source=? AND edge_target=? AND edge_type='supersedes'",
+            (x, y),
+        )
     existing = {(a, b) for a, b in conn.execute("SELECT source,target FROM m_edges WHERE type='supersedes'")}
     added = 0
     for i, a in enumerate(rows):
