@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <script>document.documentElement.classList.add('js');</script>
-  <title>neoBrain — A local mind daemon for AI coding agents</title>
+  <title>neoBrain — local agent memory for Claude Code &amp; Gemini CLI</title>
   <meta name="description" content="neoBrain is a local memory daemon for AI coding agents such as Claude Code and Gemini CLI — durable memory, deterministic forgetting, nightly dreams, no cloud account." />
   <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1" />
   <meta name="theme-color" content="#0b0b0e" />
@@ -12,7 +12,7 @@
   <link rel="canonical" href="https://neobrain.alionix.com/" />
 
   <meta property="og:site_name" content="neoBrain" />
-  <meta property="og:title" content="neoBrain — A local mind daemon for AI coding agents" />
+  <meta property="og:title" content="neoBrain — local agent memory for Claude Code &amp; Gemini CLI" />
   <meta property="og:description" content="A local daemon that gives AI coding agents — Claude Code, Gemini CLI, OpenCode and others — durable memory: atoms, hubs and typed edges in SQLite, deterministic rank-based forgetting, nightly dreams and a self-authored soul. One dashboard, no cloud account." />
   <meta property="og:image" content="https://neobrain.alionix.com/assets/og-image.png" />
   <meta property="og:image:width" content="1200" />
@@ -20,7 +20,7 @@
   <meta property="og:url" content="https://neobrain.alionix.com/" />
   <meta property="og:type" content="website" />
   <meta name="twitter:card" content="summary_large_image" />
-  <meta name="twitter:title" content="neoBrain — A local mind daemon for AI coding agents" />
+  <meta name="twitter:title" content="neoBrain — local agent memory for Claude Code &amp; Gemini CLI" />
   <meta name="twitter:description" content="Durable memory, rank-based forgetting, nightly dreams and a self-authored soul for AI coding agents — Claude Code, Gemini CLI, OpenCode and others. One local daemon, one dashboard." />
   <meta name="twitter:image" content="https://neobrain.alionix.com/assets/og-image.png" />
 
@@ -1171,7 +1171,7 @@
 
     <div class="container hero-inner">
       <span class="eyebrow reveal"><span class="dot" aria-hidden="true"></span>Local-first mind daemon</span>
-      <h1 id="hero-title" class="reveal" style="--d:60ms">A simulated brain <span class="grad">for AI coding agents</span></h1>
+      <h1 id="hero-title" class="reveal" style="--d:60ms">A simulated brain with long-term memory <span class="grad">for AI coding agents</span></h1>
       <p class="hero-lede reveal" style="--d:120ms">neoBrain gives AI coding agents durable memory, deterministic forgetting, nightly dreams and a self-authored soul — one local daemon, one dashboard. You watch the mind; the agent becomes.</p>
       <div class="hero-actions reveal" style="--d:180ms">
         <a data-ga-event="cta_click" data-ga-label="Quickstart" data-ga-location="hero" class="btn btn-primary btn-lg" href="#how">Quickstart
@@ -1431,6 +1431,10 @@
 
       <div class="lane-note reveal" style="--d:120ms">
         <strong>The plugin lanes inject themselves.</strong> Once the adapter is symlinked into your OpenCode plugins directory, the wake-up pack, persona docs, standing directives, per-turn recall, the in-turn rating nudge and the compaction hook all fire automatically. You do not wire them per request — you just watch the injections land on the Debug view.
+      </div>
+
+      <div class="lane-note reveal" style="--d:180ms">
+        <strong>OpenCode gets a plugin; every other client gets the API.</strong> The OpenCode adapter is the first-class integration — it injects the wake-up pack and per-turn recall for you. Any agent that can run a shell command or call a local endpoint can reach the same mind instead: Claude Code and Gemini CLI included, writing with <code>neobrain remember</code> or <code>POST /api/mind/remember</code> and reading with <code>recall</code> and <code>wakeup</code>. No protocol bridge to install and no cloud account in between — the daemon is the only thing that has to be running.
       </div>
     </div>
   </section>
