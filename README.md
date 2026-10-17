@@ -309,8 +309,9 @@ exists, treat α as a starting point and tune it on your own store
 Active development. Sprints S0–S7 are done (core mind, Observatory, plugin,
 rank, life loop, API/CLI wiring, cutover — see `SPEC.md` §14 for the board
 and [`docs/CUTOVER.md`](./docs/CUTOVER.md) for the migration). S8 (npm
-launcher + PyInstaller packaging) is pending, so there is no published
-package yet — install from this repo.
+launcher + PyInstaller packaging) is pending, but the package is published on
+PyPI as [`neobrain-cli`](https://pypi.org/project/neobrain-cli/) — install it
+with `pip install neobrain-cli` (Python 3.12), or use this repo for development.
 
 ## License
 
