@@ -1,0 +1,25 @@
+# neoBrain
+
+neoBrain is a local memory daemon for AI coding agents. It gives agents durable memory, deterministic forgetting, nightly dreams and a self-authored soul — one local daemon, one dashboard. Memory is modelled as atoms, hubs and typed edges in SQLite. Memory, embeddings and storage stay on your machine: embeddings run on a local Ollama model, so memory never leaves the host. The brain's own cognition calls your own OpenAI-compatible endpoint with your own key (BYOK).
+
+## What it provides
+
+- Atoms, hubs and typed edges in a local SQLite mind store.
+- Deterministic rank-based forgetting: low-quality memories are ignored or archived, never deleted.
+- Nightly dream cycles that consolidate the day, and a soul the agent authors itself.
+- A local Observatory dashboard on 127.0.0.1:9192 for watching the mind live.
+- Plugin lanes for wake-up packs, per-turn recall, standing directives and compaction hooks.
+
+## Install
+
+neoBrain needs Python 3.12 and is published on PyPI as `neobrain-cli`: run `pip install neobrain-cli` for the `neobrain` console script, then `neobrain init` to build the SQLite store and print the next steps, then `neobrain start` to launch the daemon (or `neobrain ui` to open the Observatory). `neobrain service install` runs the daemon at login.
+
+Second option — install from source, for development or to track `main` ahead of a release: clone https://github.com/fakiho/neobrain and run `pip install -e .` inside the clone (Python 3.12). The npm launcher and PyInstaller packaging are still pending.
+
+## Links
+
+- https://neobrain.alionix.com/ — product site
+- https://alionix.com/neobrain/ — overview and local-first rationale
+- https://alionix.com/local-first/ — why local-first
+- https://pypi.org/project/neobrain-cli/ — PyPI distribution (`neobrain-cli`)
+- https://github.com/fakiho/neobrain — source repository
