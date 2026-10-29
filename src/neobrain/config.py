@@ -100,6 +100,7 @@ class Settings(BaseSettings):
     # reasoning and return empty content, so give them a real budget.
     llm_model_cheap: str = "deepseek/deepseek-v4.1-flash"
     llm_model_strong: str = "deepseek/deepseek-v4-pro"
+    llm_model_decision: str = "cloudflare/clef-flash"
 
     # --- life loop (SPEC §6: cadence in code+DB, not OS timers) ---
     life_tick_seconds: int = 60

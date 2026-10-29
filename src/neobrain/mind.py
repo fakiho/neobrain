@@ -16,7 +16,7 @@ from pathlib import Path
 
 # PORT-NOTE: S4 — rank.py is the deterministic rank/forgetting engine; the
 # schema migration is needed so any mind op upgrades a legacy store lazily.
-from . import config, embeddings, rank
+from . import config, embeddings, rank, runtime
 from .heuristics import classify_heading
 from .history import read_history, record_history
 from .models import content_hash, now_ms
@@ -170,7 +170,14 @@ def _atom_type(heading: str, body: str) -> str:
 
 
 def _weight(atype: str) -> float:
-    return {"lesson": 0.9, "decision": 0.8, "preference": 0.85, "dream": 0.6, "open": 0.7}.get(atype, 0.5)
+    return {
+        "preference": 0.9,
+        "decision": 0.88,
+        "lesson": 0.85,
+        "open": 0.7,
+        "observation": 0.62,
+        "dream": 0.6,
+    }.get(atype, 0.5)
 
 
 def _clean(text: str) -> str:
@@ -884,6 +891,12 @@ def remember(conn: sqlite3.Connection, text: str, *, atype: str = "observation",
                 "SELECT target FROM m_edges WHERE source=? AND type='about'", (row[0],))]
             return {"id": row[0], "label": row[1], "type": row[2],
                     "hubs": existing, "created": row[3], "deduped": True}
+    if atype in (None, "", "auto", "observation"):
+        verdict = _classify_memory_type(text, label=label)
+        if verdict in _CLASSIFIED_MEMORY_TYPES:
+            atype = verdict
+        else:
+            atype = _regex_promotion_kind(label or "", text) or "observation"
     hubs = [_canon(h) for h in (hubs or _hubs_for(text)) if h] or ["agent"]
     primary = hubs[0]
     lbl = (label or " ".join(text.split()[:8]))[:90]
@@ -1594,19 +1607,46 @@ _PROMOTE_DENY = re.compile(
     re.I,
 )
 
+_CLASSIFIED_MEMORY_TYPES: frozenset[str] = frozenset(
+    {"lesson", "decision", "preference", "observation"}
+)
+_CLASSIFY_CACHE_MAX = 2048
+_CLASSIFY_CACHE: dict[tuple[str, str], str] = {}
 
-def _promotion_kind(atype: str, heading: str, body: str) -> str | None:
-    """Classify a day-note section as `decision`/`lesson`, or None.
 
-    A section is durable when it is already typed decision/lesson, or it is an
-    observation whose heading or body carries clear decision/lesson language
-    (e.g. "Timeline — Stage 4: …", "— FIXED", "Root cause: …"). Headings that
-    merely describe a symptom, notes or a question are denied.
+def clear_classify_cache() -> None:
+    """Clear the in-process memory-type classifier cache."""
+    _CLASSIFY_CACHE.clear()
+
+
+def _classify_memory_type(text: str, *, label: str | None = None) -> str | None:
+    """Classify memory ``text`` (with optional ``label``) via ``runtime.classify_memory_type``.
+
+    Non-``None`` verdicts are cached in ``_CLASSIFY_CACHE`` keyed by
+    ``(resolved_model, content_hash(state))`` (bounded to 2048 entries).
+    ``None`` (offline/error/unconfigured) is never cached.
     """
-    if atype in ("decision", "lesson"):
-        return atype
-    if atype != "observation":
+    cleaned = _clean(text or "")
+    if not cleaned:
         return None
+    lbl = _clean(label or "")
+    state = f"{lbl}: {cleaned}" if lbl and lbl != cleaned else cleaned
+    model_key = (runtime._resolve_model("decision") or "").strip()
+    cache_key = (model_key, content_hash(state))
+    cached = _CLASSIFY_CACHE.get(cache_key)
+    if cached in _CLASSIFIED_MEMORY_TYPES:
+        return cached
+    verdict = runtime.classify_memory_type(state)
+    if verdict in _CLASSIFIED_MEMORY_TYPES:
+        if len(_CLASSIFY_CACHE) >= _CLASSIFY_CACHE_MAX:
+            _CLASSIFY_CACHE.pop(next(iter(_CLASSIFY_CACHE)), None)
+        _CLASSIFY_CACHE[cache_key] = verdict
+        return verdict
+    return None
+
+
+def _regex_promotion_kind(heading: str, body: str) -> str | None:
+    """Deterministic regex fallback for day-note promotion and untyped remember()."""
     h, b = heading or "", body or ""
     if _PROMOTE_DENY.match(h):
         return None
@@ -1615,6 +1655,33 @@ def _promotion_kind(atype: str, heading: str, body: str) -> str | None:
     if _PROMOTE_HEADING.search(h) or _PROMOTE_BODY.search(b):
         return "decision"
     return None
+
+
+def _promotion_kind(atype: str, heading: str, body: str) -> str | None:
+    """Classify a day-note section as `decision`/`lesson`, or None.
+
+    Uses the System One decision model (``cloudflare/clef-flash``) first, with
+    deterministic fallback to ``_regex_promotion_kind`` only when the gateway
+    is unreachable, unconfigured, or errors.
+    """
+    if atype in ("decision", "lesson"):
+        return atype
+    if atype != "observation":
+        return None
+    h = _clean(heading or "")
+    b = _clean(body or "")
+    if not h or not b:
+        return None
+    if _PROMOTE_DENY.match(h):
+        return None
+    verdict = _classify_memory_type(b, label=h)
+    if verdict == "lesson":
+        return "lesson"
+    if verdict in ("decision", "preference"):
+        return "decision"
+    if verdict == "observation":
+        return None
+    return _regex_promotion_kind(h, b)
 
 
 def _daily_note_atoms(conn: sqlite3.Connection) -> list[sqlite3.Row]:
@@ -1644,11 +1711,13 @@ def _promote_daily_notes(conn: sqlite3.Connection, cap: int = PROMOTE_CAP,
     # avoid duplicating already-injectable memories (kill criterion).
     desired: list[dict] = []
     for r in _daily_note_atoms(conn):
-        kind = _promotion_kind(r["type"], r["label"], r["text"])
-        if not kind or r["type"] in ("decision", "lesson"):
+        if r["type"] in ("decision", "lesson"):
             continue
         body = _clean(r["text"] or "")
         if len(body) < 40:
+            continue
+        kind = _promotion_kind(r["type"], r["label"], body)
+        if not kind:
             continue
         desired.append({
             "id": "m_pd_" + content_hash(f"{r['source']}:{r['label']}")[:12],

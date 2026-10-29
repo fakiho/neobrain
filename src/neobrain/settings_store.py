@@ -47,6 +47,10 @@ class Setting:
     maximum: Optional[float] = None
     suffix: str = ""
 
+    @property
+    def type(self) -> str:
+        return self.kind
+
 
 SECTIONS: tuple[tuple[str, str, str], ...] = (
     ("features", "Features & rituals", "What the brain does on its own, and whether it may."),
@@ -117,6 +121,8 @@ REGISTRY: tuple[Setting, ...] = (
             "Perceive/reflect tier — the everyday model."),
     Setting("llm_model_strong", "Strong model", "str", "cognition",
             "Act/dream tier — the deeper model."),
+    Setting("llm_model_decision", "Decision model", "str", "cognition",
+            "System One classifier tier (/systemone) for memory typing."),
     # --- memory -----------------------------------------------------------
     Setting("recall_alpha", "Recall vector weight", "float", "memory",
             "score = lexical + alpha·cosine. Higher leans on embeddings.",
@@ -244,6 +250,11 @@ def snapshot(conn: sqlite3.Connection) -> dict[str, Any]:
         "life_enabled": str(config.settings.life_enabled).strip().lower()
         not in ("0", "false", "no", "off"),
     }
+
+
+def get_public(conn: sqlite3.Connection) -> dict[str, Any]:
+    """Alias for ``snapshot(conn)`` — public non-secret settings view."""
+    return snapshot(conn)
 
 
 def _jsonable(value: Any) -> Any:
