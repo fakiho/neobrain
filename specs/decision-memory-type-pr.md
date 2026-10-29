@@ -54,11 +54,10 @@ key, so its traffic could not be attributed or budgeted on its own.
   `--roi`) and the rest-phase hook.
 - `tests/test_sandbox.py`.
 
-**Ops (record only — no secret in this repo)**
-- `specs/neobrain-dedicated-key-brief.md`, `specs/neobrain-dedicated-key-log.md` — neoBrain on this
-  host now uses its own gateway key (alias `neobrain`, unscoped, both chat and `/systemone`),
-  `neobrain/.env` tightened to mode 600. The Mac keeps its separate `neobrain mac` key; the split is
-  deliberate per-machine attribution, not duplication.
+**Ops (record kept privately, not in the repo)**
+- neoBrain on this host now runs on its own dedicated gateway credential (per-machine attribution
+  is deliberate). Details live in the private ops log only — key aliases, spend and per-device
+  credentials are not published here.
 
 ## How to test
 
@@ -108,4 +107,3 @@ rather than retrying.
 
 - `specs/decision-memory-type-brief.md`, `specs/decision-memory-type-log.md`
 - `specs/dream-sandbox-brief.md`, `specs/dream-sandbox-log.md`
-- `specs/neobrain-dedicated-key-brief.md`, `specs/neobrain-dedicated-key-log.md`
