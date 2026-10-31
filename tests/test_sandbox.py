@@ -956,3 +956,341 @@ def test_ac6_api_sandbox_roi_endpoint(tmp_path, monkeypatch):
         assert len(api_report["lessons"]) == 1
         assert api_report["lessons"][0]["id"] == atom_id
 
+
+# ===========================================================================
+# Nightly-fixes AC-1: Deterministic spec extraction (no sample-JSON shadowing)
+#
+# The spec contract wins: every JSON object in the reply is parsed and the spec
+# is the object carrying a string "code" key (first wins on ties). Only when no
+# object has "code" does the parser fall back to the first parseable dict.
+# ===========================================================================
+
+SPEC_QUESTION = "Does an isolated SQLite connection round-trip the inserted integer?"
+SPEC_HYPOTHESIS = "SELECT on the inserted row returns the value that was INSERTed."
+REAL_FINDING = "Round-tripping an INTEGER through an isolated in-memory SQLite connection returns 42."
+SAMPLE_FINDING = "Sample experiment result echoed by the model after the spec object."
+
+_DAY_MS_TEST = 86_400_000
+
+
+def _sb_experiment(finding: str, value: int) -> str:
+    """Experiment source printing a verdict JSON with ``finding`` and ``metrics.val``."""
+    return (
+        "\nimport json, sqlite3\n"
+        'con = sqlite3.connect(":memory:")\n'
+        'con.execute("CREATE TABLE t(x INTEGER)")\n'
+        'con.execute("INSERT INTO t VALUES (__VALUE__)")\n'
+        'val = con.execute("SELECT x FROM t").fetchone()[0]\n'
+        'print(json.dumps({"verdict": "confirmed", "finding": __FINDING__, "metrics": {"val": val}}))\n'
+    ).replace("__VALUE__", str(int(value))).replace("__FINDING__", json.dumps(finding))
+
+
+def _sb_spec_payload(question: str, code: str) -> dict:
+    return {
+        "question": question,
+        "hypothesis": SPEC_HYPOTHESIS,
+        "hub": "sqlite",
+        "prior_atom_id": None,
+        "code": code,
+    }
+
+
+def _sb_sample_payload(finding: str = SAMPLE_FINDING) -> dict:
+    """The example experiment-result object a model must never echo back."""
+    return {"verdict": "confirmed", "finding": finding, "metrics": {"n": 3}}
+
+
+def _sb_prompt_units(text: str) -> list[str]:
+    """Prompt text split into checkable lines and dot-separated sentences (lowercased)."""
+    units: list[str] = []
+    for line in text.splitlines():
+        stripped = line.strip()
+        if not stripped:
+            continue
+        units.append(stripped.lower())
+        units.extend(part.strip() for part in stripped.lower().split(". ") if part.strip())
+    return units
+
+
+def test_spec_extraction_survives_trailing_sample_json(conn, workspace):
+    sb = _sandbox()
+    reply = json.dumps(_sb_spec_payload(SPEC_QUESTION, _sb_experiment(REAL_FINDING, 42)))
+    reply += "\n" + json.dumps(_sb_sample_payload()) + "\n"
+
+    rt = FakeRuntime([reply])
+    out = sb.run(conn, rt, now=NOW)
+
+    assert out["status"] == "ok", out.get("error")
+    assert out["question"] == SPEC_QUESTION
+    assert out["hypothesis"] == SPEC_HYPOTHESIS
+    assert out["hub"] == "sqlite"
+    assert out["verdict"] == "confirmed"
+    assert out["finding"] == REAL_FINDING
+    # The spec's own code ran — the echoed sample object has no metrics.val of 42.
+    assert out["metrics"] == {"val": 42}
+    assert SAMPLE_FINDING not in json.dumps(out, ensure_ascii=False)
+
+    sandbox_dir = workspace / "memory" / "dreaming" / "sandbox"
+    record = json.loads((sandbox_dir / f"{DATE}.json").read_text(encoding="utf-8"))
+    assert record["question"] == SPEC_QUESTION
+    assert record["status"] == "ok"
+    assert record["result"]["finding"] == REAL_FINDING
+    assert SAMPLE_FINDING not in (sandbox_dir / f"{DATE}.md").read_text(encoding="utf-8")
+
+    row = conn.execute(
+        "SELECT type, text FROM m_atoms WHERE id=?", (out["atom_id"],)
+    ).fetchone()
+    assert row is not None
+    assert row["type"] == "lesson"
+    assert row["text"] == REAL_FINDING
+
+
+def test_spec_extraction_prefers_code_object_over_leading_sample_json(conn, workspace):
+    sb = _sandbox()
+    reply = json.dumps(_sb_sample_payload())
+    reply += "\n" + json.dumps(_sb_spec_payload(SPEC_QUESTION, _sb_experiment(REAL_FINDING, 42)))
+
+    out = sb.run(conn, FakeRuntime([reply]), now=NOW)
+
+    assert out["status"] == "ok", out.get("error")
+    assert out["question"] == SPEC_QUESTION
+    assert out["finding"] == REAL_FINDING
+    assert out["metrics"] == {"val": 42}
+
+
+def test_spec_extraction_handles_fenced_pretty_printed_objects(conn, workspace):
+    sb = _sandbox()
+    spec = _sb_spec_payload(SPEC_QUESTION, _sb_experiment(REAL_FINDING, 42))
+    reply = "```json\n" + json.dumps(spec, indent=2) + "\n```\n"
+    reply += "Example result shape:\n" + json.dumps(_sb_sample_payload(), indent=2) + "\n"
+
+    out = sb.run(conn, FakeRuntime([reply]), now=NOW)
+
+    assert out["status"] == "ok", out.get("error")
+    assert out["question"] == SPEC_QUESTION
+    assert out["finding"] == REAL_FINDING
+    assert out["metrics"] == {"val": 42}
+
+
+def test_spec_extraction_takes_first_object_when_multiple_carry_code(conn, workspace):
+    sb = _sandbox()
+    first = _sb_spec_payload(
+        "Does the first spec run?", _sb_experiment("First spec finding: value 1 round-trips.", 1)
+    )
+    second = _sb_spec_payload(
+        "Does the next spec run?", _sb_experiment("Next spec finding: value 2 round-trips.", 2)
+    )
+
+    out = sb.run(conn, FakeRuntime([json.dumps(first) + "\n" + json.dumps(second)]), now=NOW)
+
+    assert out["status"] == "ok", out.get("error")
+    assert out["question"] == "Does the first spec run?"
+    assert out["finding"] == "First spec finding: value 1 round-trips."
+    assert out["metrics"] == {"val": 1}
+    assert "next spec" not in json.dumps(out, ensure_ascii=False).lower()
+
+
+def test_spec_extraction_falls_back_to_first_object_when_no_code_key(conn, workspace):
+    sb = _sandbox()
+    first = {"question": "First question without code?", "hypothesis": "First hypothesis.", "hub": "first"}
+    second = {"question": "Next question without code?", "hypothesis": "Next hypothesis.", "hub": "next"}
+
+    out = sb.run(conn, FakeRuntime([json.dumps(first) + "\n" + json.dumps(second)]), now=NOW)
+
+    # Last resort: the first parseable dict, so the empty code is rejected as before.
+    assert out["status"] == "rejected"
+    assert out["question"] == "First question without code?"
+    assert out["hub"] == "first"
+    assert conn.execute("SELECT COUNT(*) FROM m_atoms WHERE type='lesson'").fetchone()[0] == 0
+
+
+def test_spec_extraction_skip_reply_wins_over_trailing_sample(conn, workspace, monkeypatch):
+    sb = _sandbox()
+    exec_calls: list[str] = []
+
+    def spy_exec(code, *args, **kwargs):
+        exec_calls.append(code)
+        return {
+            "ok": False,
+            "status": "rejected",
+            "error": "empty code",
+            "returncode": None,
+            "stdout": "",
+            "stderr": "",
+            "duration_ms": 0,
+            "result": None,
+        }
+
+    monkeypatch.setattr(sb, "execute_experiment", spy_exec)
+
+    reply = json.dumps({"skip": True, "reason": "no-testable-hypothesis"})
+    reply += "\n" + json.dumps(_sb_sample_payload())
+
+    out = sb.run(conn, FakeRuntime([reply]), now=NOW)
+
+    assert exec_calls == []
+    assert out["status"] == "skipped"
+    assert out["reason"] == "no-testable-hypothesis"
+    assert out["date"] == DATE
+    assert out["atom_id"] is None
+
+
+def test_build_prompt_requires_a_single_json_object_reply():
+    sb = _sandbox()
+    units = _sb_prompt_units("\n".join(m.get("content", "") for m in sb._build_prompt({}, "", DATE)))
+
+    offenders = [
+        u
+        for u in units
+        if "json object" in u
+        and any(verb in u for verb in ("return", "respond", "reply"))
+        and any(sole in u for sole in ("only", "one", "single", "exactly one"))
+    ]
+    assert offenders, (
+        "prompt must tell the model to return exactly ONE JSON object (the spec) as its reply"
+    )
+
+
+def test_build_prompt_forbids_echoing_sample_output_json():
+    sb = _sandbox()
+    units = _sb_prompt_units("\n".join(m.get("content", "") for m in sb._build_prompt({}, "", DATE)))
+
+    mentions_sample = [u for u in units if ("sample" in u or "example" in u)]
+    assert mentions_sample, (
+        "prompt must name the example/sample output JSON the model must not return"
+    )
+    prohibited = [
+        u
+        for u in mentions_sample
+        if any(
+            neg in u
+            for neg in (
+                "never",
+                "do not",
+                "don't",
+                "don’t",
+                "must not",
+                "may not",
+                "cannot",
+                "can't",
+                "avoid",
+                "no ",
+            )
+        )
+    ]
+    assert prohibited, "the example/sample output must be forbidden, not merely mentioned"
+
+
+# ===========================================================================
+# Nightly-fixes AC-2: ROI counts only real promoted lessons
+# ===========================================================================
+
+
+def _sb_pin_created(conn, atom_ids: list[str], created_ms: int) -> None:
+    for aid in atom_ids:
+        conn.execute("UPDATE m_atoms SET created=? WHERE id=?", (created_ms, aid))
+    conn.commit()
+
+
+def _sb_types_by_id(conn) -> dict[str, str]:
+    return {row["id"]: row["type"] for row in conn.execute("SELECT id, type FROM m_atoms")}
+
+
+def test_roi_report_lesson_counts_exclude_dream_artifacts(conn):
+    sb = _sandbox()
+    anchor_ms = int(datetime(2026, 9, 30, 14, 0).timestamp() * 1000)
+    created_ms = anchor_ms - _DAY_MS_TEST
+
+    dream = mind.remember(
+        conn,
+        "Dreamed consolidation note built from the 2026-09-29 sandbox report file.",
+        atype="dream",
+        hubs=["agent"],
+        source=f"memory/dreaming/sandbox/{DATE}.md",
+        session_id="sandbox",
+    )
+    lesson = mind.remember(
+        conn,
+        "Confirmed lesson: WAL checkpointing drains dirty pages before autocommit retries.",
+        atype="lesson",
+        hubs=["sqlite"],
+        source=f"memory/dreaming/sandbox/{DATE}.md",
+        session_id="sandbox",
+    )
+    _sb_pin_created(conn, [dream["id"], lesson["id"]], created_ms)
+
+    # Fixture sanity: two distinct atoms, same sandbox provenance, differing only in type.
+    assert dream["id"] != lesson["id"]
+    types = _sb_types_by_id(conn)
+    assert types[dream["id"]] == "dream"
+    assert types[lesson["id"]] == "lesson"
+    in_window = {
+        row[0]
+        for row in conn.execute(
+            "SELECT id FROM m_atoms WHERE created>=? AND created<=?",
+            (anchor_ms - 7 * _DAY_MS_TEST, anchor_ms),
+        ).fetchall()
+    }
+    assert {dream["id"], lesson["id"]} <= in_window
+
+    report = sb.roi_report(conn, days=7, at_ms=anchor_ms)
+
+    assert report["lessons_created"] == 1
+    assert [item["id"] for item in report["lessons"]] == [lesson["id"]]
+    assert dream["id"] not in {item["id"] for item in report["lessons"]}
+
+
+def test_roi_report_type_filter_applies_across_source_and_session_branches(conn):
+    sb = _sandbox()
+    anchor_ms = int(datetime(2026, 9, 30, 14, 0).timestamp() * 1000)
+    created_ms = anchor_ms - _DAY_MS_TEST
+
+    lesson_by_source = mind.remember(
+        conn,
+        "Confirmed lesson reachable through the sandbox report source.",
+        atype="lesson",
+        hubs=["sqlite"],
+        source=f"memory/dreaming/sandbox/{DATE}.md",
+        session_id="sandbox",
+    )
+    lesson_by_session = mind.remember(
+        conn,
+        "Confirmed lesson reachable only through the sandbox session origin.",
+        atype="lesson",
+        hubs=["perf"],
+        source="life:sandbox-lesson",
+        session_id="sandbox",
+    )
+    dream_by_source = mind.remember(
+        conn,
+        "Dream artifact ingested from the sandbox report file.",
+        atype="dream",
+        hubs=["agent"],
+        source=f"memory/dreaming/sandbox/{DATE}.md",
+        session_id="sandbox",
+    )
+    dream_by_session = mind.remember(
+        conn,
+        "Dream artifact stored under the sandbox session but a non-sandbox source.",
+        atype="dream",
+        hubs=["agent"],
+        source=f"memory/dreaming/{DATE}.md",
+        session_id="sandbox",
+    )
+    seeded = [lesson_by_source, lesson_by_session, dream_by_source, dream_by_session]
+    _sb_pin_created(conn, [a["id"] for a in seeded], created_ms)
+
+    # Fixture sanity: four distinct atoms, identical window position, differing only in type.
+    assert len({a["id"] for a in seeded}) == 4
+    types = _sb_types_by_id(conn)
+    assert types[lesson_by_source["id"]] == types[lesson_by_session["id"]] == "lesson"
+    assert types[dream_by_source["id"]] == types[dream_by_session["id"]] == "dream"
+
+    report = sb.roi_report(conn, days=7, at_ms=anchor_ms)
+
+    assert report["lessons_created"] == 2
+    assert {item["id"] for item in report["lessons"]} == {
+        lesson_by_source["id"],
+        lesson_by_session["id"],
+    }
+

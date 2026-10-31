@@ -225,6 +225,46 @@ def _parse_last_json_object(stdout: str) -> Optional[dict[str, Any]]:
     return fallback
 
 
+def _iter_json_objects(text: str) -> list[dict[str, Any]]:
+    """Every JSON dict in ``text`` in document order (tolerating prose and fences).
+
+    Each ``{`` is a candidate start, so an object nested inside a wrapper object is
+    still found; slices that are not valid JSON (e.g. braces inside a JSON string
+    value, as experiment source often contains) simply fail to decode and are skipped.
+    """
+    if not text or not text.strip():
+        return []
+    cleaned = re.sub(r"```(?:json)?\s*", "", text).replace("```", "")
+    decoder = json.JSONDecoder()
+    objects: list[dict[str, Any]] = []
+    for start in (m.start() for m in re.finditer(r"\{", cleaned)):
+        try:
+            obj, _ = decoder.raw_decode(cleaned, start)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(obj, dict):
+            objects.append(obj)
+    return objects
+
+
+def _parse_spec_object(reply: str) -> Optional[dict[str, Any]]:
+    """Extract the LLM's spec object: the object carrying string ``code``, else the first dict.
+
+    The spec contract wins over any experiment-result JSON the model echoes back. Unlike
+    ``_parse_last_json_object`` (for experiment stdout), this never prefers the *last*
+    object: an echoed sample ``{"verdict": ..., "finding": ...}`` object then cannot
+    shadow the spec and leave ``code`` empty for the AST gate.
+    """
+    objects = _iter_json_objects(reply)
+    for obj in objects:
+        if isinstance(obj.get("code"), str):
+            return obj
+    for obj in objects:
+        if obj:
+            return obj
+    return objects[0] if objects else None
+
+
 def execute_experiment(code: str, *, timeout: float = 10.0) -> dict[str, Any]:
     """Validate and run ``code`` inside an isolated temporary directory."""
     ok, reason = validate_code(code)
@@ -428,7 +468,15 @@ def _build_prompt(wakeup: dict[str, Any], day_note: str, date: str) -> list[dict
         "getattr, setattr, delattr, globals, locals, vars, open, or access __dunder__ attributes.\n"
         "- NEVER call os.system, os.popen, os.spawn*, os.exec*, os.fork, os.kill, os.remove, os.unlink, etc.\n"
         "- Print a single JSON object on the last line of stdout with keys: "
-        '{"verdict": "confirmed"|"refuted"|"inconclusive", "finding": "<concise empirical lesson>", "metrics": {...}}.'
+        '{"verdict": "confirmed"|"refuted"|"inconclusive", "finding": "<concise empirical lesson>", '
+        '"metrics": {...}}. '
+        "That shape is what your experiment prints, not what you reply with: NEVER echo that "
+        "example or sample output JSON back in your reply.\n"
+        "Reply contract:\n"
+        "- Your reply is EXACTLY ONE JSON object: the spec. Return no other JSON object and no "
+        "prose around it.\n"
+        "- NEVER echo example or sample output JSON (a `verdict`/`finding` result object) after "
+        "the spec: an echoed sample shadows the spec, its code is lost, and the run is rejected.\n"
     )
     user = (
         f"Dream date: {date}\n\n"
@@ -438,7 +486,9 @@ def _build_prompt(wakeup: dict[str, Any], day_note: str, date: str) -> list[dict
         '{"question": "...", "hypothesis": "...", "hub": "...", '
         '"prior_atom_id": "<atom id or null>", "code": "<python3 script>"}\n'
         "Or, if there is no concrete testable hypothesis, return ONLY:\n"
-        '{"skip": true, "reason": "no-testable-hypothesis"}'
+        '{"skip": true, "reason": "no-testable-hypothesis"}\n'
+        "Reply with exactly ONE JSON object (the spec, or the skip object) and nothing else: never "
+        "add prose and never echo example or sample output JSON after it."
     )
     return [
         {"role": "system", "content": system},
@@ -551,7 +601,7 @@ def run(
             pass
         return out
 
-    spec = _parse_last_json_object(raw_reply)
+    spec = _parse_spec_object(raw_reply)
     if not isinstance(spec, dict):
         try:
             spec = json.loads(raw_reply)
@@ -801,6 +851,8 @@ def roi_report(
             runs[verdict] += 1
 
     atom_cols = {row[1] for row in conn.execute("PRAGMA table_info(m_atoms)").fetchall()}
+    # Only promoted lessons count: the nightly ingest also files each sandbox report as a
+    # type='dream' atom under the same sandbox provenance, which must not inflate the ROI.
     predicates = ["source LIKE 'memory/dreaming/sandbox/%'"]
     if "session_id" in atom_cols:
         predicates.append("session_id = 'sandbox'")
@@ -810,7 +862,7 @@ def roi_report(
 
     atom_rows = conn.execute(
         f"SELECT id, label, text, hub, created, source FROM m_atoms "
-        f"WHERE created>=? AND created<=? AND {where_sandbox} "
+        f"WHERE created>=? AND created<=? AND type = 'lesson' AND {where_sandbox} "
         f"ORDER BY created DESC, id ASC",
         (start_ms, end_ms),
     ).fetchall()
