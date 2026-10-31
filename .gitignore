@@ -19,7 +19,3 @@ web/node_modules/
 # PyInstaller
 build/
 *.spec.bak
-
-# Private ops run-logs (key aliases, spend, per-machine credentials) — never commit
-specs/neobrain-dedicated-key-brief.md
-specs/neobrain-dedicated-key-log.md
