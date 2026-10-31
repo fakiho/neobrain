@@ -16,6 +16,11 @@
       "persist": true
     }
   },
+  // Cloudflare Workers Builds runs `npx wrangler preview` for per-branch PR
+  // preview builds; wrangler >=4.156 errors with "Your Wrangler configuration
+  // is missing a `previews` block" without it. Assets/compatibility stay at
+  // top level.
+  "previews": {},
   "assets": {
     "directory": "website"
   }
