@@ -81,5 +81,5 @@ Give `neobrain` an empirical nocturnal R&D engine (`neobrain.sandbox`). During t
 
 ## Exact Verify Command
 ```bash
-~/neobrain/.venv/bin/python -m pytest -q --tb=short
+.venv/bin/python -m pytest -q --tb=short    # run from the repo root
 ```

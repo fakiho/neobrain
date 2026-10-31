@@ -1,7 +1,8 @@
 """neoBrain — configuration and source discovery (pydantic settings).
 
 All environment variables are prefixed ``NEOBRAIN_`` (the old ``TIMELINE_*``
-names). Host-specific paths that the old config hardcoded (~/) are
+names). Host-specific paths that the old config hardcoded (the owner's home
+directory) are
 now env-driven with empty/sensible defaults — see the PORT-NOTEs below.
 """
 from __future__ import annotations
@@ -45,7 +46,7 @@ class Settings(BaseSettings):
     # PORT-NOTE: old default was <repo>/data; now cwd-relative per SPEC S1.
     data_dir: Path = Path("./data")
 
-    # PORT-NOTE: old default was the hardcoded ~/ workspace. Empty
+    # PORT-NOTE: old default was the old hardcoded workspace path. Empty
     # means "no workspace": doc groups are empty and repo discovery is off.
     workspace: str = ""
 
@@ -152,8 +153,8 @@ class Settings(BaseSettings):
     # comma-separated env var, empty by default (os.walk discovery still runs).
     known_repos: str = ""
     # PORT-NOTE: old default was $WORKSPACE/.local/share/opencode/opencode.db
-    # (under hardcoded ~/). Now derived from NEOBRAIN_WORKSPACE when
-    # set, else None.
+    # (under the old hardcoded workspace path). Now derived from
+    # NEOBRAIN_WORKSPACE when set, else None.
     opencode_db: str | None = None
 
 
@@ -267,15 +268,19 @@ def embed_api_key() -> str:
     if (settings.embed_api_key or "").strip():
         _embed_key = settings.embed_api_key.strip()
         return _embed_key
+    # Mirror into a local so the returned/cache value is provably a str
+    # (pyright does not narrow the module-level `str | None` global here).
+    resolved: str
     if EMBED_KEY_FILE is None:
-        _embed_key = ""  # PORT-NOTE: no key file configured -> no key to read
+        resolved = ""  # PORT-NOTE: no key file configured -> no key to read
     else:
         try:
             data = json.loads(EMBED_KEY_FILE.read_text(encoding="utf-8"))
-            _embed_key = data["models"]["providers"]["litellm"]["apiKey"] or ""
+            resolved = data["models"]["providers"]["litellm"]["apiKey"] or ""
         except Exception:  # missing/invalid file, or no key configured
-            _embed_key = ""
-    return _embed_key
+            resolved = ""
+    _embed_key = resolved
+    return resolved
 
 # --- docs ---------------------------------------------------------------
 # Explicit, ordered doc groups. `category` becomes the event category.
@@ -288,7 +293,7 @@ def embed_api_key() -> str:
 def doc_groups() -> dict[str, list[Path]]:
     """Doc groups, re-globbed on each call so new files are picked up."""
     # PORT-NOTE: empty NEOBRAIN_WORKSPACE -> no docs (the old code defaulted
-    # the workspace to ~/ and globbed it unconditionally).
+    # the workspace to the old hardcoded path and globbed it unconditionally).
     if WORKSPACE is None:
         return {}
     dreaming = sorted((WORKSPACE / "memory" / "dreaming").glob("**/*.md"))

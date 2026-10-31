@@ -23,8 +23,7 @@ Second commit (`feat(memory): classify memory types via System One decision mode
 
 ## How to test
 ```bash
-cd ~/neobrain
-.venv/bin/python -m pytest -q --tb=short          # full suite — expect: 424 passed
+.venv/bin/python -m pytest -q --tb=short          # full suite (from the repo root) — expect: 424 passed
 .venv/bin/python -m pytest tests/test_sandbox.py -q  # sandbox only — expect: 82 passed
 neobrain sandbox --roi --days 7                    # print the ROI scorecard (JSON)
 ```
