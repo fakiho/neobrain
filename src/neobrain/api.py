@@ -673,6 +673,29 @@ def mind_dreams(limit: int = Query(30, le=200)) -> dict:
         conn.close()
 
 
+@app.get("/api/mind/sandbox")
+def mind_sandbox(limit: int = Query(30, le=200)) -> dict:
+    from . import sandbox
+
+    conn = _conn()
+    try:
+        items = sandbox.history(conn, limit=limit)
+    finally:
+        conn.close()
+    return {"count": len(items), "items": items}
+
+
+@app.get("/api/mind/sandbox/roi")
+def mind_sandbox_roi(days: int = Query(7, ge=1, le=365)) -> dict:
+    from . import sandbox
+
+    conn = _conn()
+    try:
+        return sandbox.roi_report(conn, days=days)
+    finally:
+        conn.close()
+
+
 @app.get("/api/mind/reader")
 def mind_reader(group: str) -> dict:
     conn = _conn()

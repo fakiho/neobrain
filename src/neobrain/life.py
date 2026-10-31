@@ -517,6 +517,15 @@ class LifeLoop:
             return False
         return datetime.fromtimestamp(int(row[0]) / 1000).date() == now.date()
 
+    def _sandbox_ran_tonight(self, conn: sqlite3.Connection, now: datetime) -> bool:
+        row = conn.execute(
+            "SELECT MAX(ts) FROM events WHERE source=? AND title=?",
+            (SOURCE, "life: dream sandbox"),
+        ).fetchone()
+        if not row or row[0] is None:
+            return False
+        return datetime.fromtimestamp(int(row[0]) / 1000).date() == now.date()
+
     # --- rating watch (bounded observation; SPEC §5 feedback) ----------------
 
     def _watch_ran_today(self, conn: sqlite3.Connection, now: datetime) -> bool:
@@ -689,6 +698,38 @@ class LifeLoop:
                     severity="info",
                 )
             ran.append("soul-reflect")
+
+        # --- counterfactual dream sandbox ----------------------------------
+        if (
+            _flag_enabled(config.settings.sandbox_enabled)
+            and not self._sandbox_ran_tonight(conn, now)
+            and importlib.util.find_spec("neobrain.sandbox") is not None
+        ):
+            from . import sandbox
+
+            summary = "dream sandbox complete"
+            severity = "info"
+            result: Any = None
+            try:
+                result = sandbox.run(conn, self.runtime(), now=now)
+                if isinstance(result, dict):
+                    summary = f"dream sandbox: {result.get('status', 'ok')} ({result.get('date', '')})"
+                else:
+                    summary = f"dream sandbox: {result}"
+            except Exception as exc:  # noqa: BLE001 - a broken sandbox run must not stop the loop
+                summary = f"dream sandbox failed: {type(exc).__name__}: {exc}"
+                severity = "error"
+            if not self._sandbox_ran_tonight(conn, now):
+                self._emit(
+                    conn,
+                    "dream sandbox",
+                    when_ms=when,
+                    next_due_ms=when + _DAY_MS,
+                    summary=summary,
+                    severity=severity,
+                )
+            if isinstance(result, dict) and result.get("status") not in ("error", "skipped"):
+                ran.append("sandbox")
         return ran
 
     # --- the tick -----------------------------------------------------------

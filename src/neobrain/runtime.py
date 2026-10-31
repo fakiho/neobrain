@@ -123,6 +123,87 @@ class ChatResponse(BaseModel):
         return content
 
 
+class DecisionQuestion(BaseModel):
+    """One System One ``/systemone`` question definition."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    type: str = "choice"
+    instructions: str
+    criteria: dict[str, str]
+
+
+class DecisionRequest(BaseModel):
+    """System One ``POST /systemone`` request body."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    model: str
+    state: str
+    questions: dict[str, DecisionQuestion]
+
+    def to_payload(self) -> dict[str, Any]:
+        return self.model_dump(exclude_none=True)
+
+
+class DecisionAnswer(BaseModel):
+    """One question answer inside a ``/systemone`` response."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    choice: str | None = None
+    value: str | None = None
+    probabilities: dict[str, float] = Field(default_factory=dict)
+
+    def selected(self) -> str | None:
+        if isinstance(self.choice, str) and self.choice.strip():
+            return self.choice.strip().lower()
+        if isinstance(self.value, str) and self.value.strip():
+            return self.value.strip().lower()
+        if self.probabilities:
+            best_key = max(self.probabilities.items(), key=lambda kv: float(kv[1]))[0]
+            if isinstance(best_key, str) and best_key.strip():
+                return best_key.strip().lower()
+        return None
+
+
+class DecisionResponse(BaseModel):
+    """System One ``/systemone`` response body (extra fields ignored)."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    model: str | None = None
+    answers: dict[str, DecisionAnswer] = Field(default_factory=dict)
+
+
+_MEMORY_TYPES: frozenset[str] = frozenset({"lesson", "decision", "preference", "observation"})
+_MEMORY_TYPE_INSTRUCTIONS = (
+    "Classify this agent memory note into the single best memory type based on "
+    "what durable knowledge it records."
+)
+_MEMORY_TYPE_CRITERIA: dict[str, str] = {
+    "lesson": (
+        "A root cause, debugging finding, fix explanation, pitfall, post-mortem "
+        "insight, or technical lesson learned from how a system behaves or fails."
+    ),
+    "decision": (
+        "An architectural, configuration, workflow, or implementation choice that "
+        "was made, adopted, changed, or agreed upon (what was chosen or how a "
+        "system is now set up)."
+    ),
+    "preference": (
+        "A standing user directive, communication rule, persona boundary, or "
+        "habitual instruction using imperative or normative rules (e.g. Always, "
+        "Never, Prefer, Keep)."
+    ),
+    "observation": (
+        "A routine status update, transient activity log, inspection note, raw "
+        "measurement, or neutral factual statement that is not a lesson, decision, "
+        "or standing preference."
+    ),
+}
+
+
 # --- configuration ----------------------------------------------------------
 
 # Model tiers are resolved through config (SPEC §7: cheap for perceive/reflect,
@@ -140,12 +221,22 @@ def _resolve_model(model: str) -> str:
         return config.settings.llm_model_cheap
     if model == "strong":
         return config.settings.llm_model_strong
+    if model == "decision":
+        return config.settings.llm_model_decision
     return model
 
 
 def base_url() -> str:
     """Configured OpenAI-compatible base URL, without a trailing slash."""
     return config.settings.llm_base_url.rstrip("/")
+
+
+def decision_url() -> str:
+    """System One endpoint derived from ``base_url()`` by stripping trailing ``/v1``."""
+    base = base_url()
+    if base.endswith("/v1"):
+        base = base[:-3].rstrip("/")
+    return f"{base}/systemone"
 
 
 def _api_key() -> str:
@@ -281,3 +372,64 @@ def complete(
         json_mode=json_mode,
         timeout=timeout,
     )
+
+
+def classify_memory_type(
+    text: str,
+    *,
+    model: str = "decision",
+    timeout: float = 2.0,
+) -> str | None:
+    """Classify ``text`` via ``POST /systemone`` into a memory type, or ``None``.
+
+    Makes a single HTTP attempt without retries or backoff sleeps, failing open
+    to ``None`` when ``text`` is blank, no API key or decision model is
+    configured, the gateway errors/times out, or the response is invalid.
+    """
+    cleaned = (text or "").strip()
+    if not cleaned:
+        return None
+    resolved_model = (_resolve_model(model) or "").strip()
+    if not resolved_model:
+        return None
+    try:
+        key = _api_key()
+    except RuntimeConfigError:
+        return None
+
+    request = DecisionRequest(
+        model=resolved_model,
+        state=cleaned,
+        questions={
+            "memory_type": DecisionQuestion(
+                type="choice",
+                instructions=_MEMORY_TYPE_INSTRUCTIONS,
+                criteria=dict(_MEMORY_TYPE_CRITERIA),
+            )
+        },
+    )
+    body = json.dumps(request.to_payload()).encode("utf-8")
+    headers = {
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+        "Authorization": f"Bearer {key}",
+    }
+    req = urllib.request.Request(decision_url(), data=body, headers=headers, method="POST")
+    try:
+        with _open(req, timeout) as resp:
+            raw = resp.read().decode("utf-8")
+    except (urllib.error.HTTPError, urllib.error.URLError, socket.timeout, TimeoutError, OSError, UnicodeDecodeError):
+        return None
+
+    try:
+        parsed = DecisionResponse.model_validate_json(raw)
+    except (ValidationError, ValueError):
+        return None
+
+    answer = parsed.answers.get("memory_type")
+    if answer is None:
+        return None
+    selected = answer.selected()
+    if selected in _MEMORY_TYPES:
+        return selected
+    return None
