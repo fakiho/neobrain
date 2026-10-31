@@ -974,7 +974,8 @@ def _reflect(conn: sqlite3.Connection, runtime: Any, *, now: Optional[datetime] 
     # PORT-NOTE: the reference let the agent read IDENTITY.md / SOUL.md /
     # USER.md and DREAMS.md / memory/dreaming/rem with tools; the runner inlines
     # them instead (persona whole, dream evidence compacted to the window). The
-    # old target directory was ~/ (= WORKSPACE when configured).
+    # old target directory was the old hardcoded workspace path (the
+    # configured WORKSPACE).
     context = _reflect_context(identity, soul, persona / "USER.md")
     prompt = REFLECT_PROMPT.replace("$DATE", date) + "\n" + context + "\n" + REFLECT_MACHINE_CONTRACT
 

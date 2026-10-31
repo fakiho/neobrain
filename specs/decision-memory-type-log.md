@@ -8,7 +8,7 @@
    - On 8 real daily-note (`a_*`) atoms from `memory/2026-*.md` that `mind.py` regexes left stranded as `observation`: `cloudflare/clef-flash` accurately recovered all 6 missed lessons/decisions (`a_56db4dcdabc0` `lesson` 0.85, `a_5c17b5868286` `lesson` 0.94, `a_bcfb1e2ca401` `lesson` 0.54, `a_b021aa160c66` `lesson` 0.83, `a_f4507a13eff8` `decision` 0.97, `a_71d0bc49bd3e` `decision` 0.99) and kept the 2 true status logs (`a_477bdf1af1ea` 0.89, `a_9bc9aa2598e6` 0.87) as `observation`.
    - Across all 24 sampled atoms (8 stranded `a_*` notes, 8 stored `lesson` atoms, 8 stored `decision`/`preference` atoms): 0 false negatives and 0 false positives on curated vs non-curated (`observation`) classification.
 
-### Local Repository Recon (`~/neobrain`)
+### Local Repository Recon (the repo root)
 - `src/neobrain/config.py`: `Settings` holds `llm_base_url` (default `"http://127.0.0.1:4000/v1"`), `llm_api_key`, `llm_model_cheap`, `llm_model_strong`.
 - `src/neobrain/settings_store.py`: `REGISTRY` exposes editable `cognition` settings in the Observatory UI (`llm_base_url`, `llm_api_key`, `llm_model_cheap`, `llm_model_strong`).
 - `src/neobrain/runtime.py`: Native stdlib (`urllib.request`) + Pydantic client for the LiteLLM gateway; uses `_open(req, timeout)` so tests can inject fake gateway responses hermetically without network calls.
@@ -52,14 +52,14 @@ Replace `mind.py`'s regex type-guesser on `remember()` and `_promote_daily_notes
 
 ### RED Gate
 - Spawned `qa` in AUTHOR mode (`ses_e78cac5bcffeywqRhcaZs7nlVz`), creating `tests/test_decision_memory_type.py` (20 test cases across AC-1..AC-4).
-- Orchestrator RED gate command: `~/neobrain/.venv/bin/python -m pytest tests/test_decision_memory_type.py -q --tb=short`
+- Orchestrator RED gate command: `.venv/bin/python -m pytest tests/test_decision_memory_type.py -q --tb=short`
 - Result: exit code `1` (`20 failed, 1 warning in 2.76s`), all `MISSING_BEHAVIOR` / `ASSERTION_MISMATCH`.
 
 ### BUILD & GREEN Gate
 - Spawned `builder` (`ses_e78c1acabffed7tAM27tDOKPYp`), modifying `src/neobrain/config.py`, `src/neobrain/settings_store.py`, `src/neobrain/runtime.py`, and `src/neobrain/mind.py`.
 - Test integrity check: `tests/test_decision_memory_type.py` untouched by builder.
 - Syntax/compile check (`python -m py_compile`): exit code `0`.
-- Full test suite (`~/neobrain/.venv/bin/python -m pytest -q --tb=short`): exit code `0` (`424 passed, 1 warning in 54.71s`).
+- Full test suite (`.venv/bin/python -m pytest -q --tb=short`): exit code `0` (`424 passed, 1 warning in 54.71s`).
 
 ### QA VALIDATE & E2E Evidence
 - Spawned `qa` in VALIDATE mode (`ses_e78b66237ffelMrrhT80nhz0wo`).

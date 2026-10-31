@@ -60,14 +60,14 @@ Replace `neobrain/src/neobrain/mind.py`'s regex-based atom type guesser with `cl
 ## File-Touch Manifest
 
 ### Production Paths
-- `~/neobrain/src/neobrain/config.py`
-- `~/neobrain/src/neobrain/settings_store.py`
-- `~/neobrain/src/neobrain/runtime.py`
-- `~/neobrain/src/neobrain/mind.py`
+- `src/neobrain/config.py`
+- `src/neobrain/settings_store.py`
+- `src/neobrain/runtime.py`
+- `src/neobrain/mind.py`
 
 ### Test Paths
-- `~/neobrain/tests/test_decision_memory_type.py`
+- `tests/test_decision_memory_type.py`
 
 ## Verification Commands
-- Target slice tests: `~/neobrain/.venv/bin/python -m pytest tests/test_decision_memory_type.py -q --tb=short` (run in `~/neobrain`)
-- Full test suite: `~/neobrain/.venv/bin/python -m pytest -q --tb=short` (run in `~/neobrain`)
+- Target slice tests: `.venv/bin/python -m pytest tests/test_decision_memory_type.py -q --tb=short` (run in the repo root)
+- Full test suite: `.venv/bin/python -m pytest -q --tb=short` (run in the repo root)

@@ -62,7 +62,7 @@ key, so its traffic could not be attributed or budgeted on its own.
 ## How to test
 
 ```bash
-cd ~/neobrain
+# from the repo root
 
 # slice tests
 .venv/bin/python -m pytest tests/test_decision_memory_type.py -q --tb=short
@@ -101,7 +101,7 @@ rather than retrying.
   tests and the live E2E itself rather than trusting the earlier output.
 - Ops slice — reviewer returned BLOCKED on two items its sandbox could not run (`.env` mode,
   a literal fresh-process dual call); both were executed by the orchestrator afterwards
-  (`600 user`; `classify: lesson | chat: ok`, exit 0) and the blockers closed.
+  (mode `600`, owner-only; `classify: lesson | chat: ok`, exit 0) and the blockers closed.
 
 ## Artifacts
 

@@ -4,8 +4,8 @@ The provider (``NEOBRAIN_EMBED_PROVIDER``) picks the **API shape**, not a
 vendor — any server speaking one of the two shapes works:
 
 * ``ollama`` (default) — Ollama's native ``/api/embed``, no key. Defaults to
-  ``embeddinggemma`` on the LAN's Ollama (``ollama.lan:11434``, since
-  2026-10-02); memory text stays on-LAN. 768-dim, 2048-token context.
+  ``embeddinggemma`` on the LAN's Ollama server (since 2026-10-02); memory
+  text stays on-LAN. 768-dim, 2048-token context.
 * ``openai`` — any OpenAI-compatible ``POST /embeddings`` with an optional
   bearer key: OpenAI, the local LiteLLM gateway, llmgateway.io, TEI, vLLM, …
   Set ``NEOBRAIN_EMBED_URL``/``_MODEL``/``_API_KEY`` for yours. ``litellm`` is
