@@ -16,7 +16,7 @@ Nightly runs ended `status: "rejected"` with `error: "empty code"` and empty que
 
 ## How to test
 ```
-~/neobrain/.venv/bin/python -m pytest -q --tb=short
+.venv/bin/python -m pytest -q --tb=short
 ```
 → `437 passed, 1 warning`, exit 0. (92 sandbox tests: 82 pre-existing + 10 new.)
 Typecheck: `npx pyright src/neobrain/sandbox.py` → `0 errors, 0 warnings`, exit 0.

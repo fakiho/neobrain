@@ -17,5 +17,5 @@ Both nightly runs ended `status="rejected"` with report files written empty (no 
 
 ## Exact Verify Command
 ```bash
-~/neobrain/.venv/bin/python -m pytest -q --tb=short
+.venv/bin/python -m pytest -q --tb=short
 ```
