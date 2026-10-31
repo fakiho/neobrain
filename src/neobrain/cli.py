@@ -18,6 +18,7 @@ Usage:
   neobrain embed [--force] [--limit N]
   neobrain eval                        # deterministic memory-quality report (temp store)
   neobrain dreams [--phase light|rem|deep|all] [--replay YYYY-MM-DD]
+  neobrain sandbox [--replay YYYY-MM-DD]
   neobrain reflect
   neobrain ingest [--source …]
 
@@ -258,6 +259,27 @@ def cmd_reflect(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_sandbox(args: argparse.Namespace) -> int:
+    from . import sandbox
+
+    conn = db.connect()
+    db.init_db(conn)
+    try:
+        if getattr(args, "roi", False):
+            res = sandbox.roi_report(conn, days=getattr(args, "days", 7))
+        else:
+            replay = getattr(args, "replay", None)
+            if replay:
+                y, m, d = (int(p) for p in replay.split("-"))
+                res = sandbox.run(conn, _runtime(), now=datetime(y, m, d, 22, 30))
+            else:
+                res = sandbox.run(conn, _runtime())
+    finally:
+        conn.close()
+    print(json.dumps(res, indent=2, default=str))
+    return 0
+
+
 def cmd_ingest(args: argparse.Namespace) -> int:
     from .ingest import runner
 
@@ -488,6 +510,25 @@ def build_parser() -> argparse.ArgumentParser:
 
     sp = sub.add_parser("reflect", help="run the weekly reflection pass")
     sp.set_defaults(func=cmd_reflect)
+
+    sp = sub.add_parser("sandbox", help="run a counterfactual dream sandbox experiment")
+    sp.add_argument(
+        "--replay",
+        metavar="YYYY-MM-DD",
+        help="run the counterfactual sandbox experiment for a specific date",
+    )
+    sp.add_argument(
+        "--roi",
+        action="store_true",
+        help="print the empirical ROI scorecard for sandbox lessons",
+    )
+    sp.add_argument(
+        "--days",
+        type=int,
+        default=7,
+        help="window in days for --roi (default: 7)",
+    )
+    sp.set_defaults(func=cmd_sandbox)
 
     sp = sub.add_parser("ingest", help="run ingestion adapters (one-shot)")
     sp.add_argument("--source", nargs="+", help="sources to run (default: all)")

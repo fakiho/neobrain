@@ -100,6 +100,7 @@ class Settings(BaseSettings):
     # reasoning and return empty content, so give them a real budget.
     llm_model_cheap: str = "deepseek/deepseek-v4.1-flash"
     llm_model_strong: str = "deepseek/deepseek-v4-pro"
+    llm_model_decision: str = "cloudflare/clef-flash"
 
     # --- life loop (SPEC §6: cadence in code+DB, not OS timers) ---
     life_tick_seconds: int = 60
@@ -115,9 +116,11 @@ class Settings(BaseSettings):
     # Each gates one ritual in the life loop, independently of the life master
     # switch, so a ritual can be paused without stopping perceive/ingest.
     dreams_enabled: str = "1"         # nightly dream pass (rest phase)
+    sandbox_enabled: str = "1"        # nightly counterfactual sandbox (rest phase)
     soul_reflect_enabled: str = "1"   # weekly identity/soul reflection (rest phase)
     consolidate_enabled: str = "1"    # reflect phase: mind.consolidate
     act_enabled: str = "1"            # act phase: one internal thought
+    sandbox_timeout_seconds: int = 10 # per-experiment execution timeout in seconds
 
     # --- dreams / reflect (SPEC §4.4/4.5) ---
     # Empty -> WORKSPACE/DREAMS.md when a workspace is set, else DATA_DIR/DREAMS.md.
@@ -463,4 +466,10 @@ def apply_overrides(values: dict[str, Any], *, recompute: bool = True) -> dict[s
 
 def apply_db_overrides(db_path: Path | None = None) -> dict[str, Any]:
     """Load and apply the stored overrides (call once at process startup)."""
-    return apply_overrides(db_overrides(db_path))
+    global EMBED_ENABLED
+    prev_embed_enabled = EMBED_ENABLED
+    overrides = db_overrides(db_path)
+    applied = apply_overrides(overrides)
+    if "embed_enabled" not in applied and not prev_embed_enabled:
+        EMBED_ENABLED = False
+    return applied

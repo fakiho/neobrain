@@ -47,6 +47,10 @@ class Setting:
     maximum: Optional[float] = None
     suffix: str = ""
 
+    @property
+    def type(self) -> str:
+        return self.kind
+
 
 SECTIONS: tuple[tuple[str, str, str], ...] = (
     ("features", "Features & rituals", "What the brain does on its own, and whether it may."),
@@ -72,6 +76,8 @@ REGISTRY: tuple[Setting, ...] = (
             "The master switch. Off stops perceive/reflect/act/dreams entirely."),
     Setting("dreams_enabled", "Dreams", "bool", "features",
             "Nightly consolidation, narrative and lessons at the dream hour."),
+    Setting("sandbox_enabled", "Dream sandbox", "bool", "features",
+            "Nightly counterfactual experiment runner at the dream hour."),
     Setting("soul_reflect_enabled", "Identity reflection", "bool", "features",
             "The weekly pass that reviews and evolves SOUL.md / IDENTITY.md."),
     Setting("consolidate_enabled", "Consolidation", "bool", "features",
@@ -91,6 +97,9 @@ REGISTRY: tuple[Setting, ...] = (
             "Internal-thought cadence.", minimum=1, maximum=1440, suffix="min"),
     Setting("life_dream_hour", "Dream hour", "int", "schedule",
             "Local hour the nightly dream pass may run.", minimum=0, maximum=23, suffix=":00"),
+    Setting("sandbox_timeout_seconds", "Sandbox timeout", "int", "schedule",
+            "Maximum seconds an isolated sandbox experiment may run.",
+            minimum=1, maximum=60, suffix="s"),
     Setting("reflect_weekdays", "Reflection days", "csv", "schedule",
             "0=Mon … 6=Sun, comma-separated. Default Mon/Wed/Sat = 0,2,5."),
     Setting("life_quiet_start", "Quiet from", "int", "schedule",
@@ -112,6 +121,8 @@ REGISTRY: tuple[Setting, ...] = (
             "Perceive/reflect tier — the everyday model."),
     Setting("llm_model_strong", "Strong model", "str", "cognition",
             "Act/dream tier — the deeper model."),
+    Setting("llm_model_decision", "Decision model", "str", "cognition",
+            "System One classifier tier (/systemone) for memory typing."),
     # --- memory -----------------------------------------------------------
     Setting("recall_alpha", "Recall vector weight", "float", "memory",
             "score = lexical + alpha·cosine. Higher leans on embeddings.",
@@ -239,6 +250,11 @@ def snapshot(conn: sqlite3.Connection) -> dict[str, Any]:
         "life_enabled": str(config.settings.life_enabled).strip().lower()
         not in ("0", "false", "no", "off"),
     }
+
+
+def get_public(conn: sqlite3.Connection) -> dict[str, Any]:
+    """Alias for ``snapshot(conn)`` — public non-secret settings view."""
+    return snapshot(conn)
 
 
 def _jsonable(value: Any) -> Any:
