@@ -4,7 +4,7 @@
 // fetch, so they need neither OpenCode nor a running daemon.
 import assert from "node:assert/strict"
 import { afterEach, describe, it } from "node:test"
-import plugin, { renderPack, stripHostScaffolding } from "./index.ts"
+import plugin, { renderPack, renderSaveNudge, stripHostScaffolding } from "./index.ts"
 
 type Tool = {
   name: string
@@ -54,6 +54,13 @@ describe("memory_store tool", () => {
     assert.match(text, /memory_store/)
     assert.match(text, /never for chatter/)
     assert.doesNotMatch(text, /neobrain remember/)
+  })
+
+  it("spells out when to save and the code-mode call path", () => {
+    const text = renderPack({ identity: [{ text: "rule" }] }) ?? ""
+    assert.match(text, /states a rule, corrects you, or decides something/)
+    assert.match(text, /tools\.memory\.store\(\{ text, type \}\)/)
+    assert.match(text, /search\(\{ query: "memory store"/)
   })
 
   it("posts the text with the live session id and reports success", async () => {
@@ -393,5 +400,56 @@ describe("recall lane with host-wrapped prompts", () => {
     const calls = mockDaemon()
     await runTurn(hooks, "ses_plain", MESSAGE)
     assert.equal(new URL(recallCalls(calls)[0].url).searchParams.get("q"), MESSAGE)
+  })
+})
+
+describe("save-intent nudge", () => {
+  const SAVES = [
+    "thing to remember never start coding before I agree on the plan",
+    "looks fine. on a side note you should know that we cache the demo flag",
+    "from now on put every string in the catalog",
+    "please remember to run the linter first",
+    "you remember always when you create a plan you add it in the plans folder",
+    "keep in mind that the demo API is rate limited",
+  ]
+  const ORDINARY = [
+    "when do we ship adapters?",
+    "it never changes back after a restart, always the old value",
+    "do you remember the bug from yesterday?",
+    "what did we decide about adapters?",
+    "rename greet() to makeGreeting()",
+    "check whether contributions exist for future months, next time the job runs",
+  ]
+
+  it("fires on messages that hand the agent something to keep", () => {
+    for (const msg of SAVES) {
+      const text = renderSaveNudge(msg)
+      assert.ok(text, `expected a nudge for: ${msg}`)
+      assert.match(text, /tools\.memory\.store/)
+      assert.match(text, /ONCE/)
+    }
+  })
+
+  it("stays silent on ordinary and recall-only messages", () => {
+    for (const msg of ORDINARY) assert.equal(renderSaveNudge(msg), null, `unexpected nudge for: ${msg}`)
+  })
+
+  it("is injected on the user's words only, never on host scaffolding", async () => {
+    const hooks = await loadHooks()
+    mockDaemon()
+    const tree = XCODE_TREE + selection(4, 4, "// from now on, keep in mind the cache")
+    const quiet = await runTurn(hooks, "ses_nudge_quiet", XCODE_REMINDER + tree + MESSAGE)
+    assert.doesNotMatch(quiet, /asked you to keep something/)
+    const loud = await runTurn(hooks, "ses_nudge", XCODE_TREE + NO_SELECTION + SAVES[1])
+    assert.match(loud, /asked you to keep something/)
+  })
+
+  it("still nudges when the daemon is down", async () => {
+    const hooks = await loadHooks()
+    globalThis.fetch = (async () => {
+      throw new Error("connect ECONNREFUSED")
+    }) as typeof fetch
+    const text = await runTurn(hooks, "ses_nudge_down", SAVES[2])
+    assert.match(text, /asked you to keep something/)
   })
 })
