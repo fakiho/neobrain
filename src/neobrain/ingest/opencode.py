@@ -1,13 +1,15 @@
 """OpenCode session-DB adapter.
 
 PORT-NOTE: verbatim port of ``timeline/app/ingest/opencode.py`` (event mapping
-and shapes unchanged). Two deviations, both marked inline:
+and shapes unchanged). Three deviations, all marked inline:
 
 * imports use the ``neobrain.*`` package;
 * ``iter_events`` treats a missing **or None** ``config.OPENCODE_DB`` as "no
   OpenCode source" and returns ``([], {})`` cleanly — the old code called
   ``Path(config.OPENCODE_DB)`` unconditionally and NEOBRAIN_OPENCODE_DB defaults
-  to None when no workspace is configured.
+  to None when no workspace is configured;
+* known Xcode ACP scaffolding is removed from user-event text before truncation,
+  preserving the user's message in the timeline and FTS index.
 
 Reads the live OpenCode SQLite store read-only and turns it into timeline
 events: user requests, agent actions (tool calls), decisions (assistant text),
@@ -16,6 +18,7 @@ rationale (reasoning) and system/model notices.
 from __future__ import annotations
 
 import json
+import re
 import sqlite3
 from pathlib import Path
 from typing import Iterable, Optional
@@ -39,6 +42,58 @@ TOOL_MAP: dict[str, tuple[str, str]] = {
 }
 
 MAX_DETAIL = 4000
+
+_HOST_REMINDER = re.compile(r"<system-reminder>[\s\S]*?</system-reminder>\n*")
+_HOST_TREE = re.compile(
+    r"^Project structure \(these are Xcode workspace-relative paths[^\n]*\n"
+    r"(?:[^\n]+\n)*\nPackage dependencies:[^\n]*\n*",
+    re.MULTILINE,
+)
+_HOST_NO_FILE = re.compile(r"^The user has no file currently open\.[ \t]*\n*")
+_HOST_FILE = re.compile(r"^The user is currently inside this file:[^\n]*\n*")
+_HOST_NO_SELECTION = re.compile(r"^The user has no code selected\.[ \t]*\n*")
+_HOST_SELECTION = re.compile(
+    r"^The user has selected the following code from that file "
+    r"\(lines (\d+)-(\d+)\):\n"
+)
+
+
+def _strip_editor_footer(text: str) -> str:
+    if _HOST_NO_FILE.match(text):
+        return _HOST_NO_FILE.sub("", text, count=1)
+    if not _HOST_FILE.match(text):
+        return text
+
+    text = _HOST_FILE.sub("", text, count=1)
+    if _HOST_NO_SELECTION.match(text):
+        return _HOST_NO_SELECTION.sub("", text, count=1)
+
+    selection = _HOST_SELECTION.match(text)
+    if selection is None:
+        return text
+
+    after = text[selection.end():]
+    line_count = int(selection.group(2)) - int(selection.group(1)) + 1
+    lines = after.split("\n")
+    is_verified = line_count >= 1 and (
+        len(lines) == line_count or
+        len(lines) > line_count and lines[line_count] == ""
+    )
+    if not is_verified:
+        return after
+    return "\n".join(lines[line_count + 1:]).lstrip("\n")
+
+
+def strip_host_scaffolding(text: object) -> str:
+    """Remove known Xcode ACP wrappers while preserving unrecognised text."""
+    if not isinstance(text, str):
+        return ""
+
+    text = _HOST_REMINDER.sub("", text)
+    tree = _HOST_TREE.search(text)
+    if tree is not None:
+        text = text[:tree.start()] + _strip_editor_footer(text[tree.end():])
+    return text.strip()
 
 
 def _truncate(text: Optional[str], limit: int = MAX_DETAIL) -> Optional[str]:
@@ -206,7 +261,7 @@ def iter_events() -> tuple[list[Event], dict]:
             continue
 
         if mtype == "user":
-            text = data.get("text", "")
+            text = strip_host_scaffolding(data.get("text", ""))
             events.append(
                 new(
                     ts=data.get("time", {}).get("created", ts),

@@ -18,6 +18,29 @@ from neobrain.ingest import docs as docs_adapter
 from neobrain.ingest import gitrepo, opencode, runner
 
 TS = 1_756_000_000_000  # a fixed epoch-ms so event ids are stable across runs
+XCODE_REMINDER = (
+    "<system-reminder>## Xcode\n\nPreviously verified results may be stale.\n"
+    "</system-reminder>\n"
+)
+XCODE_TREE = (
+    "Project structure (these are Xcode workspace-relative paths and do not "
+    "correspond to filesystem paths. Use XcodeRead to interact with these files):\n"
+    "Demo/App/DemoApp.swift\n"
+    "Demo/Screens/HomeScreen.swift\n\n"
+    "Package dependencies: ExamplePackage\n\n"
+)
+XCODE_NO_SELECTION = (
+    "The user is currently inside this file: Demo/Tests/HomeTests.swift\n\n"
+    "The user has no code selected.\n\n"
+)
+
+
+def _xcode_selection(first_line: int, last_line: int, code: str) -> str:
+    return (
+        "The user is currently inside this file: Demo/Screens/HomeScreen.swift\n\n"
+        "The user has selected the following code from that file "
+        f"(lines {first_line}-{last_line}):\n{code}\n\n"
+    )
 
 
 def _build_opencode_db(path: Path) -> None:
@@ -110,6 +133,118 @@ def workspace(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "OPENCODE_DB", tmp_path / "opencode.db")
     monkeypatch.setattr(config, "KNOWN_REPOS", ["repo"])
     return ws
+
+
+def test_iter_events_xcode_wrapper_keeps_only_user_message(workspace):
+    path = config.OPENCODE_DB
+    assert path is not None
+    conn = sqlite3.connect(path)
+    wrapped = XCODE_REMINDER + XCODE_TREE + XCODE_NO_SELECTION + "when do we ship adapters?"
+    conn.execute(
+        "INSERT INTO session_message VALUES ('m3','s1','user',?,?,3)",
+        (TS + 20, json.dumps({"text": wrapped, "time": {"created": TS + 20}})),
+    )
+    conn.commit()
+    conn.close()
+
+    events, _ = opencode.iter_events()
+    event = next(event for event in events if event.source_ref == "s1:m3:user")
+
+    assert event.title == "when do we ship adapters?"
+    assert event.detail == "when do we ship adapters?"
+    assert event.raw == {"text": "when do we ship adapters?"}
+
+
+def test_iter_events_xcode_selection_keeps_multiline_user_message(workspace):
+    path = config.OPENCODE_DB
+    assert path is not None
+    conn = sqlite3.connect(path)
+    code = "func example() {\n\n}\nprint(1)"
+    user_message = "first line\n\nsecond paragraph"
+    wrapped = XCODE_TREE + _xcode_selection(10, 13, code) + user_message
+    conn.execute(
+        "INSERT INTO session_message VALUES ('m3','s1','user',?,?,3)",
+        (TS + 20, json.dumps({"text": wrapped, "time": {"created": TS + 20}})),
+    )
+    conn.commit()
+    conn.close()
+
+    events, _ = opencode.iter_events()
+    event = next(event for event in events if event.source_ref == "s1:m3:user")
+
+    assert event.title == "first line"
+    assert event.detail == user_message
+    assert event.raw == {"text": user_message}
+
+
+def test_iter_events_unknown_xcode_footer_preserves_remaining_text(workspace):
+    path = config.OPENCODE_DB
+    assert path is not None
+    conn = sqlite3.connect(path)
+    wrapped = XCODE_TREE + "Some future footer line\n\nwhen do we ship adapters?"
+    conn.execute(
+        "INSERT INTO session_message VALUES ('m3','s1','user',?,?,3)",
+        (TS + 20, json.dumps({"text": wrapped, "time": {"created": TS + 20}})),
+    )
+    conn.commit()
+    conn.close()
+
+    events, _ = opencode.iter_events()
+    event = next(event for event in events if event.source_ref == "s1:m3:user")
+
+    assert "Project structure" not in event.detail
+    assert "Some future footer line" in event.detail
+    assert event.detail.endswith("when do we ship adapters?")
+
+
+def test_strip_host_scaffolding_preserves_plain_and_unverified_text():
+    message = "explain the Project structure idea\nplease"
+    unverified = XCODE_TREE + _xcode_selection(1, 5, "only one line") + message
+    incomplete_tree = (
+        "Project structure (these are Xcode workspace-relative paths):\n"
+        "Demo/App/DemoApp.swift\n"
+        "when do we ship adapters?"
+    )
+
+    assert opencode.strip_host_scaffolding(message) == message
+    assert opencode.strip_host_scaffolding(XCODE_TREE + "The user has no file currently open.\n\n" + message) == message
+    assert opencode.strip_host_scaffolding(incomplete_tree) == incomplete_tree
+    cleaned = opencode.strip_host_scaffolding(unverified)
+    assert cleaned == "only one line\n\n" + message
+
+
+def test_second_run_repairs_existing_xcode_event(conn, workspace):
+    path = config.OPENCODE_DB
+    assert path is not None
+    source = sqlite3.connect(path)
+    wrapped = XCODE_TREE + XCODE_NO_SELECTION + "please fix the dns"
+    source.execute(
+        "UPDATE session_message SET data = ? WHERE id = 'm1'",
+        (json.dumps({"text": wrapped, "time": {"created": TS}}),),
+    )
+    source.commit()
+    source.close()
+
+    runner.run_all(conn, sources=("opencode",))
+    event_id = conn.execute(
+        "SELECT id FROM events WHERE session_id = 's1' AND lane = 'request' AND ts = ?",
+        (TS,),
+    ).fetchone()["id"]
+    conn.execute(
+        "UPDATE events SET title = 'Project structure', detail = 'legacy wrapper' WHERE id = ?",
+        (event_id,),
+    )
+    conn.commit()
+
+    summary = runner.run_all(conn, sources=("opencode",))
+    event = conn.execute(
+        "SELECT title, detail FROM events WHERE id = ?", (event_id,)
+    ).fetchone()
+
+    assert summary["opencode"]["added"] == 0
+    assert summary["opencode"]["updated"] > 0
+    assert event["title"] == "please fix the dns"
+    assert event["detail"] == "please fix the dns"
 
 
 def test_run_all_ingests_every_source(conn, workspace):
