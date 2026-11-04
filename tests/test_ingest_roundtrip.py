@@ -197,6 +197,20 @@ def test_iter_events_unknown_xcode_footer_preserves_remaining_text(workspace):
     assert event.detail.endswith("when do we ship adapters?")
 
 
+def test_strip_host_scaffolding_drops_other_agents_block():
+    others = (
+        "Other agents are currently working in this workspace. "
+        "Files they touch may change while you work:\n"
+        "- Refactor the demo settings screen…\n- Fetch the ticket…\n\n\n"
+    )
+    message = "when do we ship adapters?"
+    assert opencode.strip_host_scaffolding(XCODE_TREE + XCODE_NO_SELECTION + others + message) == message
+    assert opencode.strip_host_scaffolding(XCODE_TREE + "The user has no file currently open.\n\n" + others + message) == message
+    # A user sentence that merely resembles the block is kept.
+    mention = "Other agents are currently working in this workspace, right?"
+    assert opencode.strip_host_scaffolding(XCODE_TREE + XCODE_NO_SELECTION + mention) == mention
+
+
 def test_strip_host_scaffolding_preserves_plain_and_unverified_text():
     message = "explain the Project structure idea\nplease"
     unverified = XCODE_TREE + _xcode_selection(1, 5, "only one line") + message

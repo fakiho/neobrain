@@ -40,7 +40,9 @@ Tests: `node --test index.test.ts` (Node 22.6+ with type stripping; no dependenc
 Some hosts wrap the user's message in scaffolding the model needs but a memory
 query must not see. Xcode's ACP agent prepends a `<system-reminder>` block, the
 project file tree, the package list and an editor-state footer ("the user is
-currently inside this file…", the selected lines). Left in, the first 300 characters
+currently inside this file…", the selected lines), sometimes followed by an
+"Other agents are currently working in this workspace…" list of other sessions'
+tasks. Left in, the first 300 characters
 of the recall query were file paths, and a stray word in the reminder
 ("previously") tripped the deep-recall intent gate on every first message.
 
@@ -72,6 +74,21 @@ README's "Memory writes"). The tool surfaces it as
 `memory_store: not stored (filler) — <reason>` rather than a bare HTTP status,
 so the agent can tell a rejection from a daemon failure. A down daemon is still
 reported as an error and never crashes the session.
+
+### Getting the agent to save
+
+- The wake-up pack says *when* to save (the user states a rule, corrects the agent,
+  or decides something) and *how* in code mode, where only a few memory tools are
+  listed up front: `execute → tools.memory.store({ text, type })`, or find it with
+  `search({ query: "memory store", namespace: "memory" })`.
+- **Save nudge.** When the user's own words explicitly hand over something to keep
+  ("thing to remember…", "you should know that…", "from now on…", "keep in mind…"),
+  that turn gets a short system note asking the agent to store it once, as a
+  self-contained fact. It is advisory: the agent still decides and words it. The
+  match runs on the scaffolding-stripped message, is local (no daemon call), and is
+  deliberately narrow — bare "always"/"never" are too common in ordinary prompts.
+  On real history it fired 7 times in ~1,060 user messages. All 7 were genuine:
+  3 real Xcode statements and 4 test prompts. Reported to the debug ring as lane `save-nudge`.
 
 
 

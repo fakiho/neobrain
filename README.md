@@ -139,7 +139,13 @@ same mind for **pull**:
   imperative block and **re-injected on every model call**, so time, context
   drift and compaction cannot drop the must-follow rules (weak models keep
   obeying). Kept tiny on purpose (8 lines / 1000 chars, tunable); sits in the
-  cacheable system prefix; push-only, so it is never rated.
+  cacheable system prefix; push-only, so it is never rated. With nothing pinned
+  it falls back to the top preferences. The weekly soul-reflect change logs
+  ("Sharpened the … Core Truth") are skipped there and in the wake-up identity
+  list, because they record edits and are not rules.
+- **Save nudge** — when the user's own words explicitly hand over something to
+  keep ("thing to remember…", "you should know that…", "from now on…"), that turn
+  gets a one-line note asking the agent to store it once via `memory_store`.
 - **Per-turn recall** — the user's message is recalled against the mind and a
   compact rank-ordered index is injected (top 10 one-liners + the #1 hit's
   text). Curated types (preference/lesson/decision) auto-inject on ordinary
