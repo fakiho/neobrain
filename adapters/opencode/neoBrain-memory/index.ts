@@ -130,6 +130,60 @@ function tokens(s: unknown): string[] {
   return [...new Set(oneLine(s).toLowerCase().match(/[a-z0-9-]{5,}/g) ?? [])].filter((t) => !STOP.has(t))
 }
 
+// Hosts such as Xcode's ACP agent wrap the user's words in scaffolding the model
+// needs but a memory query must not see: a <system-reminder> block, the project
+// file tree, the package list, and an editor-state footer. Left in, the wrapper
+// IS the recall query (the first 300 chars are all file paths) and its stray
+// words ("previously") trip the deep-recall intent gate. This is for RECALL ONLY:
+// the model still receives the full prompt; only the query is cleaned.
+//
+// Xcode layout (verified against real prompts), user's message always LAST:
+//   [<system-reminder>…</system-reminder>]      first prompt of a session only
+//   Project structure (these are Xcode …):\n<paths…>\n\n
+//   Package dependencies: …\n\n
+//   one of:  The user is currently inside this file: <path>\n\n
+//              + "The user has no code selected.\n\n"
+//              + "The user has selected the following code from that file (lines A-B):\n<B-A+1 lines>\n\n"
+//            "The user has no file currently open.\n\n"
+//
+// Whatever is not recognised is kept (a stray footer line is harmless noise; a
+// swallowed user message is not), so every step fails toward preserving text.
+const HOST_REMINDER = /<system-reminder>[\s\S]*?<\/system-reminder>\n*/g
+const HOST_TREE = /^Project structure \(these are Xcode workspace-relative paths[^\n]*(?:\n[^\n]+)*\n*/m
+const HOST_PACKAGES = /^Package dependencies:[^\n]*\n*/
+const HOST_NO_FILE = /^The user has no file currently open\.[ \t]*\n*/
+const HOST_FILE = /^The user is currently inside this file:[^\n]*\n*/
+const HOST_NO_SELECTION = /^The user has no code selected\.[ \t]*\n*/
+const HOST_SELECTION = /^The user has selected the following code from that file \(lines (\d+)-(\d+)\):\n/
+
+function stripEditorFooter(s: string): string {
+  if (HOST_NO_FILE.test(s)) return s.replace(HOST_NO_FILE, "")
+  if (!HOST_FILE.test(s)) return s
+  s = s.replace(HOST_FILE, "")
+  if (HOST_NO_SELECTION.test(s)) return s.replace(HOST_NO_SELECTION, "")
+  const sel = HOST_SELECTION.exec(s)
+  if (!sel) return s
+  const after = s.slice(sel[0].length)
+  // The selected code can contain blank lines, so its end is found by the line
+  // count in the header, then confirmed by the blank separator line after it.
+  const count = Number(sel[2]) - Number(sel[1]) + 1
+  const lines = after.split("\n")
+  const verified = count >= 1 && (lines[count] === "" || lines.length === count)
+  // Unverified: drop only the header, keep the code rather than guess where it ends.
+  return verified ? lines.slice(count + 1).join("\n").replace(/^\n+/, "") : after
+}
+
+export function stripHostScaffolding(raw: unknown): string {
+  if (typeof raw !== "string") return ""
+  let text = raw.replace(HOST_REMINDER, "")
+  const tree = HOST_TREE.exec(text)
+  if (tree) {
+    const rest = text.slice(tree.index + tree[0].length).replace(HOST_PACKAGES, "")
+    text = text.slice(0, tree.index) + stripEditorFooter(rest)
+  }
+  return text.trim()
+}
+
 type WakePack = {
   identity?: { text?: string }[]
   open_loops?: { text?: string; label?: string }[]
@@ -659,9 +713,12 @@ export default {
     }
 
     // Capture the user's message at admission; the context hook injects it.
+    // Host scaffolding (Xcode's file tree etc.) is stripped first so recall and the
+    // intent gate see only what the user typed. Must run before oneLine(), which
+    // would flatten the newlines the scaffolding parser relies on.
     await ctx.session.hook("prompt", (event) => {
       const sid = event?.sessionID
-      const text = oneLine(event?.prompt?.text)
+      const text = oneLine(stripHostScaffolding(event?.prompt?.text))
       if (!sid || !text) return
       finalizeUnused(sid) // safety net: if the idle event was missed, finalize before the next recall
       pending.set(sid, text)

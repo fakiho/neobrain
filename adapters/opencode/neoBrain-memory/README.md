@@ -27,13 +27,29 @@ ln -s /path/to/neobrain/adapters/opencode/neoBrain-memory ~/.opencode/plugins/ne
 ```
 
 Typecheck: `cd adapters/opencode/neoBrain-memory && npx tsc --noEmit` (config in `tsconfig.json`).
-Tests: `node --test index.test.ts` (Node 22.6+ with type stripping; no dependencies, no running daemon).
+Tests: `node --test index.test.ts` (Node 22.6+ with type stripping; no dependencies, no running daemon) or `bun test index.test.ts`.
 
 ## Environment
 
 | Variable | Default | Meaning |
 |---|---|---|
 | `NEOBRAIN_API` | `http://127.0.0.1:9192` | Base URL of the neoBrain daemon (mind API) |
+
+## Host-wrapped prompts (Xcode ACP)
+
+Some hosts wrap the user's message in scaffolding the model needs but a memory
+query must not see. Xcode's ACP agent prepends a `<system-reminder>` block, the
+project file tree, the package list and an editor-state footer ("the user is
+currently inside this file…", the selected lines). Left in, the first 300 characters
+of the recall query were file paths, and a stray word in the reminder
+("previously") tripped the deep-recall intent gate on every first message.
+
+`stripHostScaffolding()` removes that wrapper **for recall only** — the model still
+receives the full prompt. It parses the known Xcode layout, cuts a selection by
+the line count in its header (selected code may contain blank lines), and keeps
+anything it does not recognise, so a new footer shape degrades to harmless noise
+rather than a swallowed message. A turn that carried only scaffolding skips recall.
+Prompts without the Xcode wrapper pass through unchanged.
 
 ## In-turn rating (SPEC §5)
 

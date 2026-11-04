@@ -4,7 +4,7 @@
 // fetch, so they need neither OpenCode nor a running daemon.
 import assert from "node:assert/strict"
 import { afterEach, describe, it } from "node:test"
-import plugin, { renderPack } from "./index.ts"
+import plugin, { renderPack, stripHostScaffolding } from "./index.ts"
 
 type Tool = {
   name: string
@@ -257,5 +257,128 @@ describe("recall `used` signal", () => {
     assert.equal(hintLines.length, 1)
     assert.match(hintLines[0], /memory_rate\(id, "useful"\|"noise"\)/)
     assert.doesNotMatch(text, /before you finish|must rate|required/i)
+  })
+})
+
+// Synthetic copy of the prompt shape Xcode's ACP agent wraps around every user
+// message (no real project data). The user's own words come LAST.
+const XCODE_REMINDER =
+  "<system-reminder>## Xcode\n\nYou are currently being called from inside Xcode. " +
+  "Code run here is only temporary; previously verified results may be stale.\n\n</system-reminder>\n"
+const XCODE_TREE =
+  "Project structure (these are Xcode workspace-relative paths and do not correspond to filesystem paths. " +
+  "Use XcodeRead, XcodeWrite, XcodeGrep, and XcodeGlob to interact with these files):\n" +
+  "Demo/App/DemoApp.swift\nDemo/Screens/HomeScreen.swift\n" +
+  "... (truncated to 100 items - try using a more specific path, XcodeGlob for pattern matching, or the ignore parameter)\n\n" +
+  "Package dependencies: Alamofire, Kingfisher\n\n"
+const NO_SELECTION = "The user is currently inside this file: Demo/Tests/HomeTests.swift\n\nThe user has no code selected.\n\n"
+const selection = (from: number, to: number, code: string) =>
+  `The user is currently inside this file: Demo/Screens/HomeScreen.swift\n\n` +
+  `The user has selected the following code from that file (lines ${from}-${to}):\n${code}\n\n`
+const NO_FILE = "The user has no file currently open.\n\n"
+const MESSAGE = "when do we ship adapters?"
+
+describe("stripHostScaffolding", () => {
+  it("leaves a normal prompt untouched", () => {
+    assert.equal(stripHostScaffolding(MESSAGE), MESSAGE)
+    assert.equal(stripHostScaffolding("  explain the Project structure idea\nplease  "), "explain the Project structure idea\nplease")
+  })
+
+  it("strips the reminder, file tree, dependency list and 'no code selected' footer", () => {
+    assert.equal(stripHostScaffolding(XCODE_REMINDER + XCODE_TREE + NO_SELECTION + MESSAGE), MESSAGE)
+  })
+
+  it("strips the tree when the first-prompt reminder is absent", () => {
+    assert.equal(stripHostScaffolding(XCODE_TREE + NO_SELECTION + MESSAGE), MESSAGE)
+  })
+
+  it("strips a one-line selection", () => {
+    assert.equal(stripHostScaffolding(XCODE_TREE + selection(37, 37, "imageFromVideo") + MESSAGE), MESSAGE)
+  })
+
+  it("strips a multi-line selection by line count, even when the code has blank lines", () => {
+    const code = "func a() {\n\n}\nprint(1)"
+    assert.equal(stripHostScaffolding(XCODE_TREE + selection(10, 13, code) + MESSAGE), MESSAGE)
+  })
+
+  it("strips the 'no file currently open' footer", () => {
+    assert.equal(stripHostScaffolding(XCODE_TREE + NO_FILE + MESSAGE), MESSAGE)
+  })
+
+  it("keeps a multi-line user message intact", () => {
+    const msg = "first line\n\nsecond paragraph"
+    assert.equal(stripHostScaffolding(XCODE_TREE + NO_SELECTION + msg), msg)
+  })
+
+  it("still drops the tree when the editor footer is in a shape it does not know", () => {
+    const out = stripHostScaffolding(XCODE_TREE + "Some future footer line\n\n" + MESSAGE)
+    assert.doesNotMatch(out, /Project structure|Package dependencies|Demo\/App/)
+    assert.match(out, /when do we ship adapters\?$/)
+  })
+
+  it("keeps the code if a selection header does not match its line count", () => {
+    const out = stripHostScaffolding(XCODE_TREE + selection(1, 5, "only one line") + MESSAGE)
+    assert.doesNotMatch(out, /Project structure/)
+    assert.match(out, /only one line/)
+    assert.match(out, /when do we ship adapters\?$/)
+  })
+
+  it("returns an empty string when nothing but scaffolding was sent", () => {
+    assert.equal(stripHostScaffolding(XCODE_REMINDER + XCODE_TREE + NO_SELECTION), "")
+    assert.equal(stripHostScaffolding("<system-reminder>only a reminder</system-reminder>"), "")
+  })
+
+  it("strips a reminder block from the middle of a prompt but not an unclosed tag", () => {
+    assert.equal(stripHostScaffolding(`before <system-reminder>x</system-reminder> after`), "before  after")
+    assert.equal(stripHostScaffolding("quote the <system-reminder> tag"), "quote the <system-reminder> tag")
+  })
+
+  it("tolerates a missing or non-string prompt", () => {
+    assert.equal(stripHostScaffolding(undefined), "")
+    assert.equal(stripHostScaffolding(42), "")
+  })
+})
+
+describe("recall lane with host-wrapped prompts", () => {
+  const recallCalls = (calls: { url: string }[]) => calls.filter((c) => c.url.includes("/api/mind/recall"))
+
+  it("recalls on the user's message, not on the Xcode file tree", async () => {
+    const hooks = await loadHooks()
+    const calls = mockDaemon()
+    const text = await runTurn(hooks, "ses_xcode", XCODE_REMINDER + XCODE_TREE + NO_SELECTION + MESSAGE)
+    const recall = recallCalls(calls)
+    assert.equal(recall.length, 1)
+    assert.equal(new URL(recall[0].url).searchParams.get("q"), MESSAGE)
+    assert.match(text, /Top hit \[m_top\]/)
+  })
+
+  it("does not escalate to deep recall because of words inside the reminder", async () => {
+    const hooks = await loadHooks()
+    const calls = mockDaemon()
+    const text = await runTurn(hooks, "ses_noesc", XCODE_REMINDER + XCODE_TREE + NO_SELECTION + MESSAGE)
+    assert.match(recallCalls(calls)[0].url, /limit=15/) // 25 would mean INTENT fired on "previously"
+    assert.doesNotMatch(text, /deep recall/)
+  })
+
+  it("still escalates when the user's own words ask to remember", async () => {
+    const hooks = await loadHooks()
+    const calls = mockDaemon()
+    await runTurn(hooks, "ses_esc", XCODE_TREE + NO_SELECTION + "what did we decide about adapters?")
+    assert.match(recallCalls(calls)[0].url, /limit=25/)
+  })
+
+  it("skips recall for a turn that carried only scaffolding", async () => {
+    const hooks = await loadHooks()
+    const calls = mockDaemon()
+    const text = await runTurn(hooks, "ses_blank", XCODE_REMINDER + XCODE_TREE + NO_SELECTION)
+    assert.equal(recallCalls(calls).length, 0)
+    assert.doesNotMatch(text, /relevant to this message/)
+  })
+
+  it("leaves a plain prompt's recall query unchanged", async () => {
+    const hooks = await loadHooks()
+    const calls = mockDaemon()
+    await runTurn(hooks, "ses_plain", MESSAGE)
+    assert.equal(new URL(recallCalls(calls)[0].url).searchParams.get("q"), MESSAGE)
   })
 })
