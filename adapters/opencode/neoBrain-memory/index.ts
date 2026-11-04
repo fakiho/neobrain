@@ -145,6 +145,8 @@ function tokens(s: unknown): string[] {
 //              + "The user has no code selected.\n\n"
 //              + "The user has selected the following code from that file (lines A-B):\n<B-A+1 lines>\n\n"
 //            "The user has no file currently open.\n\n"
+//   [Other agents are currently working in this workspace. …:\n- <task>\n…\n\n]
+//                                                  another session's tasks, optional
 //
 // Whatever is not recognised is kept (a stray footer line is harmless noise; a
 // swallowed user message is not), so every step fails toward preserving text.
@@ -155,6 +157,10 @@ const HOST_NO_FILE = /^The user has no file currently open\.[ \t]*\n*/
 const HOST_FILE = /^The user is currently inside this file:[^\n]*\n*/
 const HOST_NO_SELECTION = /^The user has no code selected\.[ \t]*\n*/
 const HOST_SELECTION = /^The user has selected the following code from that file \(lines (\d+)-(\d+)\):\n/
+// After the editor footer, Xcode may list what OTHER agents in the workspace are
+// doing ("- <their task>" bullets). It is another session's text, never this
+// user's request, so recall must not search on it.
+const HOST_OTHER_AGENTS = /^Other agents are currently working in this workspace\.[^\n]*\n(?:- [^\n]*\n)*\n*/
 
 function stripEditorFooter(s: string): string {
   if (HOST_NO_FILE.test(s)) return s.replace(HOST_NO_FILE, "")
@@ -179,7 +185,7 @@ export function stripHostScaffolding(raw: unknown): string {
   const tree = HOST_TREE.exec(text)
   if (tree) {
     const rest = text.slice(tree.index + tree[0].length).replace(HOST_PACKAGES, "")
-    text = text.slice(0, tree.index) + stripEditorFooter(rest)
+    text = text.slice(0, tree.index) + stripEditorFooter(rest).replace(HOST_OTHER_AGENTS, "")
   }
   return text.trim()
 }

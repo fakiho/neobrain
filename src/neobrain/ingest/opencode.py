@@ -56,6 +56,11 @@ _HOST_SELECTION = re.compile(
     r"^The user has selected the following code from that file "
     r"\(lines (\d+)-(\d+)\):\n"
 )
+# Xcode may append what OTHER agents in the workspace are doing after the editor
+# footer. That is another session's task text, not this user's request.
+_HOST_OTHER_AGENTS = re.compile(
+    r"^Other agents are currently working in this workspace\.[^\n]*\n(?:- [^\n]*\n)*\n*"
+)
 
 
 def _strip_editor_footer(text: str) -> str:
@@ -92,7 +97,8 @@ def strip_host_scaffolding(text: object) -> str:
     text = _HOST_REMINDER.sub("", text)
     tree = _HOST_TREE.search(text)
     if tree is not None:
-        text = text[:tree.start()] + _strip_editor_footer(text[tree.end():])
+        rest = _strip_editor_footer(text[tree.end():])
+        text = text[:tree.start()] + _HOST_OTHER_AGENTS.sub("", rest, count=1)
     return text.strip()
 
 

@@ -337,6 +337,19 @@ describe("stripHostScaffolding", () => {
     assert.equal(stripHostScaffolding(undefined), "")
     assert.equal(stripHostScaffolding(42), "")
   })
+
+  it("drops the 'Other agents are currently working' block that follows the footer", () => {
+    const others =
+      "Other agents are currently working in this workspace. Files they touch may change while you work:\n" +
+      "- Refactor the demo settings screen…\n- Fetch the ticket…\n\n\n"
+    assert.equal(stripHostScaffolding(XCODE_TREE + NO_SELECTION + others + MESSAGE), MESSAGE)
+    assert.equal(stripHostScaffolding(XCODE_TREE + NO_FILE + others + MESSAGE), MESSAGE)
+  })
+
+  it("keeps a user message that merely mentions other agents", () => {
+    const msg = "Other agents are currently working in this workspace, right?"
+    assert.equal(stripHostScaffolding(XCODE_TREE + NO_SELECTION + msg), msg)
+  })
 })
 
 describe("recall lane with host-wrapped prompts", () => {
