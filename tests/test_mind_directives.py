@@ -60,6 +60,26 @@ def test_directives_falls_back_then_honors_pin(conn):
     assert mind.directives(conn)["pinned"] is False
 
 
+def test_fallback_and_wakeup_skip_reflect_change_logs(conn):
+    rule = mind.remember(conn, "Prefer bullet lists over tables.", atype="preference")
+    log = mind.remember(
+        conn, "Sharpened the demo Core Truth after a quiet week.", atype="preference",
+        source="SOUL.md", session_id="reflect",
+    )
+
+    ids = {x["id"] for x in mind.directives(conn, limit=8)["atoms"]}
+    assert rule["id"] in ids
+    assert log["id"] not in ids
+
+    identity = {x["id"] for x in mind.wake_up(conn)["identity"]}
+    assert rule["id"] in identity
+    assert log["id"] not in identity
+
+    # A pinned reflect atom is an explicit choice and still wins the lane.
+    mind.set_pin(conn, log["id"], True)
+    assert [x["id"] for x in mind.directives(conn)["atoms"]] == [log["id"]]
+
+
 def test_set_pin_unknown_atom_raises(conn):
     import pytest
 
