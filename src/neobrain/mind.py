@@ -1443,13 +1443,20 @@ def recall(conn: sqlite3.Connection, query: str, *, limit: int = 8,
     return {"query": query, "count": len(atoms), "atoms": atoms, "links": edges}
 
 
+# The weekly soul-reflect ritual records each persona-doc edit as a `preference`
+# ("Sharpened the silence Core Truth…"). That is a change log, not a rule: it must
+# not take a standing-directive or wake-up identity slot from a real preference.
+_NOT_REFLECT_LOG = "coalesce(session_id,'') <> 'reflect'"
+
+
 def directives(conn: sqlite3.Connection, limit: int = 8) -> dict:
     """Standing directives — pinned persona rules, re-injected on every model call.
 
     A directive is a `preference`/`identity` atom carrying the ``pin`` tag, set by
     a ``[pin]`` marker in USER.md/SOUL.md or by ``neobrain pin``. When nothing is
-    pinned the lane falls back to the highest-weight preferences so it is useful
-    out of the box. Deterministic order (weight, recency, id).
+    pinned the lane falls back to the highest-weight preferences (reflect change
+    logs excluded) so it is useful out of the box. Deterministic order (weight,
+    recency, id).
     """
     _ensure_schema(conn)
     sql = ("SELECT id,label,text,type FROM m_atoms WHERE {where} "
@@ -1461,7 +1468,7 @@ def directives(conn: sqlite3.Connection, limit: int = 8) -> dict:
     ).fetchall()
     pinned = bool(rows)
     if not rows:
-        rows = conn.execute(sql.format(where="type='preference'"), (limit,)).fetchall()
+        rows = conn.execute(sql.format(where=f"type='preference' AND {_NOT_REFLECT_LOG}"), (limit,)).fetchall()
     atoms = [{"id": r[0], "label": r[1], "text": r[2], "type": r[3]} for r in rows]
     log_op(conn, "directives", None, f"directives x{len(atoms)}", None, None)
     return {"pinned": pinned, "count": len(atoms), "atoms": atoms}
@@ -1490,7 +1497,8 @@ def wake_up(conn: sqlite3.Connection, session_id: str | None = None) -> dict:
     """Compact identity + active threads + most-connected hubs."""
     _ensure_schema(conn)
     prefs = [dict(zip(("id", "label", "text"), r)) for r in conn.execute(
-        "SELECT id,label,text FROM m_atoms WHERE type='preference' ORDER BY weight DESC LIMIT 8")]
+        f"SELECT id,label,text FROM m_atoms WHERE type='preference' AND {_NOT_REFLECT_LOG} "
+        "ORDER BY weight DESC LIMIT 8")]
     opens = [dict(zip(("id", "label", "text"), r)) for r in conn.execute(
         "SELECT id,label,text FROM m_atoms WHERE type='open' ORDER BY created DESC LIMIT 6")]
     recent = [dict(zip(("id", "label", "type", "hub"), r)) for r in conn.execute(

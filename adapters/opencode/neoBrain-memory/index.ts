@@ -84,6 +84,17 @@ const CURATED = new Set(["preference", "lesson", "decision"])
 const INTENT =
   /\b(remind|remember|recall|last time|previously|earlier|what did (we|i)|why did (we|i)|have we|did we|decided|decisions?|lessons?|learned|memory|memories)\b/i
 
+// The user is explicitly handing us something to keep ("thing to remember…",
+// "you should know that…", "from now on…"). Measured on real history: a model
+// busy with the task acted on 1 of 3 such statements, so these turns get a
+// one-line nudge toward memory_store. Deliberately narrow — "always"/"never"
+// alone are everywhere in ordinary prompts ("it never changes back") and would
+// make the nudge noise.
+const SAVE_INTENT =
+  /\b(?:(?:thing|things|one thing|note|something)\s+(?:to|for me to)\s+remember|remember\s+(?:that|this|to|always|:)|(?:please|always|just)\s+remember|you\s+remember\s+always|keep in mind|bear in mind|you should know(?: that)?|from now on|going forward|don'?t forget)\b/i
+// "do you remember that bug?" asks to recall, it hands us nothing to keep.
+const RECALL_ASK = /\b(?:do|did|can|could)\s+(?:you|we)\s+(?:still\s+)?remember\b/gi
+
 // generic words that would otherwise make the strong-hit gate pass on anything
 const STOP = new Set([
   "about", "after", "before", "being", "could", "doing", "every", "other", "please",
@@ -145,6 +156,8 @@ function tokens(s: unknown): string[] {
 //              + "The user has no code selected.\n\n"
 //              + "The user has selected the following code from that file (lines A-B):\n<B-A+1 lines>\n\n"
 //            "The user has no file currently open.\n\n"
+//   [Other agents are currently working in this workspace. …:\n- <task>\n…\n\n]
+//                                                  another session's tasks, optional
 //
 // Whatever is not recognised is kept (a stray footer line is harmless noise; a
 // swallowed user message is not), so every step fails toward preserving text.
@@ -155,6 +168,10 @@ const HOST_NO_FILE = /^The user has no file currently open\.[ \t]*\n*/
 const HOST_FILE = /^The user is currently inside this file:[^\n]*\n*/
 const HOST_NO_SELECTION = /^The user has no code selected\.[ \t]*\n*/
 const HOST_SELECTION = /^The user has selected the following code from that file \(lines (\d+)-(\d+)\):\n/
+// After the editor footer, Xcode may list what OTHER agents in the workspace are
+// doing ("- <their task>" bullets). It is another session's text, never this
+// user's request, so recall must not search on it.
+const HOST_OTHER_AGENTS = /^Other agents are currently working in this workspace\.[^\n]*\n(?:- [^\n]*\n)*\n*/
 
 function stripEditorFooter(s: string): string {
   if (HOST_NO_FILE.test(s)) return s.replace(HOST_NO_FILE, "")
@@ -179,7 +196,7 @@ export function stripHostScaffolding(raw: unknown): string {
   const tree = HOST_TREE.exec(text)
   if (tree) {
     const rest = text.slice(tree.index + tree[0].length).replace(HOST_PACKAGES, "")
-    text = text.slice(0, tree.index) + stripEditorFooter(rest)
+    text = text.slice(0, tree.index) + stripEditorFooter(rest).replace(HOST_OTHER_AGENTS, "")
   }
   return text.trim()
 }
@@ -204,9 +221,27 @@ export function renderPack(pack: WakePack | null) {
     "# Memory (neoBrain)",
     // PORT-NOTE: CLI names rebranded (timeline → neobrain) per SPEC §2.
     'Recalled from my durable memory at wake-up. Use memory_search(query) for more.',
-    "Use memory_store only for a durable decision, preference, or lesson — never for chatter or status.",
+    "Use memory_store only for a durable decision, preference, or lesson — never for chatter or status. " +
+      `Save when the user states a rule, corrects you, or decides something. Call it via ${STORE_PATH}.`,
     "",
     lines.join("\n\n"),
+  ].join("\n")
+}
+
+// How the model reaches the store. In OpenCode code mode only a few memory tools
+// are listed up front, so the call path is spelled out instead of left to be found.
+const STORE_PATH =
+  "execute → tools.memory.store({ text, type }) (if it is not listed: search({ query: \"memory store\", namespace: \"memory\" }))"
+
+// Per-turn nudge for a message that explicitly hands us something to keep. Advisory,
+// like the rate hint: the agent still decides what is durable and words it.
+export function renderSaveNudge(query: string): string | null {
+  if (!SAVE_INTENT.test(oneLine(query).replace(RECALL_ASK, " "))) return null
+  return [
+    "# Memory (neoBrain) — the user asked you to keep something",
+    "Their message states a preference, rule, decision or lesson meant for later. After you handle the request, " +
+      "save it ONCE as a self-contained fact (not their whole message, no task status): " + STORE_PATH + ".",
+    "Use type preference | decision | lesson. Skip it if the same fact is already in your recalled memory.",
   ].join("\n")
 }
 
@@ -797,6 +832,14 @@ export default {
       const query = pending.get(sid)
       if (!query) return
       pending.delete(sid)
+
+      // save-intent nudge: local regex, no daemon call, so it lands even if recall fails.
+      const nudge = renderSaveNudge(query)
+      if (nudge) {
+        sys.push({ type: "text", text: nudge })
+        dbg(`${sidShort(sid)} save-nudge: injected (${nudge.length} chars)`)
+        reportInjection("save-nudge", "context", nudge.length, sid)
+      }
 
       const escalated = INTENT.test(query)
       const want = tokens(query)
